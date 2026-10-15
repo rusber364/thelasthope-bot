@@ -6,11 +6,15 @@ import { specEmoji } from './emojis.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
 import { createRaid, deleteRaid, getRaid, getSignups, setRaidMessage, type NewRaid, type Raid, type Signup } from './store.ts';
 
-/** Создаёт регу в базе и публикует сообщение в канале. */
-export async function publishRaid(channel: GuildTextBasedChannel, input: Omit<NewRaid, 'guildId' | 'channelId'>): Promise<Raid> {
+/** Создаёт регу в базе и публикует сообщение в канале. pingRoleId — какую роль упомянуть при открытии. */
+export async function publishRaid(
+  channel: GuildTextBasedChannel,
+  input: Omit<NewRaid, 'guildId' | 'channelId'>,
+  pingRoleId: string | null = null,
+): Promise<Raid> {
   const raid = createRaid({ ...input, guildId: channel.guild.id, channelId: channel.id });
   try {
-    const message = await channel.send(buildRaidCreateMessage(raid, []));
+    const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId));
     setRaidMessage(raid.id, message.id);
     return { ...raid, messageId: message.id };
   } catch (error) {

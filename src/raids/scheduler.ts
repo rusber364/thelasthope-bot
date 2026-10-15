@@ -1,14 +1,31 @@
 // Планировщик: раз в 30 секунд проверяет, не пора ли
-//  • открыть регу по расписанию (чт, пт, пн в 00:00),
-//  • напомнить записавшимся за сутки и за час,
-//  • закрыть запись, когда рейд начался.
+//  • открыть регу по расписанию (чт, пт, пн в 00:00) и упомянуть роль,
+//  • напомнить записавшимся в личку за сутки и за час,
+//  • позвать на сбор в канале реги за N минут до начала,
+//  • закрыть запись, когда рейд начался,
+//  • через N минут после начала проверить, кто в голосовом, и отчитаться офицерам,
+//  • через N часов после начала снять временную роль рейда и убрать регу в архив.
 // Всё, что уже сделано, отмечено в базе — поэтому перезапуск бота ничего не задвоит.
-import type { Client, GuildTextBasedChannel } from 'discord.js';
+import { TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
+import { getSettings } from '../botSettings.ts';
 import { settings } from '../settings.ts';
 import { latestSlot, nowZoned, parseTime } from '../lib/time.ts';
+import { archiveRaids } from './archive.ts';
+import { reportAttendance } from './attendance.ts';
+import { cleanupRaidRoles } from './tempRole.ts';
 import { uiEmoji } from './emojis.ts';
 import { describeSignup, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
-import { markReminded, raidsDueForReminder, raidsToClose, scheduleKeyExists, setRaidStatus, type ReminderKind } from './store.ts';
+import {
+  getSignups,
+  markAttendanceDone,
+  markReminded,
+  raidsDueForAttendance,
+  raidsDueForReminder,
+  raidsToClose,
+  scheduleKeyExists,
+  setRaidStatus,
+  type ReminderKind,
+} from './store.ts';
 
 const HOUR = 60 * 60 * 1000;
 const REMINDERS: { kind: ReminderKind; lead: number }[] = [
@@ -24,7 +41,11 @@ export function startRaidScheduler(client: Client<true>): void {
     try {
       await openScheduledRaids(client);
       await sendReminders(client);
+      await sendGatherCalls(client);
       await closeStartedRaids(client);
+      await checkAttendance(client);
+      await cleanupRaidRoles(client);
+      await archiveRaids(client);
     } catch (error) {
       console.error('Ошибка планировщика рейдов:', error);
     } finally {
@@ -39,7 +60,9 @@ const warned = new Set<string>();
 
 async function openScheduledRaids(client: Client<true>): Promise<void> {
   const now = nowZoned();
-  for (const schedule of settings.raids.schedules) {
+  // Расписание читается на каждом тике — изменения из админки подхватываются без перезапуска.
+  const { raids } = getSettings();
+  for (const schedule of raids.schedules) {
     if (!schedule.channelId) continue;
     const openAt = parseTime(schedule.openAt);
     const raidTime = parseTime(schedule.raidTime);
@@ -69,11 +92,11 @@ async function openScheduledRaids(client: Client<true>): Promise<void> {
     const raid = await publishRaid(channel, {
       title: schedule.title,
       startsAt: start.epochMilliseconds,
-      size: settings.raids.defaultSize,
+      size: raids.defaultSize,
       createdBy: 'schedule',
       leaderName: channel.guild.name,
       scheduleKey: key,
-    });
+    }, schedule.pingRoleId);
     console.log(`📅 Открыта рега #${raid.id} «${raid.title}» в #${channel.name}`);
   }
 }
@@ -97,6 +120,46 @@ async function sendReminders(client: Client<true>): Promise<void> {
         ].join('\n'),
       );
     }
+  }
+}
+
+/** «Сбор!» в канале реги с упоминанием всех записавшихся (кроме запаса — им не обязательно). */
+async function sendGatherCalls(client: Client<true>): Promise<void> {
+  const { gatherMinutes, attendanceVoiceChannelId } = getSettings().raids;
+  if (!gatherMinutes) return;
+  for (const raid of raidsDueForReminder('gather', Date.now(), gatherMinutes * 60_000)) {
+    markReminded(raid.id, 'gather');
+    const signups = getSignups(raid.id);
+    const confirmed = signups.filter((s) => !s.tentative).slice(0, raid.size);
+    const tentative = signups.filter((s) => s.tentative);
+    const ids = [...confirmed, ...tentative].map((s) => s.userId).slice(0, 100);
+    if (!ids.length) continue;
+
+    const channel = await fetchRaidChannel(client, raid.channelId);
+    if (!channel) continue;
+    const start = new Date(raid.startsAt);
+    const voice = attendanceVoiceChannelId ? ` Заходите в <#${attendanceVoiceChannelId}>.` : '';
+    try {
+      await channel.send({
+        content: [
+          `${uiEmoji('countdown')} **Сбор!** Рейд **${raid.title}** начнётся ${time(start, TimestampStyles.RelativeTime)} (${time(start, TimestampStyles.ShortTime)}).${voice}`,
+          ids.map((id) => `<@${id}>`).join(' '),
+        ].join('\n'),
+        allowedMentions: { users: ids },
+      });
+    } catch (error) {
+      console.error(`Не удалось позвать на сбор (рега #${raid.id}):`, error);
+    }
+  }
+}
+
+async function checkAttendance(client: Client<true>): Promise<void> {
+  const { attendanceMinutes } = getSettings().raids;
+  if (!attendanceMinutes) return;
+  for (const raid of raidsDueForAttendance(Date.now(), attendanceMinutes * 60_000)) {
+    markAttendanceDone(raid.id);
+    const guild = client.guilds.cache.get(raid.guildId);
+    if (guild) await reportAttendance(guild, raid);
   }
 }
 

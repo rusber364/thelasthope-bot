@@ -42,6 +42,16 @@ export function parseDate(input: string, today = nowZoned().toPlainDate()): Temp
   }
 }
 
+/** 4 800 000 → «1 ч 20 мин», 300 000 → «5 мин». */
+export function formatDuration(ms: number): string {
+  const totalMinutes = Math.max(0, Math.round(ms / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [days ? `${days} д` : '', hours ? `${hours} ч` : '', minutes || (!days && !hours) ? `${minutes} мин` : ''];
+  return parts.filter(Boolean).join(' ');
+}
+
 /** Дата + время в часовом поясе сервера → момент времени (мс с 1970 года). */
 export function toEpochMs(date: Temporal.PlainDate, time: Temporal.PlainTime): number {
   return date.toZonedDateTime({ timeZone: settings.timeZone, plainTime: time }).epochMilliseconds;

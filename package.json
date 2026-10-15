@@ -12,14 +12,18 @@
     "dev": "node --watch --env-file=.env src/index.ts",
     "start": "node --env-file=.env src/index.ts",
     "deploy": "node --env-file=.env src/deploy-commands.ts",
+    "brand": "node --env-file=.env src/scripts/brand.ts",
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc"
   },
   "dependencies": {
-    "discord.js": "^14.27.0"
+    "@hono/node-server": "^2.1.5",
+    "discord.js": "^14.27.0",
+    "hono": "^4.13.13"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "backlog.md": "^1.53.0",
     "typescript": "^7.0.2"
   }
 }

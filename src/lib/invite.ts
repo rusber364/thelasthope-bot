@@ -13,6 +13,8 @@ export const BOT_PERMISSIONS = [
   PermissionFlagsBits.KickMembers,
   PermissionFlagsBits.BanMembers,
   PermissionFlagsBits.ModerateMembers,
+  PermissionFlagsBits.ViewAuditLog, // журнал аудита — для лог-сервер и лог-модерация
+  PermissionFlagsBits.ManageGuild, // счётчики приглашений — только для «кто кого пригласил»
 ];
 
 /** Ссылка, по которой бота добавляют на сервер — сразу с нужными правами и слэш-командами. */

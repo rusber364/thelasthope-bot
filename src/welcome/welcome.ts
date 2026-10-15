@@ -6,8 +6,7 @@ import {
   type GuildMember,
   type MessageCreateOptions,
 } from 'discord.js';
-import { config } from '../config.ts';
-import { settings } from '../settings.ts';
+import { getSettings } from '../botSettings.ts';
 import type { ComponentHandler } from '../types.ts';
 import { replyEphemeral } from '../lib/reply.ts';
 
@@ -18,44 +17,45 @@ import { replyEphemeral } from '../lib/reply.ts';
  */
 export function buildWelcome(member: GuildMember, guestTaken = false): Pick<MessageCreateOptions, 'components' | 'allowedMentions'> {
   const { guild } = member;
-  const guestRole = config.guestRoleId ? guild.roles.cache.get(config.guestRoleId) : undefined;
+  const { channels, roles, welcome } = getSettings();
+  const guestRole = roles.guest ? guild.roles.cache.get(roles.guest) : undefined;
 
   const fill = (text: string) =>
     text
       .replaceAll('{user}', `${member}`)
       .replaceAll('{server}', guild.name)
-      .replaceAll('{rules}', config.rulesChannelId ? `<#${config.rulesChannelId}>` : 'правилами')
-      .replaceAll('{auth}', config.authChannelId ? `<#${config.authChannelId}>` : 'авторизацию')
+      .replaceAll('{rules}', channels.rules ? `<#${channels.rules}>` : 'правилами')
+      .replaceAll('{auth}', channels.auth ? `<#${channels.auth}>` : 'авторизацию')
       .replaceAll('{role}', guestRole?.name ?? 'Гость');
 
   const card = new ContainerBuilder()
     .setAccentColor(Colors.Green)
     .addSectionComponents((section) =>
       section
-        .addTextDisplayComponents((text) => text.setContent(fill(settings.welcome.text)))
+        .addTextDisplayComponents((text) => text.setContent(fill(welcome.text)))
         .setThumbnailAccessory((thumbnail) => thumbnail.setURL(member.displayAvatarURL({ size: 256 }))),
     );
 
   const buttons: ButtonBuilder[] = [];
   if (guestRole) {
-    card.addTextDisplayComponents((text) => text.setContent(fill(settings.welcome.guestOffer)));
+    card.addTextDisplayComponents((text) => text.setContent(fill(welcome.guestOffer)));
     buttons.push(
       new ButtonBuilder()
         .setCustomId(`welcome:guest:${member.id}`)
         .setStyle(guestTaken ? ButtonStyle.Secondary : ButtonStyle.Success)
         .setEmoji(guestTaken ? '✅' : '🎟️')
-        .setLabel(guestTaken ? `Роль «${guestRole.name}» получена` : fill(settings.welcome.guestButton))
+        .setLabel(guestTaken ? `Роль «${guestRole.name}» получена` : fill(welcome.guestButton))
         .setDisabled(guestTaken),
     );
   }
-  if (config.rulesChannelId) {
+  if (channels.rules) {
     // Кнопка-ссылка: открывает канал правил, боту при этом ничего не приходит.
     buttons.push(
       new ButtonBuilder()
         .setStyle(ButtonStyle.Link)
-        .setURL(`https://discord.com/channels/${guild.id}/${config.rulesChannelId}`)
+        .setURL(`https://discord.com/channels/${guild.id}/${channels.rules}`)
         .setEmoji('📖')
-        .setLabel(settings.welcome.rulesButton),
+        .setLabel(welcome.rulesButton),
     );
   }
   if (buttons.length) card.addActionRowComponents((row) => row.addComponents(buttons));
@@ -73,7 +73,8 @@ export const welcomeHandler: ComponentHandler = {
       return replyEphemeral(interaction, 'Эта кнопка — для новичка, которого приветствует бот 🙂');
     }
 
-    const role = config.guestRoleId ? interaction.guild.roles.cache.get(config.guestRoleId) : undefined;
+    const guestRoleId = getSettings().roles.guest;
+    const role = guestRoleId ? interaction.guild.roles.cache.get(guestRoleId) : undefined;
     if (!role) return replyEphemeral(interaction, 'Роль гостя сейчас не настроена — напиши офицерам.');
     if (!role.editable) {
       console.error(`Не могу выдать роль «${role.name}»: роль бота должна быть выше неё.`);

@@ -126,20 +126,93 @@ export function raidsToClose(now: number): Raid[] {
     .map((row) => toRaid(row as Row));
 }
 
-export type ReminderKind = 'day' | 'hour';
+/** day/hour — напоминания в личку, gather — «Сбор!» в канале реги. */
+export type ReminderKind = 'day' | 'hour' | 'gather';
+
+const REMINDER_COLUMNS: Record<ReminderKind, string> = {
+  day: 'reminded_day',
+  hour: 'reminded_hour',
+  gather: 'reminded_gather',
+};
 
 /** Открытые реги, до начала которых осталось меньше lead мс, а напоминание ещё не отправлено. */
 export function raidsDueForReminder(kind: ReminderKind, now: number, lead: number): Raid[] {
-  const column = kind === 'day' ? 'reminded_day' : 'reminded_hour';
   return db
-    .prepare(`SELECT * FROM raids WHERE status = 'open' AND ${column} = 0 AND starts_at > ? AND starts_at - ? <= ?`)
+    .prepare(`SELECT * FROM raids WHERE status = 'open' AND ${REMINDER_COLUMNS[kind]} = 0 AND starts_at > ? AND starts_at - ? <= ?`)
     .all(now, lead, now)
     .map((row) => toRaid(row as Row));
 }
 
 export function markReminded(id: number, kind: ReminderKind): void {
-  const column = kind === 'day' ? 'reminded_day' : 'reminded_hour';
-  db.prepare(`UPDATE raids SET ${column} = 1 WHERE id = ?`).run(id);
+  db.prepare(`UPDATE raids SET ${REMINDER_COLUMNS[kind]} = 1 WHERE id = ?`).run(id);
+}
+
+/** Реги, у участников которых пора снять временную роль: отменённые или начавшиеся больше holdMs назад. */
+export function raidsDueForRoleCleanup(now: number, holdMs: number): Raid[] {
+  return db
+    .prepare(`SELECT * FROM raids WHERE role_cleaned = 0 AND (status = 'cancelled' OR starts_at + ? <= ?)`)
+    .all(holdMs, now)
+    .map((row) => toRaid(row as Row));
+}
+
+export function markRoleCleaned(id: number): void {
+  db.prepare('UPDATE raids SET role_cleaned = 1 WHERE id = ?').run(id);
+}
+
+/** Записан ли игрок ещё на какую-то регу, по которой временная роль пока нужна. */
+export function hasOtherActiveSignup(userId: string, exceptRaidId: number, now: number, holdMs: number): boolean {
+  return (
+    db
+      .prepare(
+        `SELECT 1 FROM raid_signups s JOIN raids r ON r.id = s.raid_id
+         WHERE s.user_id = ? AND r.id != ? AND r.status != 'cancelled' AND r.role_cleaned = 0 AND r.starts_at + ? > ?
+         LIMIT 1`,
+      )
+      .get(userId, exceptRaidId, holdMs, now) !== undefined
+  );
+}
+
+/** Реги, которые пора архивировать: начались больше delay мс назад (в том числе отменённые). */
+export function raidsDueForArchive(now: number, delay: number): Raid[] {
+  return db
+    .prepare('SELECT * FROM raids WHERE archived = 0 AND message_id IS NOT NULL AND starts_at + ? <= ?')
+    .all(delay, now)
+    .map((row) => toRaid(row as Row));
+}
+
+/** Рега заархивирована: сообщения больше нет, перерисовывать нечего. */
+export function markArchived(id: number): void {
+  db.prepare('UPDATE raids SET archived = 1, message_id = NULL WHERE id = ?').run(id);
+}
+
+export type AttendanceStatus = 'present' | 'absent' | 'tentative_absent' | 'walkin';
+
+/** Неотменённые реги, с начала которых прошло delay мс (но не больше 6 часов), а посещаемость ещё не проверена. */
+export function raidsDueForAttendance(now: number, delay: number): Raid[] {
+  return db
+    .prepare(
+      `SELECT * FROM raids WHERE status != 'cancelled' AND attendance_done = 0
+       AND starts_at + ? <= ? AND starts_at + ? > ?`,
+    )
+    .all(delay, now, delay, now - 6 * 60 * 60 * 1000)
+    .map((row) => toRaid(row as Row));
+}
+
+export function markAttendanceDone(id: number): void {
+  db.prepare('UPDATE raids SET attendance_done = 1 WHERE id = ?').run(id);
+}
+
+/** Сколько человек в каждом статусе посещаемости (пусто — посещаемость не проверялась). */
+export function attendanceCounts(raidId: number): Partial<Record<AttendanceStatus, number>> {
+  const rows = db.prepare('SELECT status, COUNT(*) AS n FROM raid_attendance WHERE raid_id = ? GROUP BY status').all(raidId) as { status: AttendanceStatus; n: number }[];
+  return Object.fromEntries(rows.map((row) => [row.status, Number(row.n)]));
+}
+
+export function saveAttendance(raidId: number, rows: { userId: string; status: AttendanceStatus }[]): void {
+  const insert = db.prepare(
+    'INSERT INTO raid_attendance (raid_id, user_id, status) VALUES (?, ?, ?) ON CONFLICT (raid_id, user_id) DO UPDATE SET status = excluded.status',
+  );
+  for (const row of rows) insert.run(raidId, row.userId, row.status);
 }
 
 export function getSignups(raidId: number): Signup[] {

@@ -71,9 +71,11 @@ export function buildRaidMessage(raid: Raid, signups: Signup[]) {
 }
 
 /** Для первой отправки поле attachments не нужно. */
-export function buildRaidCreateMessage(raid: Raid, signups: Signup[]) {
+export function buildRaidCreateMessage(raid: Raid, signups: Signup[], pingRoleId: string | null = null) {
   const { attachments: _ignored, ...message } = buildRaidMessage(raid, signups);
-  return message;
+  if (!pingRoleId) return message;
+  // Упоминание роли — строкой над регой; при редактировании текст сообщения не меняется и повторно не пингует.
+  return { ...message, content: `<@&${pingRoleId}> открыта запись на рейд!`, allowedMentions: { roles: [pingRoleId] } };
 }
 
 function buildRosterEmbed(raid: Raid, signups: Signup[]): EmbedBuilder {

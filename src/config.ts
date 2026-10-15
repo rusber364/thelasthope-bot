@@ -1,6 +1,6 @@
-// Секреты и ID каналов/ролей берутся из переменных окружения.
+// Секреты и настройки запуска берутся из переменных окружения.
 // Node подхватывает их из файла .env благодаря флагу --env-file в package.json.
-// Тексты, расписание и прочее поведение — в settings.ts.
+// ID каналов и ролей отсюда — только начальные значения: дальше их меняют в админке (botSettings.ts).
 
 function read(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -34,4 +34,13 @@ export const config = {
 
   raidChannel1Id: read('RAID_CHANNEL_1_ID'),
   raidChannel2Id: read('RAID_CHANNEL_2_ID'),
+
+  // Админка (src/admin). Без секретов она не запускается.
+  clientSecret: read('DISCORD_CLIENT_SECRET'),
+  sessionSecret: read('SESSION_SECRET'),
+  adminPort: Number(read('ADMIN_PORT') ?? 3000),
+  /** Адрес, по которому админку открывают в браузере. На VPS — https://твой-домен. */
+  get adminUrl(): string {
+    return (read('ADMIN_URL') ?? `http://localhost:${this.adminPort}`).replace(/\/+$/, '');
+  },
 };

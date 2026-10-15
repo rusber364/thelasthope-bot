@@ -1,9 +1,13 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { config } from './config.ts';
 import { registerReadyEvent } from './events/ready.ts';
 import { registerInteractionEvent } from './events/interactionCreate.ts';
 import { registerWelcomeEvent } from './events/guildMemberAdd.ts';
+import { registerFarewell } from './welcome/farewell.ts';
 import { registerProfanityFilter } from './events/profanityFilter.ts';
+import { registerLogs } from './logs/index.ts';
+import { registerVoiceRoles } from './lib/voiceRoles.ts';
+import { registerSticky } from './lib/sticky.ts';
 
 // Client — это сам бот. После login() он держит постоянное соединение с Discord (Gateway)
 // и получает оттуда события: «бот готов», «кто-то вызвал команду», «зашёл новый участник»…
@@ -12,17 +16,27 @@ const client = new Client({
   // «Привилегированные» (отмечены ★) нужно включить вручную в Developer Portal → Bot.
   intents: [
     GatewayIntentBits.Guilds, // серверы, каналы, роли — нужно почти всегда
-    GatewayIntentBits.GuildMembers, // ★ Server Members Intent — вход участников (приветствие)
-    GatewayIntentBits.GuildMessages, // новые сообщения (фильтр мата)
-    GatewayIntentBits.MessageContent, // ★ Message Content Intent — текст сообщений (фильтр мата)
+    GatewayIntentBits.GuildMembers, // ★ Server Members Intent — вход и выход участников
+    GatewayIntentBits.GuildMessages, // сообщения (фильтр мата, лог сообщений)
+    GatewayIntentBits.MessageContent, // ★ Message Content Intent — текст сообщений
+    GatewayIntentBits.GuildVoiceStates, // голосовые каналы (лог голоса)
+    GatewayIntentBits.GuildModeration, // журнал аудита и баны (лог сервера и модерации)
+    GatewayIntentBits.GuildInvites, // создание и удаление приглашений («кто кого пригласил»)
   ],
+  // Partials — получать события и про то, чего нет в памяти бота: удаление старых сообщений,
+  // выход участника, которого бот ещё не видел.
+  partials: [Partials.Message, Partials.GuildMember],
 });
 
-// Подписываемся на события — каждое описано в своём файле в папке events/.
+// Подписываемся на события — каждое описано в своём файле в папках events/ и logs/.
 registerReadyEvent(client);
 registerInteractionEvent(client);
 registerWelcomeEvent(client);
+registerFarewell(client);
 registerProfanityFilter(client);
+registerLogs(client);
+registerVoiceRoles(client);
+registerSticky(client);
 
 client.on(Events.Error, (error) => console.error('Ошибка клиента Discord:', error));
 process.on('unhandledRejection', (error) => console.error('Необработанная ошибка:', error));

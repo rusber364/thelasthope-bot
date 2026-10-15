@@ -1,11 +1,17 @@
 // Кнопки и меню на сообщении реги.
-import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
+import { ActionRowBuilder, EmbedBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
 import type { ComponentHandler, ComponentInteraction } from '../types.ts';
+import { getSettings } from '../botSettings.ts';
 import { replyEphemeral } from '../lib/reply.ts';
+import { formatDuration } from '../lib/time.ts';
+import { sendAlert } from '../logs/alerts.ts';
+import { LOG_COLORS } from '../logs/send.ts';
 import { ROLES, classById, specById, specsOf } from './classes.ts';
 import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
-import { describeSignup, refreshRaidMessage } from './service.ts';
-import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignup, type Raid } from './store.ts';
+import { logRaidAction } from './actionLog.ts';
+import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
+import { describeSignup, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
+import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignup, type Raid, type Signup } from './store.ts';
 
 export const raidHandler: ComponentHandler = {
   prefix: 'raid',
@@ -59,6 +65,7 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   const spec = specById.get(interaction.values[0] ?? '');
   if (!spec) return;
 
+  const before = getSignup(raid.id, interaction.user.id);
   upsertSignup(raid.id, interaction.user.id, spec.id, interaction.member.displayName);
   const signups = getSignups(raid.id);
   const signup = signups.find((s) => s.userId === interaction.user.id);
@@ -76,6 +83,8 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   // Сначала отвечаем (на это есть 3 секунды), потом спокойно перерисовываем регу.
   await interaction.update({ content: lines.join('\n'), components: [] });
   await refreshRaidMessage(interaction.client, raid.id);
+  await logRaidAction(interaction.guild, interaction.member, raid, before, signup ?? null);
+  if (!before) await grantRaidRole(interaction.guild, interaction.user.id);
 }
 
 async function toggleMaybe(interaction: ComponentInteraction, raid: Raid): Promise<void> {
@@ -89,12 +98,37 @@ async function toggleMaybe(interaction: ComponentInteraction, raid: Raid): Promi
     signup.tentative ? 'Отметка «под вопросом» снята — ты снова в основном списке.' : `${uiEmoji('tentative')} Отмечено: «под вопросом».`,
   );
   await refreshRaidMessage(interaction.client, raid.id);
+  await logRaidAction(interaction.guild, interaction.member, raid, signup, { ...signup, tentative: !signup.tentative });
+  if (!signup.tentative) await alertIfLate(interaction, raid, signup, 'Поздно отмечено «под вопросом»');
 }
 
 async function leave(interaction: ComponentInteraction, raid: Raid): Promise<void> {
-  if (!removeSignup(raid.id, interaction.user.id)) {
+  const signup = getSignup(raid.id, interaction.user.id);
+  if (!signup || !removeSignup(raid.id, interaction.user.id)) {
     return replyEphemeral(interaction, 'Тебя и так нет в списке этой реги.');
   }
   await replyEphemeral(interaction, `${uiEmoji('leave')} Запись отменена.`);
   await refreshRaidMessage(interaction.client, raid.id);
+  await logRaidAction(interaction.guild, interaction.member, raid, signup, null);
+  await revokeRaidRole(interaction.guild, interaction.user.id, raid.id);
+  await alertIfLate(interaction, raid, signup, 'Поздняя отписка от рейда');
+}
+
+/** Отписка или «под вопросом» незадолго до рейда — оповещение офицерам, чтобы успели найти замену. */
+async function alertIfLate(interaction: ComponentInteraction, raid: Raid, signup: Signup, title: string): Promise<void> {
+  const hours = getSettings().alerts.lateCancelHours;
+  const left = raid.startsAt - Date.now();
+  if (!hours || left <= 0 || left > hours * 60 * 60 * 1000) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(LOG_COLORS.warn)
+    .setTitle(title)
+    .setDescription(
+      [
+        `**Кто:** ${interaction.member} · ${describeSignup(signup)}`,
+        `**Рейд:** [${raid.title}](${raidUrl(raid)}) — ${raidWhen(raid)}`,
+        `**До начала:** ${formatDuration(left)}`,
+      ].join('\n'),
+    );
+  await sendAlert(interaction.guild, embed);
 }

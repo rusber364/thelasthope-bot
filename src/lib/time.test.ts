@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { latestSlot, parseDate, parseTime } from './time.ts';
+import { formatDuration, latestSlot, parseDate, parseTime } from './time.ts';
 
 const KYIV = 'Europe/Kyiv';
 const at = (iso: string) => Temporal.ZonedDateTime.from(`${iso}[${KYIV}]`);
@@ -21,6 +21,14 @@ test('рега открывается в полночь чт/пт/пн по Ки
 test('переход на зимнее время 25.10.2026 учитывается', () => {
   const slot = latestSlot(at('2026-10-26T01:00'), THU_FRI_MON, MIDNIGHT);
   assert.equal(slot?.toString(), '2026-10-26T00:00:00+02:00[Europe/Kyiv]');
+});
+
+test('длительность словами', () => {
+  assert.equal(formatDuration(80 * 60_000), '1 ч 20 мин');
+  assert.equal(formatDuration(5 * 60_000), '5 мин');
+  assert.equal(formatDuration(3 * 3_600_000), '3 ч');
+  assert.equal(formatDuration(26 * 3_600_000), '1 д 2 ч');
+  assert.equal(formatDuration(10_000), '0 мин');
 });
 
 test('разбор дат и времени из команд', () => {

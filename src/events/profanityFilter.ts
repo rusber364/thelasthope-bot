@@ -2,6 +2,7 @@ import { Colors, Events, type Client, type Message, type PartialMessage } from '
 import { settings } from '../settings.ts';
 import { findProfanity } from '../lib/profanity.ts';
 import { logModAction } from '../lib/modlog.ts';
+import { markDeletedByBot } from '../logs/messages.ts';
 
 /** Нарушения за последнее время: «сервер:пользователь» → моменты нарушений. */
 const strikes = new Map<string, number[]>();
@@ -21,6 +22,8 @@ async function check(message: Message | PartialMessage): Promise<void> {
   if (settings.profanity.ignoredChannelIds.includes(message.channelId)) return;
   if (!findProfanity(message.content, settings.profanity.extraWords)) return;
 
+  // Удаление запишется в «лог-модерация» ниже — в «лог-сообщения» его дублировать не нужно.
+  markDeletedByBot(message.id);
   try {
     await message.delete();
   } catch (error) {

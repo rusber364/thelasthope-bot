@@ -1,5 +1,5 @@
 import { EmbedBuilder, type Guild, type User } from 'discord.js';
-import { config } from '../config.ts';
+import { sendLog } from '../logs/send.ts';
 
 interface ModAction {
   title: string;
@@ -11,24 +11,15 @@ interface ModAction {
   details?: string;
 }
 
-/** Пишет действие модератора в канал-журнал, если задан MOD_LOG_CHANNEL_ID. */
+/** Пишет действие модератора (через команды бота) в «лог-модерация». */
 export async function logModAction(guild: Guild, action: ModAction): Promise<void> {
-  if (!config.modLogChannelId) return;
-  const channel = guild.channels.cache.get(config.modLogChannelId);
-  if (!channel?.isSendable()) return;
-
   const embed = new EmbedBuilder()
     .setColor(action.color)
     .setTitle(action.title)
-    .addFields({ name: 'Модератор', value: `${action.moderator} (${action.moderator.tag})`, inline: true })
-    .setTimestamp();
+    .addFields({ name: 'Модератор', value: `${action.moderator} (${action.moderator.tag})`, inline: true });
   if (action.target) embed.addFields({ name: 'Участник', value: `${action.target} (${action.target.tag})`, inline: true });
   if (action.details) embed.addFields({ name: 'Подробности', value: action.details });
   if (action.reason) embed.addFields({ name: 'Причина', value: action.reason });
 
-  try {
-    await channel.send({ embeds: [embed] });
-  } catch (error) {
-    console.error('Не удалось записать в журнал модерации:', error);
-  }
+  await sendLog(guild, 'moderation', embed);
 }

@@ -166,13 +166,22 @@ importers:
 
   .:
     dependencies:
+      '@hono/node-server':
+        specifier: ^2.1.5
+        version: 2.1.5(hono@4.13.13)
       discord.js:
         specifier: ^14.27.0
         version: 14.27.0
+      hono:
+        specifier: ^4.13.13
+        version: 4.13.13
     devDependencies:
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5
+      backlog.md:
+        specifier: ^1.53.0
+        version: 1.53.0
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -206,6 +215,12 @@ packages:
   '@discordjs/ws@1.2.3':
     resolution: {integrity: sha512-wPlQDxEmlDg5IxhJPuxXr3Vy9AjYq5xCvFWGJyD7w7Np8ZGu+Mc+97LCoEc/+AYCo2IDpKioiH0/c/mj5ZR9Uw==}
     engines: {node: '>=16.11.0'}
+
+  '@hono/node-server@2.1.5':
+    resolution: {integrity: sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      hono: ^4 || ^5.0.0-0
 
   '@sapphire/async-queue@1.5.5':
     resolution: {integrity: sha512-cvGzxbba6sav2zZkH8GPf2oGk9yYoD5qrNWdu9fRehifgnFZJMV+nuy2nON2roRO4yQQ+v7MK/Pktl/HgfsUXg==}
@@ -349,6 +364,40 @@ packages:
     resolution: {integrity: sha512-Xfe6rpCTxSxfbswi/W/Pz7zp1WWSNn4A0eW4mLkQUewCrXXtMj31lCg+iQyTkh/CkusZSq9eDflu7tjEDXUY6g==}
     engines: {node: '>=v14.0.0', npm: '>=7.0.0'}
 
+  backlog.md-darwin-arm64@1.53.0:
+    resolution: {integrity: sha512-NQT4XHXoeudV5rZ/JVe039eTJV3hKcCdnEZd6rI1GCuMFnSYY9t5NaiFk2f/OzJTJPcFanpVnKOGefLiPs37uw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  backlog.md-darwin-x64@1.53.0:
+    resolution: {integrity: sha512-fC0vCuhGfHFAvvDNRf1dN/7F3GdmbuSZGzMVVHKx0+To4cakLOwuqOUhPX5KIGXeK6minHBMPIxIJFFtae2xvA==}
+    cpu: [x64]
+    os: [darwin]
+
+  backlog.md-linux-arm64@1.53.0:
+    resolution: {integrity: sha512-7EjAd91HexoteCYsz0jIKKMNxPaVg5gPv1LkcqHHiOpmCjmz3bDb02Wsk/VecPGeNFqFgpbpLyYI184UCCW0vA==}
+    cpu: [arm64]
+    os: [linux]
+
+  backlog.md-linux-x64@1.53.0:
+    resolution: {integrity: sha512-EusW2vDzNjzKRaloJ3yPNgGwjqJ8Fow8aKdBRLZGs6+Pb1V9CREyhqOOia/H1OvQ86M74gjVBnnIpCDRrU0m8w==}
+    cpu: [x64]
+    os: [linux]
+
+  backlog.md-windows-arm64@1.53.0:
+    resolution: {integrity: sha512-ia0gxBfewMhQSaGprz8DH1FA3iel3OqbEjngdZDKjfQrMNk8gqkmDUM3hQr1IMOXsq/YbteRQhdlHpCLUgLBoA==}
+    cpu: [arm64]
+    os: [win32]
+
+  backlog.md-windows-x64@1.53.0:
+    resolution: {integrity: sha512-EzNL6Rx/DA6Hnq52wNAP78MTAK23xpBi2aAqMqObW3LhjhefG3h4M5SjTSUkizbH2FyvYsZlahlYJFdxUpz31g==}
+    cpu: [x64]
+    os: [win32]
+
+  backlog.md@1.53.0:
+    resolution: {integrity: sha512-VfYdR7RGu+mgEpSbHpBfdsyHVlJ+d4DIRzixkmyLqsfgCk4pLPDRhNkbu6dU3UgLEbQfxKhDuXUIbN/RLyGk1A==}
+    hasBin: true
+
   discord-api-types@0.38.56:
     resolution: {integrity: sha512-Hti4RZsGvF5C7SM8rF2MDHtIm0Hyfrlk84GpEA29nj91tvVVMvX+oQSCodu10t2ZcjFGofq8TX0YyC04B2E69Q==}
 
@@ -358,6 +407,10 @@ packages:
 
   fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
+
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
+    engines: {node: '>=16.9.0'}
 
   lodash.snakecase@4.1.1:
     resolution: {integrity: sha512-QZ1d4xoBHYUeuouhEq3lk3Uq7ldgyFXGBhg04+oRLnIz8o9T65Eh+8YdroUwn846zchkA9yDsDl5CVVaV2nqYw==}
@@ -449,6 +502,10 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
+  '@hono/node-server@2.1.5(hono@4.13.13)':
+    dependencies:
+      hono: 4.13.13
+
   '@sapphire/async-queue@1.5.5': {}
 
   '@sapphire/shapeshift@4.0.0':
@@ -528,6 +585,33 @@ snapshots:
 
   '@vladfrangu/async_event_emitter@2.4.7': {}
 
+  backlog.md-darwin-arm64@1.53.0:
+    optional: true
+
+  backlog.md-darwin-x64@1.53.0:
+    optional: true
+
+  backlog.md-linux-arm64@1.53.0:
+    optional: true
+
+  backlog.md-linux-x64@1.53.0:
+    optional: true
+
+  backlog.md-windows-arm64@1.53.0:
+    optional: true
+
+  backlog.md-windows-x64@1.53.0:
+    optional: true
+
+  backlog.md@1.53.0:
+    optionalDependencies:
+      backlog.md-darwin-arm64: 1.53.0
+      backlog.md-darwin-x64: 1.53.0
+      backlog.md-linux-arm64: 1.53.0
+      backlog.md-linux-x64: 1.53.0
+      backlog.md-windows-arm64: 1.53.0
+      backlog.md-windows-x64: 1.53.0
+
   discord-api-types@0.38.56: {}
 
   discord.js@14.27.0:
@@ -550,6 +634,8 @@ snapshots:
       - utf-8-validate
 
   fast-deep-equal@3.1.3: {}
+
+  hono@4.13.13: {}
 
   lodash.snakecase@4.1.1: {}
 
