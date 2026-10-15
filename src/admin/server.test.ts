@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ChannelType, Collection, type Client } from 'discord.js';
+import { CDN, ChannelType, Collection, type Client, type ImageURLOptions } from 'discord.js';
 import { generateSignedCookie } from 'hono/cookie';
 
 process.env.BOT_DB_PATH = ':memory:';
@@ -41,12 +41,15 @@ const rest = {
     return { id: 'bot', avatar: 'a1', banner: 'b1' };
   },
 };
+// Ссылки на картинки строит настоящий CDN discord.js: недопустимый размер падает так же, как у живого бота.
+const cdn = new CDN();
 const user = {
   tag: 'Bot#0001',
   id: 'bot',
+  banner: null as string | null,
   fetch: async () => user,
-  displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/bot/a1.png',
-  bannerURL: () => null,
+  displayAvatarURL: (options?: ImageURLOptions) => cdn.avatar('bot', 'a1', options),
+  bannerURL: (options?: ImageURLOptions) => (user.banner ? cdn.banner('bot', user.banner, options) : null),
 };
 const client = { user, rest, ws: { ping: 42 }, guilds: { cache: new Collection([['g1', guild]]) } } as unknown as Client<true>;
 const app = createApp(client);
@@ -190,8 +193,13 @@ test('оформление: главная показывает аватар, к
   const home = await app.request('/', { headers: { Cookie: await cookieFor(ADMIN) } });
   const page = await home.text();
   assert.match(page, /Оформление бота/);
-  assert.match(page, /avatars\/bot\/a1\.png/);
+  assert.match(page, /avatars\/bot\/a1\./);
   assert.match(page, /Баннер не задан/);
+
+  user.banner = 'b1';
+  const withBanner = await app.request('/', { headers: { Cookie: await cookieFor(ADMIN) } });
+  assert.equal(withBanner.status, 200);
+  assert.match(await withBanner.text(), /banners\/bot\/b1\./);
 
   const avatar = await post('/branding/avatar', [['_csrf', 'token']]);
   assert.equal(avatar.status, 302);

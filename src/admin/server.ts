@@ -117,7 +117,7 @@ export function createApp(client: Client<true>) {
         openRaids: listRaids(guild.id, 'open').length,
         polls: listPolls(guild.id).length,
         avatarUrl: client.user.displayAvatarURL({ size: 128 }),
-        bannerUrl: client.user.bannerURL({ size: 600 }) ?? null,
+        bannerUrl: client.user.bannerURL({ size: 512 }) ?? null, // Discord принимает только степени двойки
       }),
     );
   });
