@@ -11,7 +11,9 @@ import {
   type GuildMember,
 } from 'discord.js';
 import { Hono, type Context } from 'hono';
-import { LOG_CATEGORIES, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings, type RaidSchedule, type VoiceRoleLink } from '../botSettings.ts';
+import { LOG_CATEGORIES, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings, type RaidSchedule, type RaidTemplate, type VoiceRoleLink } from '../botSettings.ts';
+import { parseDate, parseTime, toEpochMs } from '../lib/time.ts';
+import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { config } from '../config.ts';
 import { applyBranding, brandingError } from '../lib/branding.ts';
 import { syncVoiceRoles } from '../lib/voiceRoles.ts';
@@ -40,6 +42,7 @@ import {
   pollsPage,
   raidsPage,
   stickyPage,
+  templatesPage,
   welcomePage,
   type Option,
   type PageContext,
@@ -385,6 +388,59 @@ export function createApp(client: Client<true>) {
     );
   }
 
+  // --- Шаблоны рег ---
+  const templatesView = (c: Context<Env>, s: BotSettings, errors: string[] = []) =>
+    templatesPage(ctx(c, 'templates', { errors }), s, textChannels(c.get('guild')), mentionRoles(c.get('guild')), todayInKyiv());
+  app.get('/templates', (c) => c.html(templatesView(c, getSettings())));
+  app.post('/templates', async (c) => {
+    const next = structuredClone(getSettings());
+    const errors: string[] = [];
+    next.raidTemplates = readTemplates(c.get('guild'), c.get('body'), errors);
+    return save(c, next, errors, 'Шаблоны рег', '/templates', (s, e) => templatesView(c, s, e));
+  });
+  app.post('/templates/:id/create', async (c) => {
+    const guild = c.get('guild');
+    const body = c.get('body');
+    const template = getSettings().raidTemplates.find((t) => t.id === c.req.param('id'));
+    if (!template) return c.notFound();
+    const fail = (error: string) => c.html(templatesView(c, getSettings(), [error]), 400);
+
+    const date = parseDate(text(body.date));
+    const startTime = parseTime(text(body.time) || template.time);
+    if (!date) return fail('Выбери дату реги.');
+    if (!startTime) return fail('Время в формате ЧЧ:ММ, например 20:00.');
+    const startsAt = toEpochMs(date, startTime);
+    if (startsAt <= Date.now()) return fail('Это время уже прошло — выбери будущее.');
+    const channel = template.channelId ? guild.channels.cache.get(template.channelId) : undefined;
+    if (!channel?.isTextBased() || channel.isDMBased()) return fail(`Канал шаблона «${template.title}» недоступен — выбери другой в редактировании шаблона.`);
+    const me = guild.members.me;
+    if (me && !channel.permissionsFor(me)?.has(RAID_PUBLISH_PERMISSIONS)) {
+      return fail(`В #${channel.name} боту нужны права: видеть канал, отправлять сообщения, встраивать ссылки и прикреплять файлы.`);
+    }
+
+    try {
+      const raid = await publishRaid(
+        channel,
+        { title: template.title, description: template.description || null, startsAt, size: template.size, createdBy: c.get('session').userId, leaderName: c.get('member').displayName },
+        template.pingRoleId,
+      );
+      await sendLog(
+        guild,
+        'server',
+        new EmbedBuilder()
+          .setColor(LOG_COLORS.create)
+          .setTitle('Рега создана через админку')
+          .setDescription(`**Кто:** <@${c.get('session').userId}>
+**Рега:** #${raid.id} «${raid.title}» по шаблону
+**Канал:** <#${raid.channelId}>`),
+      );
+      return done(c, '/templates', `Рега #${raid.id} «${raid.title}» создана в #${channel.name}: ${raidUrl(raid)}`);
+    } catch (error) {
+      console.error('Не удалось создать регу из админки:', error);
+      return fail('Discord не принял сообщение реги — подробности в консоли бота.');
+    }
+  });
+
   // --- Липкие сообщения ---
   app.get('/sticky', (c) => c.html(stickyPage(ctx(c, 'sticky'), getSettings(), textChannels(c.get('guild')))));
   app.post('/sticky', async (c) => {
@@ -581,6 +637,32 @@ function readStickies(guild: Guild, body: Body, errors: string[]): { channelId: 
     items.push({ channelId: pickChannel(guild, channelRaw, `Липкое сообщение ${i + 1}`, errors) ?? '', text: stickyText });
   }
   return items;
+}
+
+function readTemplates(guild: Guild, body: Body, errors: string[]): RaidTemplate[] {
+  const count = Number(text(body.count)) || 0;
+  const items: RaidTemplate[] = [];
+  for (let i = 0; i < count; i++) {
+    if (text(body[`t${i}_delete`]) === 'on') continue;
+    const id = text(body[`t${i}_id`]);
+    const title = text(body[`t${i}_title`]);
+    if (!id && !title) continue; // пустая карточка для нового шаблона
+    const name = `Шаблон ${i + 1}`;
+    items.push({
+      id: id || `t${Date.now().toString(36)}${i}`,
+      title,
+      description: text(body[`t${i}_description`]),
+      size: Number(text(body[`t${i}_size`])),
+      time: text(body[`t${i}_time`]),
+      channelId: pickChannel(guild, body[`t${i}_channel`], name, errors),
+      pingRoleId: pickRole(guild, body[`t${i}_ping`], name, errors),
+    });
+  }
+  return items;
+}
+
+function todayInKyiv(): string {
+  return Temporal.Now.plainDateISO(settings.timeZone).toString();
 }
 
 function readVoiceRoles(guild: Guild, body: Body, errors: string[]): VoiceRoleLink[] {

@@ -11,6 +11,7 @@ process.env.DISCORD_CLIENT_SECRET = 'x';
 const { createApp } = await import('./server.ts');
 const { getSettings } = await import('../botSettings.ts');
 const { createPoll, getPoll, saveResponse } = await import('../polls/store.ts');
+const { listRaids } = await import('../raids/store.ts');
 
 // Подставной «Discord»: сервер с двумя текстовыми каналами, голосовым и ролями.
 const channel = (id: string, name: string, type = ChannelType.GuildText) => ({ id, name, type, rawPosition: Number(id.slice(1)), parent: null, isSendable: () => false });
@@ -23,8 +24,13 @@ const pollEdits: unknown[] = [];
 const pollChannel = {
   ...channel('c4', 'опросы'),
   guildId: 'g1',
+  guild: { id: 'g1' }, // для публикации реги из шаблона
+  get client() {
+    return client;
+  },
   isSendable: () => true,
   isTextBased: () => true,
+  isDMBased: () => false,
   send: async (payload: { files?: unknown[] }) => {
     pollPosts.push(payload);
     return { id: `m${pollPosts.length}`, url: `https://discord.com/channels/g1/c4/m${pollPosts.length}` };
@@ -373,4 +379,53 @@ test('опросы: шаблон, ошибки по строкам, предпр
   const foreign = createPoll('другой-сервер', 'x', stored.definition, 'u');
   assert.equal((await get(`/polls/${foreign.id}`)).status, 404);
   assert.equal((await get('/polls/999')).status, 404);
+});
+
+test('шаблоны рег: сохранить, создать регу на дату, изменить и удалить', async () => {
+  const cookie = { Cookie: await cookieFor(ADMIN) };
+  assert.match(await (await app.request('/templates', { headers: cookie })).text(), /Шаблонов пока нет/);
+
+  const noChannel = await post('/templates', [['_csrf', 'token'], ['count', '1'], ['t0_id', ''], ['t0_title', 'Огненные Недра'], ['t0_size', '40'], ['t0_time', '20:00'], ['t0_channel', '']]);
+  assert.equal(noChannel.status, 400);
+  assert.match(await noChannel.text(), /Шаблон 1: выбери канал/);
+
+  const saved = await post('/templates', [
+    ['_csrf', 'token'], ['count', '1'], ['t0_id', ''], ['t0_title', 'Огненные Недра'], ['t0_description', 'Сбор в 19:45'],
+    ['t0_size', '40'], ['t0_time', '20:00'], ['t0_channel', 'c4'], ['t0_ping', 'r1'],
+  ]);
+  assert.equal(saved.status, 302);
+  const template = getSettings().raidTemplates[0]!;
+  assert.ok(template.id);
+  assert.deepEqual({ ...template, id: '' }, { id: '', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'c4', pingRoleId: 'r1' });
+  assert.match(await (await app.request('/templates', { headers: cookie })).text(), /Создать регу/);
+
+  const tomorrow = Temporal.Now.plainDateISO('Europe/Kyiv').add({ days: 1 }).toString();
+  const before = pollPosts.length;
+  const created = await post(`/templates/${template.id}/create`, [['_csrf', 'token'], ['date', tomorrow], ['time', '21:00']]);
+  assert.equal(created.status, 302);
+  assert.match(decodeURIComponent(created.headers.get('location') ?? ''), /Рега #\d+ «Огненные Недра» создана в #опросы/);
+  assert.equal(pollPosts.length, before + 1);
+  assert.match(String((pollPosts.at(-1) as { content?: string }).content), /<@&r1>/, 'пинг роли из шаблона');
+  const raid = listRaids('g1', 'open')[0]!;
+  assert.equal(raid.startsAt, Temporal.PlainDate.from(tomorrow).toZonedDateTime({ timeZone: 'Europe/Kyiv', plainTime: Temporal.PlainTime.from('21:00') }).epochMilliseconds);
+  assert.equal(raid.description, 'Сбор в 19:45');
+  assert.equal(raid.leaderName, 'Тестер');
+
+  const past = await post(`/templates/${template.id}/create`, [['_csrf', 'token'], ['date', '2020-01-01'], ['time', '20:00']]);
+  assert.equal(past.status, 400);
+  assert.match(await past.text(), /уже прошло/);
+
+  const edited = await post('/templates', [
+    ['_csrf', 'token'], ['count', '2'], ['t0_id', template.id], ['t0_title', 'Огненные Недра'], ['t0_description', ''],
+    ['t0_size', '20'], ['t0_time', '19:30'], ['t0_channel', 'c4'], ['t0_ping', ''], ['t1_id', ''], ['t1_title', ''],
+  ]);
+  assert.equal(edited.status, 302);
+  assert.deepEqual(getSettings().raidTemplates.map((t) => [t.id, t.size, t.time, t.pingRoleId]), [[template.id, 20, '19:30', null]]);
+
+  const removed = await post('/templates', [
+    ['_csrf', 'token'], ['count', '1'], ['t0_id', template.id], ['t0_title', 'Огненные Недра'], ['t0_size', '20'], ['t0_time', '19:30'], ['t0_channel', 'c4'], ['t0_delete', 'on'],
+  ]);
+  assert.equal(removed.status, 302);
+  assert.deepEqual(getSettings().raidTemplates, []);
+  assert.equal((await post(`/templates/${template.id}/create`, [['_csrf', 'token'], ['date', tomorrow]])).status, 404);
 });

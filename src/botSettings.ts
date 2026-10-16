@@ -44,6 +44,19 @@ export interface VoiceRoleLink {
 }
 export const ARCHIVE_MODES: ArchiveMode[] = ['off', 'move', 'delete'];
 
+/** Шаблон реги: заготовка для создания в два клика из админки. */
+export interface RaidTemplate {
+  /** Не меняется после создания — по нему находят шаблон при создании реги. */
+  id: string;
+  title: string;
+  description: string;
+  size: number;
+  /** Время начала ЧЧ:ММ. */
+  time: string;
+  channelId: string | null;
+  pingRoleId: string | null;
+}
+
 export interface BotSettings {
   channels: { welcome: string | null; rules: string | null; auth: string | null };
   roles: { guest: string | null; autorole: string | null };
@@ -79,6 +92,8 @@ export interface BotSettings {
   voiceRoles: VoiceRoleLink[];
   /** Липкие сообщения: текст, который бот держит последним в канале. */
   sticky: { intervalSeconds: number; items: { channelId: string; text: string }[] };
+  /** Шаблоны рег (страница «Шаблоны рег» в админке). */
+  raidTemplates: RaidTemplate[];
   /** Прощание при выходе участника. Подстановки: {user} {name} {server} {members}. */
   farewell: { channelId: string | null; text: string };
   /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {auth} {welcome} {role}. */
@@ -93,7 +108,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800 };
+export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, templates: 25, templateDescription: 1000 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -135,6 +150,7 @@ function defaults(): BotSettings {
     alerts: { channelId: null, roleId: null, lateCancelHours: 3 },
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
+    raidTemplates: [],
     farewell: { channelId: null, text: '**{name}** покидает {server}. Удачи в Азероте! 👋 Нас теперь {members}.' },
     welcomeDm: {
       enabled: false,
@@ -244,6 +260,17 @@ export function validateSettings(s: BotSettings): string[] {
   if (new Set(s.sticky.items.map((i) => i.channelId)).size !== s.sticky.items.length) {
     errors.push('Липкие сообщения: в одном канале может быть только одно.');
   }
+
+  s.raidTemplates.forEach((t, index) => {
+    const name = `Шаблон ${index + 1}`;
+    if (!t.title.trim()) errors.push(`${name}: название не может быть пустым.`);
+    else if (t.title.length > LIMITS.title) errors.push(`${name}: название не длиннее ${LIMITS.title} символов.`);
+    if (t.description.length > LIMITS.templateDescription) errors.push(`${name}: описание не длиннее ${LIMITS.templateDescription} символов.`);
+    if (!Number.isInteger(t.size) || t.size < 1 || t.size > LIMITS.size) errors.push(`${name}: мест в составе — от 1 до ${LIMITS.size}.`);
+    if (!parseTime(t.time)) errors.push(`${name}: время в формате ЧЧ:ММ, например 20:00.`);
+    if (!t.channelId) errors.push(`${name}: выбери канал.`);
+  });
+  if (s.raidTemplates.length > LIMITS.templates) errors.push(`Шаблонов рег — не больше ${LIMITS.templates}.`);
 
   s.voiceRoles.forEach((link, index) => {
     if (!link.channelId || !link.roleId) errors.push(`Голосовая роль ${index + 1}: нужны и голосовой канал, и роль.`);

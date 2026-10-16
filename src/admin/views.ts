@@ -2,7 +2,7 @@
 // `html` из hono сам экранирует подставленные строки — названия каналов и тексты безопасны.
 import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
-import { LOG_CATEGORIES, LOG_LABELS, type ArchiveMode, type BotSettings, type RaidSchedule } from '../botSettings.ts';
+import { LOG_CATEGORIES, LOG_LABELS, type ArchiveMode, type BotSettings, type RaidSchedule, type RaidTemplate } from '../botSettings.ts';
 import { estimatedMinutes, questionCount, type PollDefinition, type QuestionKind } from '../polls/format.ts';
 import type { PollStats } from '../polls/service.ts';
 
@@ -20,7 +20,7 @@ export interface Option {
 export interface PageContext {
   user: { name: string; avatar: string | null };
   csrf: string;
-  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'sticky';
+  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'templates' | 'sticky';
   notice?: string;
   errors?: string[];
 }
@@ -33,6 +33,7 @@ const NAV: [PageContext['active'], string, string][] = [
   ['welcome', '/welcome', 'Приветствие'],
   ['polls', '/polls', 'Опросы'],
   ['raids', '/raids', 'Расписание рег'],
+  ['templates', '/templates', 'Шаблоны рег'],
   ['sticky', '/sticky', 'Липкие сообщения'],
 ];
 
@@ -399,6 +400,53 @@ export function stickyPage(ctx: PageContext, s: BotSettings, channels: Option[])
         </div>`,
       )}
       <div class="actions"><button>Сохранить</button></div>
+    </form>`,
+  );
+}
+
+// --- Шаблоны рег ---
+
+export function templatesPage(ctx: PageContext, s: BotSettings, channels: Option[], roles: Option[], today: string): Html {
+  const rows: RaidTemplate[] = [...s.raidTemplates, { id: '', title: '', description: '', size: s.raids.defaultSize, time: s.raids.defaultTime, channelId: null, pingRoleId: null }];
+  const name = (list: Option[], id: string | null) => list.find((o) => o.id === id)?.name ?? '—';
+  return layout(
+    'Шаблоны рег',
+    ctx,
+    html`<h1>Шаблоны рег</h1>
+    <p class="lead">Заготовки для типовых рейдов: выбери дату — и рега готова, без ввода названия и описания каждый раз.</p>
+    ${s.raidTemplates.length
+      ? s.raidTemplates.map(
+          (t) => html`<form method="post" action="/templates/${t.id}/create" class="card">${csrfField(ctx)}
+            <b>${t.title}</b> <span class="hint">— ${t.size} мест · ${name(channels, t.channelId)}${t.pingRoleId ? html` · пинг @${name(roles, t.pingRoleId)}` : ''}</span>
+            <div class="row">
+              <div><label>Дата</label><input type="date" name="date" value="${today}" min="${today}"></div>
+              <div><label>Время</label><input type="time" name="time" value="${t.time}"></div>
+            </div>
+            <div class="actions"><button>Создать регу</button></div>
+          </form>`,
+        )
+      : html`<div class="card">Шаблонов пока нет — заполни форму ниже.</div>`}
+    <h1 style="margin-top:28px">Редактировать шаблоны</h1>
+    <p class="lead">Последняя карточка — для нового шаблона.</p>
+    <form method="post" action="/templates">${csrfField(ctx)}
+      <input type="hidden" name="count" value="${rows.length}">
+      ${rows.map(
+        (t, i) => html`<div class="card">
+          <input type="hidden" name="t${i}_id" value="${t.id}">
+          <div class="row">
+            <div><label>Название${t.id ? '' : html` <span class="hint">— новый шаблон</span>`}</label><input type="text" name="t${i}_title" maxlength="100" value="${t.title}"></div>
+            <div><label>Канал</label>${select(`t${i}_channel`, channels, t.channelId)}</div>
+          </div>
+          <label>Описание <span class="hint">— сбор, требования; можно оставить пустым</span></label><textarea name="t${i}_description" style="min-height:60px">${t.description}</textarea>
+          <div class="row">
+            <div><label>Мест в составе</label><input type="number" name="t${i}_size" min="1" max="100" value="${t.size}"></div>
+            <div><label>Время начала</label><input type="time" name="t${i}_time" value="${t.time}"></div>
+          </div>
+          <label>Упомянуть роль <span class="hint">— необязательно</span></label>${select(`t${i}_ping`, roles, t.pingRoleId, '— никого —')}
+          ${t.id ? html`<div class="actions"><label class="check"><input type="checkbox" name="t${i}_delete"> удалить шаблон</label></div>` : ''}
+        </div>`,
+      )}
+      <div class="actions"><button>Сохранить шаблоны</button></div>
     </form>`,
   );
 }
