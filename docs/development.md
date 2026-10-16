@@ -13,7 +13,7 @@
 1. Открой [Discord Developer Portal](https://discord.com/developers/applications) → **New Application**.
 2. На вкладке **General Information** скопируй **Application ID**. Это `CLIENT_ID`.
 3. На вкладке **Bot**:
-   - нажми **Reset Token**. Это `DISCORD_TOKEN`. **Никому его не показывай**, а если он утёк, сбрось ещё раз;
+   - нажми **Reset Token**. Это `DISCORD_TOKEN_GUILD` в `.env`. **Никому его не показывай**, а если он утёк, сбрось ещё раз;
    - включи **Server Members Intent** (приветствие, лог входов и выходов) и **Message Content Intent** (фильтр мата, лог сообщений), затем **Save Changes**.
 4. На вкладке **OAuth2** (нужно для входа в админку):
    - нажми **Reset Secret** и скопируй **Client Secret** в `DISCORD_CLIENT_SECRET`;

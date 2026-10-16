@@ -17,9 +17,17 @@ function required(name: string): string {
 }
 
 export const config = {
-  /** Токен читается при обращении: бот и скрипты без него не запустятся, а тестам он не нужен. */
+  /**
+   * Токен читается при обращении: бот и скрипты без него не запустятся, а тестам он не нужен.
+   * Имя DISCORD_TOKEN_GUILD, а не DISCORD_TOKEN: то занято Discord MCP (другой бот). Переменная из системы
+   * важнее строки из .env, поэтому общее имя подменило бы токен нашего бота токеном MCP.
+   */
   get token(): string {
-    return required('DISCORD_TOKEN');
+    if (!read('DISCORD_TOKEN_GUILD') && read('DISCORD_TOKEN')) {
+      console.error('❌ Токен бота теперь в переменной DISCORD_TOKEN_GUILD: переименуй в .env строку DISCORD_TOKEN= в DISCORD_TOKEN_GUILD=.');
+      process.exit(1);
+    }
+    return required('DISCORD_TOKEN_GUILD');
   },
   clientId: read('CLIENT_ID'),
   guildId: read('GUILD_ID'),
