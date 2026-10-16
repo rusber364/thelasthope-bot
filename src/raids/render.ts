@@ -28,7 +28,7 @@ import {
 } from 'discord.js';
 import { CLASSES, ROLES, ROLE_ORDER, specById, specsOf, type RaidRole } from './classes.ts';
 import { classComponentEmoji, specEmoji, uiComponentEmoji, uiEmoji } from './emojis.ts';
-import type { Raid, Signup } from './store.ts';
+import type { Raid, RaidImage, Signup } from './store.ts';
 
 const ACCENT = 0xc69b3a; // золото
 const EMPTY = '​'; // невидимый символ: у поля embed'а не может быть пустого текста
@@ -37,6 +37,11 @@ const NAME_LIMIT = 20;
 
 // Фон реги: положи картинку (например, Древо Тельдрассил) в assets/raid-banner.jpg (или .png/.webp).
 const BANNER_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+
+/** Есть ли общий фон для рег (assets/raid-banner.*). */
+export function hasDefaultBanner(): boolean {
+  return findBanner() !== null;
+}
 
 function findBanner(): { path: string; name: string } | null {
   for (const ext of BANNER_EXTENSIONS) {
@@ -52,9 +57,9 @@ const STATUS_NOTE: Record<Raid['status'], string | null> = {
   cancelled: '**Рейд отменён.**',
 };
 
-/** Полное содержимое сообщения реги (для отправки и для редактирования). */
-export function buildRaidMessage(raid: Raid, signups: Signup[]) {
-  const banner = findBanner();
+/** Полное содержимое сообщения реги (для отправки и для редактирования). image — своя картинка реги вместо общего фона. */
+export function buildRaidMessage(raid: Raid, signups: Signup[], image: RaidImage | null = null) {
+  const banner = image ?? findBanner();
   const embeds: EmbedBuilder[] = [];
   // Картинка отдельным embed'ом сверху: у одного embed'а она была бы внизу, под составом.
   if (banner) embeds.push(new EmbedBuilder().setColor(ACCENT).setImage(`attachment://${banner.name}`));
@@ -63,7 +68,7 @@ export function buildRaidMessage(raid: Raid, signups: Signup[]) {
   return {
     embeds,
     components: raid.status === 'open' ? buildControls(raid) : [],
-    files: banner ? [new AttachmentBuilder(banner.path, { name: banner.name })] : [],
+    files: banner ? [new AttachmentBuilder('data' in banner ? banner.data : banner.path, { name: banner.name })] : [],
     // При редактировании старая картинка заменяется новой загрузкой — так она гарантированно не пропадёт.
     attachments: [],
     allowedMentions: { parse: [] },
@@ -71,8 +76,8 @@ export function buildRaidMessage(raid: Raid, signups: Signup[]) {
 }
 
 /** Для первой отправки поле attachments не нужно. */
-export function buildRaidCreateMessage(raid: Raid, signups: Signup[], pingRoleId: string | null = null) {
-  const { attachments: _ignored, ...message } = buildRaidMessage(raid, signups);
+export function buildRaidCreateMessage(raid: Raid, signups: Signup[], pingRoleId: string | null = null, image: RaidImage | null = null) {
+  const { attachments: _ignored, ...message } = buildRaidMessage(raid, signups, image);
   if (!pingRoleId) return message;
   // Упоминание роли — строкой над регой; при редактировании текст сообщения не меняется и повторно не пингует.
   return { ...message, content: `<@&${pingRoleId}> открыта запись на рейд!`, allowedMentions: { roles: [pingRoleId] } };

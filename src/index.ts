@@ -8,6 +8,7 @@ import { registerProfanityFilter } from './events/profanityFilter.ts';
 import { registerLogs } from './logs/index.ts';
 import { registerVoiceRoles } from './lib/voiceRoles.ts';
 import { registerSticky } from './lib/sticky.ts';
+import { registerRaidWizard } from './raids/wizard.ts';
 
 // Client — это сам бот. После login() он держит постоянное соединение с Discord (Gateway)
 // и получает оттуда события: «бот готов», «кто-то вызвал команду», «зашёл новый участник»…
@@ -22,10 +23,11 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates, // голосовые каналы (лог голоса)
     GatewayIntentBits.GuildModeration, // журнал аудита и баны (лог сервера и модерации)
     GatewayIntentBits.GuildInvites, // создание и удаление приглашений («кто кого пригласил»)
+    GatewayIntentBits.DirectMessages, // личные сообщения боту (создание реги по шагам)
   ],
   // Partials — получать события и про то, чего нет в памяти бота: удаление старых сообщений,
-  // выход участника, которого бот ещё не видел.
-  partials: [Partials.Message, Partials.GuildMember],
+  // выход участника, которого бот ещё не видел, личка, которую бот ещё не открывал.
+  partials: [Partials.Message, Partials.GuildMember, Partials.Channel],
 });
 
 // Подписываемся на события — каждое описано в своём файле в папках events/ и logs/.
@@ -37,6 +39,7 @@ registerProfanityFilter(client);
 registerLogs(client);
 registerVoiceRoles(client);
 registerSticky(client);
+registerRaidWizard(client);
 
 client.on(Events.Error, (error) => console.error('Ошибка клиента Discord:', error));
 process.on('unhandledRejection', (error) => console.error('Необработанная ошибка:', error));

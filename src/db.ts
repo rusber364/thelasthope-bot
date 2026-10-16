@@ -84,6 +84,35 @@ addColumn('raids', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 
+// Создание реги по шагам в личке: один черновик на офицера (переживает перезапуск бота)
+// и своя картинка реги — её заново прикрепляют при каждой перерисовке сообщения.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS raid_drafts (
+    user_id           TEXT    PRIMARY KEY,
+    guild_id          TEXT    NOT NULL,
+    channel_id        TEXT    NOT NULL,
+    ping_role_id      TEXT,
+    size              INTEGER NOT NULL,
+    leader_name       TEXT,
+    step              TEXT    NOT NULL,
+    title             TEXT,
+    description       TEXT,
+    date              TEXT,
+    time              TEXT,
+    image             BLOB,
+    image_name        TEXT,
+    editing           INTEGER NOT NULL DEFAULT 0,
+    prompt_message_id TEXT,
+    updated_at        INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS raid_images (
+    raid_id INTEGER PRIMARY KEY REFERENCES raids(id) ON DELETE CASCADE,
+    name    TEXT    NOT NULL,
+    data    BLOB    NOT NULL
+  );
+`);
+
 // Липкие сообщения: id последней копии в канале — чтобы удалить её и после перезапуска.
 db.exec(`
   CREATE TABLE IF NOT EXISTS sticky_messages (

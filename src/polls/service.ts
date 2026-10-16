@@ -2,6 +2,7 @@
 import { extname } from 'node:path';
 import { AttachmentBuilder, MessageFlags, PermissionFlagsBits, type Guild, type GuildTextBasedChannel } from 'discord.js';
 import type { PollDefinition, QuestionKind } from './format.ts';
+import { download } from '../lib/download.ts';
 import { buildPublicMessage } from './render.ts';
 import { closePoll, createPoll, deletePoll, setPollMessage, type PollResponse, type StoredPoll } from './store.ts';
 
@@ -66,12 +67,6 @@ export async function closeAndRedraw(guild: Guild, poll: StoredPoll): Promise<vo
   } catch (error) {
     console.error(`Не удалось обновить сообщение опроса #${poll.id}:`, error);
   }
-}
-
-export async function download(url: string): Promise<Buffer> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Не удалось скачать вложение: HTTP ${response.status}`);
-  return Buffer.from(await response.arrayBuffer());
 }
 
 /** Имена участников для итогов: «Ник (@логин)». Кого не нашли (ушли с сервера) — пропускаем. */

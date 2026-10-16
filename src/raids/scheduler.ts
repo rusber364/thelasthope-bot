@@ -107,11 +107,17 @@ export async function fetchRaidChannel(client: Client<true>, channelId: string):
   return channel;
 }
 
-async function sendReminders(client: Client<true>): Promise<void> {
-  for (const { kind, lead } of REMINDERS) {
-    for (const raid of raidsDueForReminder(kind, Date.now(), lead)) {
+export async function sendReminders(client: Client<true>): Promise<void> {
+  const now = Date.now();
+  // Ближайшее напоминание — первым. Если пора сразу нескольким (до рейда меньше часа, а «за сутки» ещё не было:
+  // рега создана незадолго до начала или бот был выключен), участник получает одно, остальные просто отмечаются.
+  const reminded = new Set<number>();
+  for (const { kind, lead } of [...REMINDERS].sort((a, b) => a.lead - b.lead)) {
+    for (const raid of raidsDueForReminder(kind, now, lead)) {
       // Сначала отмечаем, потом рассылаем: при сбое лучше пропустить напоминание, чем отправить его дважды.
       markReminded(raid.id, kind);
+      if (reminded.has(raid.id)) continue;
+      reminded.add(raid.id);
       await messageSignups(client, raid, (signup) =>
         [
           `${uiEmoji('countdown')} **Напоминание:** рейд **${raid.title}** начнётся ${raidWhen(raid)}.`,

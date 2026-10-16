@@ -242,3 +242,23 @@ export function setTentative(raidId: number, userId: string, tentative: boolean)
 export function removeSignup(raidId: number, userId: string): boolean {
   return db.prepare('DELETE FROM raid_signups WHERE raid_id = ? AND user_id = ?').run(raidId, userId).changes > 0;
 }
+
+/** Своя картинка реги (из создания по шагам в личке). У остальных рег — общий фон из assets. */
+export interface RaidImage {
+  /** Имя файла вложения, например raid-image.png. */
+  name: string;
+  data: Buffer;
+}
+
+export function saveRaidImage(raidId: number, image: RaidImage): void {
+  db.prepare('INSERT INTO raid_images (raid_id, name, data) VALUES (?, ?, ?) ON CONFLICT (raid_id) DO UPDATE SET name = excluded.name, data = excluded.data').run(
+    raidId,
+    image.name,
+    image.data,
+  );
+}
+
+export function getRaidImage(raidId: number): RaidImage | null {
+  const row = db.prepare('SELECT name, data FROM raid_images WHERE raid_id = ?').get(raidId) as { name: string; data: Uint8Array } | undefined;
+  return row ? { name: row.name, data: Buffer.from(row.data) } : null;
+}

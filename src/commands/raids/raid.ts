@@ -13,15 +13,9 @@ import { replyEphemeral } from '../../lib/reply.ts';
 import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
 import { uiEmoji } from '../../raids/emojis.ts';
 import { fetchRaidChannel } from '../../raids/scheduler.ts';
-import { messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
+import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
 import { getRaid, listRaids, setRaidStatus } from '../../raids/store.ts';
-
-const NEEDED_PERMISSIONS = [
-  PermissionFlagsBits.ViewChannel,
-  PermissionFlagsBits.SendMessages,
-  PermissionFlagsBits.EmbedLinks,
-  PermissionFlagsBits.AttachFiles,
-];
+import { startRaidWizard } from '../../raids/wizard.ts';
 
 export const raid: Command = {
   data: new SlashCommandBuilder()
@@ -30,7 +24,20 @@ export const raid: Command = {
     .addSubcommand((sub) =>
       sub
         .setName('create')
-        .setDescription('Создать регу в любом канале')
+        .setDescription('Создать регу по шагам в личке: название, описание, дата, время, картинка')
+        .addChannelOption((o) =>
+          o
+            .setName('channel')
+            .setDescription('Куда опубликовать (по умолчанию — сюда)')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
+        )
+        .addIntegerOption((o) => o.setName('size').setDescription('Мест в основном составе (по умолчанию — из настроек бота)').setMinValue(1).setMaxValue(100))
+        .addRoleOption((o) => o.setName('ping').setDescription('Какую роль упомянуть при публикации (например, @Рейдер)')),
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('quick')
+        .setDescription('Создать регу одной командой, без лички')
         .addStringOption((o) => o.setName('title').setDescription('Название, например «Огненные Недра»').setRequired(true).setMaxLength(100))
         .addStringOption((o) => o.setName('date').setDescription('Дата: сегодня, завтра, 17.10 или 17.10.2026 (по умолчанию — сегодня)'))
         .addStringOption((o) => o.setName('time').setDescription('Время начала, например 20:00 (по умолчанию — из настроек бота)'))
@@ -59,6 +66,7 @@ export const raid: Command = {
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     if (sub === 'create') await create(interaction);
+    else if (sub === 'quick') await quick(interaction);
     else if (sub === 'cancel') await cancel(interaction);
     else if (sub === 'open-now') await openNow(interaction);
   },
@@ -72,7 +80,47 @@ export const raid: Command = {
   },
 };
 
+/** Канал публикации из параметра (или текущий) — если у бота там есть все нужные права. */
+async function targetChannel(interaction: ChatInputCommandInteraction<'cached'>): Promise<GuildTextBasedChannel | null> {
+  const channel = (interaction.options.getChannel('channel') as GuildTextBasedChannel | null) ?? interaction.channel;
+  if (!channel) {
+    await replyEphemeral(interaction, 'Не вижу канал для публикации.');
+    return null;
+  }
+  const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe());
+  if (!channel.permissionsFor(me).has(RAID_PUBLISH_PERMISSIONS)) {
+    await replyEphemeral(interaction, `В ${channel} мне нужны права: видеть канал, отправлять сообщения, встраивать ссылки и прикреплять файлы.`);
+    return null;
+  }
+  return channel;
+}
+
+/** Как в Raid-Helper: дальше бот спрашивает всё по шагам в личке. */
 async function create(interaction: ChatInputCommandInteraction<'cached'>): Promise<void> {
+  const channel = await targetChannel(interaction);
+  if (!channel) return;
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const started = await startRaidWizard(interaction.user, {
+    userId: interaction.user.id,
+    guildId: interaction.guild.id,
+    channelId: channel.id,
+    pingRoleId: interaction.options.getRole('ping')?.id ?? null,
+    size: interaction.options.getInteger('size') ?? getSettings().raids.defaultSize,
+    leaderName: interaction.member.displayName,
+  });
+  if (!started.ok) {
+    await interaction.editReply(
+      '📪 Не могу написать тебе в личку. Разреши личные сообщения от участников сервера (ПКМ по иконке сервера → Настройки конфиденциальности) или создай регу одной командой: `/raid quick`.',
+    );
+    return;
+  }
+  await interaction.editReply(
+    `📩 Продолжим в личке: ${started.url}\nРега появится в ${channel} после «Опубликовать».${started.replaced ? '\nПрошлый незаконченный черновик заменён.' : ''}`,
+  );
+}
+
+async function quick(interaction: ChatInputCommandInteraction<'cached'>): Promise<void> {
   const title = interaction.options.getString('title', true);
   const dateText = interaction.options.getString('date') ?? 'сегодня';
   const timeText = interaction.options.getString('time') ?? getSettings().raids.defaultTime;
@@ -84,12 +132,8 @@ async function create(interaction: ChatInputCommandInteraction<'cached'>): Promi
   const startsAt = toEpochMs(date, startTime);
   if (startsAt <= Date.now()) return replyEphemeral(interaction, 'Это время уже прошло — укажи будущее.');
 
-  const channel = (interaction.options.getChannel('channel') as GuildTextBasedChannel | null) ?? interaction.channel;
-  if (!channel) return replyEphemeral(interaction, 'Не вижу канал для публикации.');
-  const me = interaction.guild.members.me ?? (await interaction.guild.members.fetchMe());
-  if (!channel.permissionsFor(me).has(NEEDED_PERMISSIONS)) {
-    return replyEphemeral(interaction, `В ${channel} мне нужны права: видеть канал, отправлять сообщения, встраивать ссылки и прикреплять файлы.`);
-  }
+  const channel = await targetChannel(interaction);
+  if (!channel) return;
 
   // Публикация с картинкой может занять больше 3 секунд — сначала «бот думает…».
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });

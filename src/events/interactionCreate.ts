@@ -1,6 +1,7 @@
 import { Events, MessageFlags, type Client, type Interaction } from 'discord.js';
 import { commandsByName } from '../commands/index.ts';
 import { componentHandlers } from '../components.ts';
+import { raidWizardHandler } from '../raids/wizard.ts';
 
 /**
  * Interaction (взаимодействие) — любое действие пользователя, адресованное боту:
@@ -41,8 +42,12 @@ async function route(interaction: Interaction): Promise<void> {
 
   // Кнопки, меню и формы: customId вида «raid:spec:12» → обработчик с префиксом «raid», параметры ["spec", "12"].
   if (interaction.isMessageComponent() || interaction.isModalSubmit()) {
-    if (!interaction.inCachedGuild()) return;
     const [prefix = '', ...args] = interaction.customId.split(':');
+    if (!interaction.inCachedGuild()) {
+      // Вне сервера — только кнопки создания реги в личке.
+      if (prefix === raidWizardHandler.prefix && interaction.isMessageComponent()) await raidWizardHandler.handle(interaction, args);
+      return;
+    }
     await componentHandlers.get(prefix)?.handle(interaction, args);
   }
 }

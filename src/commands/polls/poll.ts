@@ -13,10 +13,11 @@ import {
 } from 'discord.js';
 import type { Command } from '../../types.ts';
 import { replyEphemeral } from '../../lib/reply.ts';
+import { download } from '../../lib/download.ts';
 import { parsePollFile } from '../../polls/format.ts';
 import { buildResultsCsv, buildResultsText } from '../../polls/render.ts';
 import { getPoll, listPolls, listResponses, type StoredPoll } from '../../polls/store.ts';
-import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, closeAndRedraw, download, memberNames, publishPoll } from '../../polls/service.ts';
+import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, closeAndRedraw, memberNames, publishPoll } from '../../polls/service.ts';
 
 const MAX_FILE_SIZE = 200 * 1024;
 const EXAMPLE_FILE = new URL('../../../examples/poll-example.txt', import.meta.url);

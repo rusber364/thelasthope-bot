@@ -1,20 +1,45 @@
 // Действия с регами, которые нужны и командам, и кнопкам, и планировщику.
-import { MessageFlags, TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
+import { MessageFlags, PermissionFlagsBits, TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
 import { settings } from '../settings.ts';
 import { classById, specById } from './classes.ts';
 import { specEmoji } from './emojis.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
-import { createRaid, deleteRaid, getRaid, getSignups, setRaidMessage, type NewRaid, type Raid, type Signup } from './store.ts';
+import {
+  createRaid,
+  deleteRaid,
+  getRaid,
+  getRaidImage,
+  getSignups,
+  saveRaidImage,
+  setRaidMessage,
+  type NewRaid,
+  type Raid,
+  type RaidImage,
+  type Signup,
+} from './store.ts';
 
-/** Создаёт регу в базе и публикует сообщение в канале. pingRoleId — какую роль упомянуть при открытии. */
+/** Права бота в канале реги: видеть канал, писать, встраивать ссылки и прикреплять картинку. */
+export const RAID_PUBLISH_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AttachFiles,
+];
+
+/**
+ * Создаёт регу в базе и публикует сообщение в канале. pingRoleId — какую роль упомянуть при открытии,
+ * image — своя картинка реги (сохраняется, чтобы прикреплять её при каждой перерисовке).
+ */
 export async function publishRaid(
   channel: GuildTextBasedChannel,
   input: Omit<NewRaid, 'guildId' | 'channelId'>,
   pingRoleId: string | null = null,
+  image: RaidImage | null = null,
 ): Promise<Raid> {
   const raid = createRaid({ ...input, guildId: channel.guild.id, channelId: channel.id });
+  if (image) saveRaidImage(raid.id, image);
   try {
-    const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId));
+    const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId, image));
     setRaidMessage(raid.id, message.id);
     return { ...raid, messageId: message.id };
   } catch (error) {
@@ -61,14 +86,15 @@ async function redraw(client: Client, raidId: number): Promise<void> {
 
     // Реги из прошлой версии бота сделаны «карточками» (Components V2), а такое сообщение
     // нельзя превратить в embed. Публикуем регу заново и удаляем старое сообщение.
+    const image = getRaidImage(raid.id);
     if (message.flags.has(MessageFlags.IsComponentsV2)) {
-      const fresh = await channel.send(buildRaidCreateMessage(raid, getSignups(raid.id)));
+      const fresh = await channel.send(buildRaidCreateMessage(raid, getSignups(raid.id), null, image));
       setRaidMessage(raid.id, fresh.id);
       await message.delete().catch(() => {});
       return;
     }
 
-    await message.edit(buildRaidMessage(raid, getSignups(raid.id)));
+    await message.edit(buildRaidMessage(raid, getSignups(raid.id), image));
   } catch (error) {
     console.error(`Не удалось обновить сообщение реги #${raidId}:`, error);
   }
