@@ -458,3 +458,19 @@ test('автоочистка: правило сохраняется, невер�
   assert.equal(removed.status, 302);
   assert.deepEqual(getSettings().autoClean, []);
 });
+
+test('посещаемость: таблица за период с процентами и именами', async () => {
+  const { createRaid, markAttendanceDone, saveAttendance, upsertSignup } = await import('../raids/store.ts');
+  const raid = createRaid({ guildId: 'g1', channelId: 'c4', title: 'Проверка посещаемости', startsAt: Date.now() - 86_400_000, size: 40, createdBy: '10' });
+  upsertSignup(raid.id, '20', 'mage_fire', 'Тестер');
+  saveAttendance(raid.id, [{ userId: '20', status: 'present' }]);
+  markAttendanceDone(raid.id);
+
+  const page = await (await app.request('/attendance', { headers: { Cookie: await cookieFor(ADMIN) } })).text();
+  assert.match(page, /Посещаемость рейдов/);
+  assert.match(page, /Рейдов с проверкой посещаемости за период: 1/);
+  assert.match(page, /<td>Тестер \(@tester\)<\/td>\s*<td><b>100%<\/b><\/td>/);
+
+  const empty = await (await app.request('/attendance?from=2020-01-01&to=2020-01-31', { headers: { Cookie: await cookieFor(ADMIN) } })).text();
+  assert.match(empty, /За этот период отметок нет/);
+});

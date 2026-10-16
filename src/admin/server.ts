@@ -27,12 +27,15 @@ import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
 import { countResponses, getPoll, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { parsePollFile } from '../polls/format.ts';
 import { buildResultsCsv } from '../polls/render.ts';
-import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, memberNames, pollStats, publishPoll } from '../polls/service.ts';
+import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pollStats, publishPoll } from '../polls/service.ts';
+import { memberNames } from '../lib/members.ts';
+import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { settings } from '../settings.ts';
 import { listRaids } from '../raids/store.ts';
 import { clearSession, finishLogin, readSession, saveSession, startLogin, type Session } from './auth.ts';
 import {
   alertsPage,
+  attendancePage,
   autoCleanPage,
   channelsPage,
   deniedPage,
@@ -406,6 +409,26 @@ export function createApp(client: Client<true>) {
         .setDescription(`**Кто:** <@${c.get('session').userId}>\n**Опрос:** #${poll.id} «${poll.definition.title}»\n**Канал:** <#${poll.channelId}>`),
     );
   }
+
+  // --- Посещаемость ---
+  app.get('/attendance', async (c) => {
+    const guild = c.get('guild');
+    const today = Temporal.Now.plainDateISO(settings.timeZone);
+    const from = parseDate(c.req.query('from') ?? '', today) ?? today.subtract({ days: 30 });
+    const to = parseDate(c.req.query('to') ?? '', today) ?? today;
+    const start = toEpochMs(from, Temporal.PlainTime.from('00:00'));
+    const end = toEpochMs(to.add({ days: 1 }), Temporal.PlainTime.from('00:00')); // «по» — включительно
+    const summary = summarize(attendanceRecords(guild.id, start, end));
+    const names = summary.length ? await memberNames(guild, summary.map((row) => row.userId)) : new Map<string, string>();
+    return c.html(
+      attendancePage(ctx(c, 'attendance'), {
+        from: from.toString(),
+        to: to.toString(),
+        checked: checkedRaids(guild.id, start, end),
+        rows: summary.map((row) => ({ ...row, name: names.get(row.userId) ?? `ушёл с сервера (ID ${row.userId})` })),
+      }),
+    );
+  });
 
   // --- Шаблоны рег ---
   const templatesView = (c: Context<Env>, s: BotSettings, errors: string[] = []) =>

@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-10-16 12:28'
-updated_date: '2026-10-16 12:32'
+updated_date: '2026-10-16 12:34'
 labels: []
 dependencies: []
 priority: high
@@ -37,6 +37,8 @@ ordinal: 14000
 
 <!-- SECTION:NOTES:BEGIN -->
 Имена подгружаются для всех ответивших только на вкладке «По участникам». Формулировки без рода («опрос пройден / не закончен»). Тесты: answersByUser в service.test.ts, вкладка и анонимный опрос в server.test.ts; всего 166/166, typecheck.
+
+Коммит f3db3da ушёл с одним упавшим тестом (ошибка в самом тесте: имя вошедшего админа в шапке страницы); исправлено отдельным коммитом 84a1a06, теперь 166/166.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

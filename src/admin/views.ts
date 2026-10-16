@@ -5,6 +5,7 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import { LOG_CATEGORIES, LOG_LABELS, type ArchiveMode, type BotSettings, type RaidSchedule, type RaidTemplate } from '../botSettings.ts';
 import { estimatedMinutes, questionCount, type PollDefinition, type QuestionKind } from '../polls/format.ts';
 import type { PollStats } from '../polls/service.ts';
+import { KIND_LABELS as ATTENDANCE_LABELS, type PlayerSummary } from '../raids/attendanceStats.ts';
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -20,7 +21,7 @@ export interface Option {
 export interface PageContext {
   user: { name: string; avatar: string | null };
   csrf: string;
-  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'templates' | 'sticky' | 'autoclean';
+  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'templates' | 'attendance' | 'sticky' | 'autoclean';
   notice?: string;
   errors?: string[];
 }
@@ -34,6 +35,7 @@ const NAV: [PageContext['active'], string, string][] = [
   ['polls', '/polls', 'Опросы'],
   ['raids', '/raids', 'Расписание рег'],
   ['templates', '/templates', 'Шаблоны рег'],
+  ['attendance', '/attendance', 'Посещаемость'],
   ['sticky', '/sticky', 'Липкие сообщения'],
   ['autoclean', '/autoclean', 'Автоочистка'],
 ];
@@ -706,6 +708,40 @@ function respondentsSection(info: PollResultsInfo, respondents: RespondentView[]
           : html`<div class="hint">Ответов на вопросы пока нет.</div>`}
       </details>`,
     )}`;
+}
+
+export interface AttendanceView {
+  from: string;
+  to: string;
+  checked: number;
+  rows: (PlayerSummary & { name: string })[];
+}
+
+export function attendancePage(ctx: PageContext, view: AttendanceView): Html {
+  return layout(
+    'Посещаемость',
+    ctx,
+    html`<h1>Посещаемость рейдов</h1>
+    <p class="lead">По отметкам, которые бот ставит через несколько минут после начала рейда (настройка — на странице «Оповещения»). Посещаемость = на рейде / (на рейде + пропуски): отметка «под вопросом» без прихода — предупреждение заранее, пропуском не считается. Сверху — те, кто чаще пропускает. Для одного игрока в Discord — команда <code>/history</code>.</p>
+    <form method="get" class="card row">
+      <div><label>С</label><input type="date" name="from" value="${view.from}"></div>
+      <div><label>По</label><input type="date" name="to" value="${view.to}"></div>
+      <div class="actions" style="grid-column:1/-1; margin-top:0"><button>Показать</button></div>
+    </form>
+    <p class="hint">Рейдов с проверкой посещаемости за период: ${view.checked}.</p>
+    ${view.rows.length
+      ? html`<div class="card" style="overflow-x:auto"><table>
+          <tr><th>Игрок</th><th>%</th><th>${ATTENDANCE_LABELS.present}</th><th>${ATTENDANCE_LABELS.absent}</th><th>${ATTENDANCE_LABELS.tentativePresent}</th><th>${ATTENDANCE_LABELS.tentativeAbsent}</th><th>${ATTENDANCE_LABELS.walkin}</th></tr>
+          ${view.rows.map(
+            (row) => html`<tr>
+              <td>${row.name}</td>
+              <td><b>${row.rate === null ? '—' : `${row.rate}%`}</b></td>
+              <td>${row.present}</td><td>${row.absent}</td><td>${row.tentativePresent}</td><td>${row.tentativeAbsent}</td><td>${row.walkin}</td>
+            </tr>`,
+          )}
+        </table></div>`
+      : html`<div class="card">За этот период отметок нет.</div>`}`,
+  );
 }
 
 export function autoCleanPage(ctx: PageContext, s: BotSettings, channels: Option[]): Html {
