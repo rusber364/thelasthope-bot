@@ -4,3 +4,6 @@ node_modules/
 
 # База данных бота (реги, записи, опросы и ответы)
 data/
+
+# Личные настройки Claude Code (разрешения на этом компьютере)
+.claude/settings.local.json
