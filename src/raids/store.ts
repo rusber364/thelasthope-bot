@@ -101,6 +101,21 @@ export function setRaidStatus(id: number, status: RaidStatus): void {
   db.prepare('UPDATE raids SET status = ? WHERE id = ?').run(status, id);
 }
 
+/** Перенести рейд: новое время начала, напоминания и «Сбор!» — заново от него. */
+export function setRaidStart(id: number, startsAt: number): void {
+  db.prepare('UPDATE raids SET starts_at = ?, reminded_day = 0, reminded_hour = 0, reminded_gather = 0 WHERE id = ?').run(startsAt, id);
+}
+
+/** Событие Discord, созданное для реги (null — его нет). */
+export function getRaidEventId(id: number): string | null {
+  const row = db.prepare('SELECT event_id FROM raids WHERE id = ?').get(id) as { event_id: string | null } | undefined;
+  return row?.event_id ?? null;
+}
+
+export function setRaidEventId(id: number, eventId: string | null): void {
+  db.prepare('UPDATE raids SET event_id = ? WHERE id = ?').run(eventId, id);
+}
+
 export function getRaid(id: number): Raid | null {
   const row = db.prepare('SELECT * FROM raids WHERE id = ?').get(id);
   return row ? toRaid(row as Row) : null;

@@ -15,6 +15,7 @@ import { reportAttendance } from './attendance.ts';
 import { cleanupRaidRoles } from './tempRole.ts';
 import { uiEmoji } from './emojis.ts';
 import { describeSignup, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
+import { syncRaidEventLater } from './events.ts';
 import {
   getSignups,
   markAttendanceDone,
@@ -173,6 +174,7 @@ async function closeStartedRaids(client: Client<true>): Promise<void> {
   for (const raid of raidsToClose(Date.now())) {
     setRaidStatus(raid.id, 'closed');
     await refreshRaidMessage(client, raid.id);
+    syncRaidEventLater(client, raid.id);
   }
 }
 

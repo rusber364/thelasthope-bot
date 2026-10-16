@@ -14,7 +14,9 @@ import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
 import { uiEmoji } from '../../raids/emojis.ts';
 import { fetchRaidChannel } from '../../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
-import { getRaid, listRaids, setRaidStatus } from '../../raids/store.ts';
+import { getRaid, listRaids, setRaidStart, setRaidStatus } from '../../raids/store.ts';
+import { syncRaidEventLater } from '../../raids/events.ts';
+import { settings } from '../../settings.ts';
 import { startRaidWizard } from '../../raids/wizard.ts';
 
 export const raid: Command = {
@@ -58,6 +60,14 @@ export const raid: Command = {
         .addStringOption((o) => o.setName('raid').setDescription('Какую регу').setRequired(true).setAutocomplete(true)),
     )
     .addSubcommand((sub) =>
+      sub
+        .setName('move')
+        .setDescription('Перенести рейд на другую дату или время (записавшимся придёт сообщение)')
+        .addStringOption((o) => o.setName('raid').setDescription('Какую регу').setRequired(true).setAutocomplete(true))
+        .addStringOption((o) => o.setName('date').setDescription('Новая дата: сегодня, завтра, 17.10 (по умолчанию — та же)'))
+        .addStringOption((o) => o.setName('time').setDescription('Новое время, например 21:00 (по умолчанию — то же)')),
+    )
+    .addSubcommand((sub) =>
       sub.setName('open-now').setDescription('Сразу открыть реги по расписанию — для проверки, не дожидаясь полуночи'),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)
@@ -68,6 +78,7 @@ export const raid: Command = {
     if (sub === 'create') await create(interaction);
     else if (sub === 'quick') await quick(interaction);
     else if (sub === 'cancel') await cancel(interaction);
+    else if (sub === 'move') await move(interaction);
     else if (sub === 'open-now') await openNow(interaction);
   },
 
@@ -156,8 +167,36 @@ async function cancel(interaction: ChatInputCommandInteraction<'cached'>): Promi
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   setRaidStatus(target.id, 'cancelled');
   await refreshRaidMessage(interaction.client, target.id);
+  syncRaidEventLater(interaction.client, target.id);
   await messageSignups(interaction.client, target, () => `${uiEmoji('leave')} Рейд **${target.title}**, который должен был начаться ${raidWhen(target)}, отменён.`);
   await interaction.editReply(`🚫 Рега #${target.id} «${target.title}» отменена, записавшимся отправлено сообщение.`);
+}
+
+/** Перенос рейда: новое время на реге и в событии Discord, напоминания — заново, записавшимся — сообщение. */
+async function move(interaction: ChatInputCommandInteraction<'cached'>): Promise<void> {
+  const target = getRaid(Number(interaction.options.getString('raid', true)));
+  if (!target || target.guildId !== interaction.guild.id) return replyEphemeral(interaction, 'Такая рега не найдена.');
+  if (target.status !== 'open') return replyEphemeral(interaction, 'Эта рега уже закрыта или отменена.');
+  const dateText = interaction.options.getString('date');
+  const timeText = interaction.options.getString('time');
+  if (!dateText && !timeText) return replyEphemeral(interaction, 'Укажи новую дату (`date`) или время (`time`).');
+
+  const current = Temporal.Instant.fromEpochMilliseconds(target.startsAt).toZonedDateTimeISO(settings.timeZone);
+  const date = dateText ? parseDate(dateText) : current.toPlainDate();
+  const startTime = timeText ? parseTime(timeText) : current.toPlainTime();
+  if (!date) return replyEphemeral(interaction, `Не понял дату «${dateText}». Примеры: сегодня, завтра, 17.10, 17.10.2026.`);
+  if (!startTime) return replyEphemeral(interaction, `Не понял время «${timeText}». Пример: 20:00.`);
+  const startsAt = toEpochMs(date, startTime);
+  if (startsAt <= Date.now()) return replyEphemeral(interaction, 'Это время уже прошло — укажи будущее.');
+  if (startsAt === target.startsAt) return replyEphemeral(interaction, 'Рейд и так в это время.');
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  setRaidStart(target.id, startsAt);
+  const moved = { ...target, startsAt };
+  await refreshRaidMessage(interaction.client, target.id);
+  syncRaidEventLater(interaction.client, target.id);
+  await messageSignups(interaction.client, moved, () => `${uiEmoji('time')} Рейд **${target.title}** перенесён: теперь начало ${raidWhen(moved)}. [Открыть регу](${raidUrl(moved)})`);
+  await interaction.editReply(`🕗 Рега #${target.id} «${target.title}» перенесена на ${raidWhen(moved)}, записавшимся отправлено сообщение.`);
 }
 
 /** Для проверки: создаёт реги из расписания прямо сейчас — на сегодня (или завтра, если время уже прошло). */

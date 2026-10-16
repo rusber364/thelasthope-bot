@@ -3,6 +3,7 @@ import { MessageFlags, PermissionFlagsBits, TimestampStyles, time, type Client, 
 import { settings } from '../settings.ts';
 import { classById, specById } from './classes.ts';
 import { requestBoardRefresh } from './board.ts';
+import { syncRaidEventLater } from './events.ts';
 import { specEmoji } from './emojis.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
 import {
@@ -43,6 +44,7 @@ export async function publishRaid(
     const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId, image));
     setRaidMessage(raid.id, message.id);
     requestBoardRefresh(channel.client, raid.guildId);
+    syncRaidEventLater(channel.client, raid.id);
     return { ...raid, messageId: message.id };
   } catch (error) {
     deleteRaid(raid.id); // чтобы планировщик попробовал создать её ещё раз

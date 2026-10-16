@@ -416,6 +416,7 @@ export function createApp(client: Client<true>) {
       hours: Number(text(body.archiveHours)),
     };
     next.raids.boardChannelId = pickChannel(guild, body.boardChannel, 'Канал со списком рейдов', errors);
+    next.raids.discordEvents = text(body.discordEvents) === 'on';
     next.raids.schedules = readSchedules(guild, body, errors);
     const response = await save(c, next, errors, 'Расписание рег', '/raids', (s, e) => raidsPage(ctx(c, 'raids', { errors: e }), s, textChannels(guild), roleOptions(guild)));
     // Список ближайших рейдов сразу появляется в новом канале (или убирается, если канал сняли).

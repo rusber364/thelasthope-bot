@@ -86,6 +86,7 @@ const raidChannel = {
   id: 'c',
   name: 'рега',
   guild: { id: 'g' },
+  client: { guilds: { cache: new Map() } }, // для события Discord: сервера в подставном клиенте нет — событие не создаётся
   isTextBased: () => true,
   isDMBased: () => false,
   permissionsFor: () => ({ has: () => true }),

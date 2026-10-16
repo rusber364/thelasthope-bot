@@ -81,6 +81,7 @@ addColumn('raids', 'reminded_gather', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'attendance_done', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'role_cleaned', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('raids', 'event_id', 'TEXT'); // событие Discord для реги
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 

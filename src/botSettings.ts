@@ -70,6 +70,8 @@ export interface BotSettings {
     archive: { mode: ArchiveMode; channelId: string | null; hours: number };
     /** Канал с живым списком ближайших рейдов (null — списка нет). */
     boardChannelId: string | null;
+    /** Создавать для каждой реги событие Discord (вкладка «События» сервера). */
+    discordEvents: boolean;
     schedules: RaidSchedule[];
   };
   logs: Record<LogCategory, { channelId: string | null; enabled: boolean }>;
@@ -116,6 +118,7 @@ function defaults(): BotSettings {
       tempRoleHours: 3,
       archive: { mode: 'off', channelId: null, hours: 6 },
       boardChannelId: null,
+      discordEvents: true,
       schedules: [
         { id: 'group1', title: 'Рейд — группа 1', channelId: env(config.raidChannel1Id), days: [4, 5, 1], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: null },
         { id: 'group2', title: 'Рейд — группа 2', channelId: env(config.raidChannel2Id), days: [4, 5, 1], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: null },

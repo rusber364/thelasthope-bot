@@ -356,6 +356,7 @@ export function raidsPage(ctx: PageContext, s: BotSettings, channels: Option[], 
       <div class="card">
         <label>Живой список ближайших рейдов <span class="hint">— одно сообщение со всеми открытыми регами, бот обновляет его сам</span></label>
         ${select('boardChannel', channels, s.raids.boardChannelId, '— не показывать —')}
+        <div class="actions"><label class="check"><input type="checkbox" name="discordEvents" ${s.raids.discordEvents ? 'checked' : ''}> создавать для каждой реги событие Discord (вкладка «События» сервера; боту нужно право «Создавать события»)</label></div>
       </div>
       <div class="card">
         <label>Архив прошедших рег</label>

@@ -43,7 +43,8 @@ export function hasDefaultBanner(): boolean {
   return findBanner() !== null;
 }
 
-function findBanner(): { path: string; name: string } | null {
+/** Общий фон рег из assets (null — его нет). */
+export function findBanner(): { path: string; name: string } | null {
   for (const ext of BANNER_EXTENSIONS) {
     const path = fileURLToPath(new URL(`../../assets/raid-banner${ext}`, import.meta.url));
     if (existsSync(path)) return { path, name: `raid-banner${extname(path)}` };
