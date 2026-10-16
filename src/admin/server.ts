@@ -219,6 +219,7 @@ export function createApp(client: Client<true>) {
       channelId: pickChannel(guild, body.alertsChannel, 'Канал оповещений', errors),
       roleId: pickRole(guild, body.alertsRole, 'Роль для упоминания', errors),
       lateCancelHours: Number(text(body.lateCancelHours)),
+      incidentChannelId: pickChannel(guild, body.incidentChannel, 'Канал инцидентов', errors),
     };
     next.raids.gatherMinutes = Number(text(body.gatherMinutes));
     next.raids.attendanceMinutes = Number(text(body.attendanceMinutes));

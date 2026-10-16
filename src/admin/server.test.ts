@@ -227,11 +227,11 @@ test('лог-рейдов настраивается на странице ло�
 test('оповещения: канал, роль офицеров, пороги, голосовой канал', async () => {
   const ok = await post('/alerts', [
     ['_csrf', 'token'], ['alertsChannel', 'c2'], ['alertsRole', 'r2'], ['lateCancelHours', '2'],
-    ['gatherMinutes', '10'], ['attendanceMinutes', '20'], ['attendanceVoice', 'c3'],
+    ['gatherMinutes', '10'], ['attendanceMinutes', '20'], ['attendanceVoice', 'c3'], ['incidentChannel', 'c1'],
   ]);
   assert.equal(ok.status, 302);
   const s = getSettings();
-  assert.deepEqual(s.alerts, { channelId: 'c2', roleId: 'r2', lateCancelHours: 2 });
+  assert.deepEqual(s.alerts, { channelId: 'c2', roleId: 'r2', lateCancelHours: 2, incidentChannelId: 'c1' });
   assert.equal(s.raids.gatherMinutes, 10);
   assert.equal(s.raids.attendanceVoiceChannelId, 'c3');
 

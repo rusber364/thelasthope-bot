@@ -3,6 +3,7 @@ import { settings } from '../settings.ts';
 import { findProfanity } from '../lib/profanity.ts';
 import { logModAction } from '../lib/modlog.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
+import { reportIncident } from '../logs/incidents.ts';
 
 /** Нарушения за последнее время: «сервер:пользователь» → моменты нарушений. */
 const strikes = new Map<string, number[]>();
@@ -49,6 +50,12 @@ async function check(message: Message | PartialMessage): Promise<void> {
     ]
       .filter(Boolean)
       .join('\n'),
+  });
+  await reportIncident(message.guild, {
+    kind: 'profanity',
+    user: message.author,
+    channelId: message.channelId,
+    details: `Сообщение удалено фильтром${muted ? `, выдан мут на ${settings.profanity.muteMinutes} мин. за повторы` : ''}.\nТекст: ||${message.content.replaceAll('|', '¦').slice(0, 800)}||`,
   });
 }
 

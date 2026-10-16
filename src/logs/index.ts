@@ -1,5 +1,6 @@
 import type { Client } from 'discord.js';
 import { registerAuditLogs } from './auditLog.ts';
+import { registerIncidents } from './incidents.ts';
 import { registerInviteTracking } from './invites.ts';
 import { registerMemberLogs } from './members.ts';
 import { registerMessageLogs } from './messages.ts';
@@ -12,4 +13,5 @@ export function registerLogs(client: Client): void {
   registerMessageLogs(client);
   registerVoiceLogs(client);
   registerAuditLogs(client);
+  registerIncidents(client);
 }

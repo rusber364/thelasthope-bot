@@ -301,6 +301,11 @@ export function alertsPage(ctx: PageContext, s: BotSettings, channels: Option[],
         <input type="number" name="lateCancelHours" min="0" max="72" value="${s.alerts.lateCancelHours}">
       </div>
       <div class="card">
+        <h3 style="margin:0">Модераторам</h3>
+        <label>Канал инцидентов <span class="hint">— мат, вход совсем нового аккаунта, массовые упоминания; карточка с кнопками «Мут 1 ч», «Бан», «Пропустить»</span></label>
+        ${select('incidentChannel', channels, s.alerts.incidentChannelId, '— не присылать —')}
+      </div>
+      <div class="card">
         <h3 style="margin:0">Рейды</h3>
         <div class="row">
           <div><label>«Сбор!» в канале реги — за сколько минут до начала</label><input type="number" name="gatherMinutes" min="0" max="120" value="${s.raids.gatherMinutes}"></div>

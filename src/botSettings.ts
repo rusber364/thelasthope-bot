@@ -114,6 +114,8 @@ export interface BotSettings {
     roleId: string | null;
     /** Отписка или «под вопросом» меньше чем за столько часов до рейда — поздняя. 0 — не следить. */
     lateCancelHours: number;
+    /** Канал модераторов для карточек инцидентов с кнопками (null — выключено). */
+    incidentChannelId: string | null;
   };
 }
 
@@ -156,7 +158,7 @@ function defaults(): BotSettings {
       moderation: { channelId: env(config.modLogChannelId), enabled: true },
       raids: { channelId: null, enabled: true },
     },
-    alerts: { channelId: null, roleId: null, lateCancelHours: 3 },
+    alerts: { channelId: null, roleId: null, lateCancelHours: 3, incidentChannelId: null },
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
     raidTemplates: [],
