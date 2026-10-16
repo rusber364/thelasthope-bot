@@ -60,6 +60,8 @@ There is no build step and no linter. `pnpm deploy` must be re-run whenever a co
 
 **Officer alerts.** `logs/alerts.ts::sendAlert` posts to `settings.alerts.channelId` and pings `alerts.roleId`. Sources: late cancellations (`raids/handlers.ts::alertIfLate`) and attendance (`raids/attendance.ts`, pure `computeAttendance` + `reportAttendance`, stored in `raid_attendance`). The scheduler also sends the «Сбор!» call (`reminded_gather`) and runs the attendance check (`attendance_done`); scheduled raids can ping `schedule.pingRoleId` on open.
 
+**Temporary channels.** `/tempchannel` creates a text or voice channel and stores its expiry in `temp_channels`; `lib/tempChannels.ts` deletes expired ones on ready and every minute (a voice channel with people waits until it is empty).
+
 **Auto-clean.** `lib/autoClean.ts` runs on ready and every 10 min over `settings.autoClean`: fetches only messages older than the cutoff (snowflake `before`), skips pinned (and the bot's own if `keepBot`), bulk-deletes those younger than 14 days in chunks of 100 and deletes older ones one by one (max 25 per pass). Deleted ids go through `markDeletedByBot` so the message log skips them (bulk included) and gets one summary instead.
 
 **Timed roles.** `/rolepanel … hours:N` encodes the duration in the button customId (`role:<roleId>:<hours>`); grants are stored in `temp_roles` and `lib/tempRoles.ts` removes expired ones on ready and every minute.

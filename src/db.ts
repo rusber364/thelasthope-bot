@@ -116,6 +116,14 @@ db.exec(`
     PRIMARY KEY (raid_id, user_id)
   );
 
+  -- Временные каналы: когда удалить.
+  CREATE TABLE IF NOT EXISTS temp_channels (
+    channel_id TEXT    PRIMARY KEY,
+    guild_id   TEXT    NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_by TEXT    NOT NULL
+  );
+
   -- Роли с панели на время: когда снять.
   CREATE TABLE IF NOT EXISTS temp_roles (
     guild_id   TEXT    NOT NULL,

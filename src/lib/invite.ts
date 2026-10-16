@@ -16,6 +16,7 @@ export const BOT_PERMISSIONS = [
   PermissionFlagsBits.ViewAuditLog, // журнал аудита — для лог-сервер и лог-модерация
   PermissionFlagsBits.ManageGuild, // счётчики приглашений — только для «кто кого пригласил»
   PermissionFlagsBits.CreateEvents, // события Discord для рег
+  PermissionFlagsBits.ManageChannels, // временные каналы (/tempchannel)
 ];
 
 /** Ссылка, по которой бота добавляют на сервер — сразу с нужными правами и слэш-командами. */
