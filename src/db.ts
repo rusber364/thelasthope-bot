@@ -116,6 +116,15 @@ db.exec(`
     PRIMARY KEY (raid_id, user_id)
   );
 
+  -- Роли с панели на время: когда снять.
+  CREATE TABLE IF NOT EXISTS temp_roles (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    role_id    TEXT    NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, role_id)
+  );
+
   -- Живой список ближайших рейдов: какое сообщение бот обновляет.
   CREATE TABLE IF NOT EXISTS raid_boards (
     guild_id   TEXT PRIMARY KEY,

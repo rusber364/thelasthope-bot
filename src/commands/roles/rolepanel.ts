@@ -12,6 +12,7 @@ import {
 import type { Command } from '../../types.ts';
 import { ROLE_BUTTON_PREFIX, roleButtonProblem } from '../../lib/roleButtons.ts';
 import { replyEphemeral } from '../../lib/reply.ts';
+import { formatDuration } from '../../lib/time.ts';
 
 const ROLE_OPTIONS = ['role1', 'role2', 'role3', 'role4', 'role5'];
 
@@ -26,12 +27,14 @@ export const rolepanel: Command = {
     .addRoleOption((option) => option.setName('role4').setDescription('Роль 4'))
     .addRoleOption((option) => option.setName('role5').setDescription('Роль 5'))
     .addStringOption((option) => option.setName('description').setDescription('Текст под заголовком').setMaxLength(1000))
+    .addIntegerOption((option) => option.setName('hours').setDescription('Роль на время: через сколько часов снимется сама (пусто — навсегда)').setMinValue(1).setMaxValue(720))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setContexts(InteractionContextType.Guild),
 
   async execute(interaction) {
     const title = interaction.options.getString('title', true);
     const description = interaction.options.getString('description') ?? 'Нажми кнопку, чтобы взять роль. Нажми ещё раз — чтобы снять.';
+    const hours = interaction.options.getInteger('hours');
 
     // Собираем выбранные роли без повторов.
     const roles = new Map<string, Role>();
@@ -63,11 +66,19 @@ export const rolepanel: Command = {
     const embed = new EmbedBuilder()
       .setColor(Colors.Blurple)
       .setTitle(title)
-      .setDescription([description, '', ...[...roles.values()].map((role) => `• ${role}`)].join('\n'));
+      .setDescription(
+        [
+          description,
+          ...(hours ? [`-# Роль выдаётся на ${formatDuration(hours * 60 * 60 * 1000)} и потом снимается сама.`] : []),
+          '',
+          ...[...roles.values()].map((role) => `• ${role}`),
+        ].join('\n'),
+      );
 
+    // Срок роли — в самой кнопке (role:<id>:<часы>), чтобы панель работала и после перезапуска бота.
     const buttons = [...roles.values()].map((role) =>
       new ButtonBuilder()
-        .setCustomId(ROLE_BUTTON_PREFIX + role.id)
+        .setCustomId(ROLE_BUTTON_PREFIX + role.id + (hours ? `:${hours}` : ''))
         .setLabel(role.name.slice(0, 80))
         .setStyle(ButtonStyle.Secondary),
     );

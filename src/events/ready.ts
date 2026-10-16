@@ -7,6 +7,7 @@ import { refreshStickies } from '../lib/sticky.ts';
 import { refreshBoard } from '../raids/board.ts';
 import { ensureAppEmojis } from '../raids/emojis.ts';
 import { startRaidScheduler } from '../raids/scheduler.ts';
+import { startTempRoleExpiry } from '../lib/tempRoles.ts';
 
 /** Срабатывает один раз, когда бот подключился и загрузил список серверов. */
 export function registerReadyEvent(client: Client): void {
@@ -31,6 +32,7 @@ export function registerReadyEvent(client: Client): void {
 
     await ensureAppEmojis(readyClient);
     startRaidScheduler(readyClient);
+    startTempRoleExpiry(readyClient);
     startAdmin(readyClient);
   });
 }
