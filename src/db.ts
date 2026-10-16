@@ -106,6 +106,13 @@ db.exec(`
     updated_at        INTEGER NOT NULL
   );
 
+  -- Живой список ближайших рейдов: какое сообщение бот обновляет.
+  CREATE TABLE IF NOT EXISTS raid_boards (
+    guild_id   TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    message_id TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS raid_images (
     raid_id INTEGER PRIMARY KEY REFERENCES raids(id) ON DELETE CASCADE,
     name    TEXT    NOT NULL,

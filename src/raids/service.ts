@@ -2,6 +2,7 @@
 import { MessageFlags, PermissionFlagsBits, TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
 import { settings } from '../settings.ts';
 import { classById, specById } from './classes.ts';
+import { requestBoardRefresh } from './board.ts';
 import { specEmoji } from './emojis.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
 import {
@@ -41,6 +42,7 @@ export async function publishRaid(
   try {
     const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId, image));
     setRaidMessage(raid.id, message.id);
+    requestBoardRefresh(channel.client, raid.guildId);
     return { ...raid, messageId: message.id };
   } catch (error) {
     deleteRaid(raid.id); // чтобы планировщик попробовал создать её ещё раз
@@ -78,6 +80,7 @@ export function refreshRaidMessage(client: Client, raidId: number): Promise<void
 
 async function redraw(client: Client, raidId: number): Promise<void> {
   const raid = getRaid(raidId);
+  if (raid) requestBoardRefresh(client, raid.guildId); // запись, отмена, закрытие — список ближайших рейдов тоже
   if (!raid?.messageId) return;
   try {
     const channel = await client.channels.fetch(raid.channelId);

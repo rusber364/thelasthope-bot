@@ -16,6 +16,7 @@ import { config } from '../config.ts';
 import { applyBranding, brandingError } from '../lib/branding.ts';
 import { syncVoiceRoles } from '../lib/voiceRoles.ts';
 import { refreshStickies } from '../lib/sticky.ts';
+import { refreshBoard } from '../raids/board.ts';
 import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
@@ -414,8 +415,12 @@ export function createApp(client: Client<true>) {
       channelId: pickChannel(guild, body.archiveChannel, 'Канал-архив', errors),
       hours: Number(text(body.archiveHours)),
     };
+    next.raids.boardChannelId = pickChannel(guild, body.boardChannel, 'Канал со списком рейдов', errors);
     next.raids.schedules = readSchedules(guild, body, errors);
-    return save(c, next, errors, 'Расписание рег', '/raids', (s, e) => raidsPage(ctx(c, 'raids', { errors: e }), s, textChannels(guild), roleOptions(guild)));
+    const response = await save(c, next, errors, 'Расписание рег', '/raids', (s, e) => raidsPage(ctx(c, 'raids', { errors: e }), s, textChannels(guild), roleOptions(guild)));
+    // Список ближайших рейдов сразу появляется в новом канале (или убирается, если канал сняли).
+    if (response.status === 302) await refreshBoard(client, guild.id).catch((error) => console.error('Список рейдов:', error));
+    return response;
   });
   app.post('/raids/add', async (c) => {
     const next = structuredClone(getSettings());

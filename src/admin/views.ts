@@ -347,11 +347,15 @@ export function raidsPage(ctx: PageContext, s: BotSettings, channels: Option[], 
     <form method="post">${csrfField(ctx)}
       <div class="card row">
         <div><label>Мест в основном составе <span class="hint">— по умолчанию</span></label><input type="number" name="defaultSize" min="1" max="100" value="${s.raids.defaultSize}"></div>
-        <div><label>Время рейда для /raid create <span class="hint">— если не указано</span></label><input type="time" name="defaultTime" value="${s.raids.defaultTime}"></div>
+        <div><label>Время рейда по умолчанию <span class="hint">— для /raid quick и кнопок в личке</span></label><input type="time" name="defaultTime" value="${s.raids.defaultTime}"></div>
       </div>
       <div class="card row">
         <div><label>Временная роль участникам <span class="hint">— выдаётся при записи</span></label>${select('tempRole', roles, s.raids.tempRoleId, '— не выдавать —')}</div>
         <div><label>Снимать через (часов после начала)</label><input type="number" name="tempRoleHours" min="1" max="48" value="${s.raids.tempRoleHours}"></div>
+      </div>
+      <div class="card">
+        <label>Живой список ближайших рейдов <span class="hint">— одно сообщение со всеми открытыми регами, бот обновляет его сам</span></label>
+        ${select('boardChannel', channels, s.raids.boardChannelId, '— не показывать —')}
       </div>
       <div class="card">
         <label>Архив прошедших рег</label>

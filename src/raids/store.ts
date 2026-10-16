@@ -118,6 +118,14 @@ export function listRaids(guildId: string, status: RaidStatus, limit = 25): Raid
     .map((row) => toRaid(row as Row));
 }
 
+/** Открытые реги сервера — ближайшие первыми. */
+export function upcomingRaids(guildId: string, limit = 20): Raid[] {
+  return db
+    .prepare("SELECT * FROM raids WHERE guild_id = ? AND status = 'open' ORDER BY starts_at ASC LIMIT ?")
+    .all(guildId, limit)
+    .map((row) => toRaid(row as Row));
+}
+
 /** Открытые реги, рейд которых уже начался, — пора закрывать запись. */
 export function raidsToClose(now: number): Raid[] {
   return db

@@ -4,6 +4,7 @@ import { inviteUrl } from '../lib/invite.ts';
 import { cacheInvites } from '../logs/invites.ts';
 import { syncVoiceRoles } from '../lib/voiceRoles.ts';
 import { refreshStickies } from '../lib/sticky.ts';
+import { refreshBoard } from '../raids/board.ts';
 import { ensureAppEmojis } from '../raids/emojis.ts';
 import { startRaidScheduler } from '../raids/scheduler.ts';
 
@@ -25,6 +26,7 @@ export function registerReadyEvent(client: Client): void {
       // Пока бот был выключен, люди могли зайти в голосовые или выйти из них — сверяем голосовые роли.
       await syncVoiceRoles(guild).catch((error) => console.error('Не удалось сверить голосовые роли:', error));
       await refreshStickies(guild).catch((error) => console.error('Не удалось обновить закрепы:', error));
+      await refreshBoard(readyClient, guild.id).catch((error) => console.error('Не удалось обновить список рейдов:', error));
     }
 
     await ensureAppEmojis(readyClient);
