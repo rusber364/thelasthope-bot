@@ -16,6 +16,7 @@ import { cleanupRaidRoles } from './tempRole.ts';
 import { uiEmoji } from './emojis.ts';
 import { describeSignup, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { syncRaidEventLater } from './events.ts';
+import { sendPersonalReminders } from './personalReminders.ts';
 import {
   getSignups,
   markAttendanceDone,
@@ -42,6 +43,7 @@ export function startRaidScheduler(client: Client<true>): void {
     try {
       await openScheduledRaids(client);
       await sendReminders(client);
+      await sendPersonalReminders(client);
       await sendGatherCalls(client);
       await closeStartedRaids(client);
       await checkAttendance(client);

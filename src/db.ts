@@ -107,6 +107,15 @@ db.exec(`
     updated_at        INTEGER NOT NULL
   );
 
+  -- Личные напоминания: за сколько минут до рейда написать человеку в личку.
+  CREATE TABLE IF NOT EXISTS raid_personal_reminders (
+    raid_id INTEGER NOT NULL REFERENCES raids(id) ON DELETE CASCADE,
+    user_id TEXT    NOT NULL,
+    minutes INTEGER NOT NULL,
+    sent    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (raid_id, user_id)
+  );
+
   -- Живой список ближайших рейдов: какое сообщение бот обновляет.
   CREATE TABLE IF NOT EXISTS raid_boards (
     guild_id   TEXT PRIMARY KEY,

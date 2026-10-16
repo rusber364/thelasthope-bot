@@ -10,6 +10,7 @@ import { ROLES, classById, specById, specsOf } from './classes.ts';
 import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
 import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
+import { chooseReminder, showReminderMenu } from './personalReminders.ts';
 import { describeSignup, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignup, type Raid, type Signup } from './store.ts';
 
@@ -27,6 +28,8 @@ export const raidHandler: ComponentHandler = {
     else if (action === 'spec') await chooseSpec(interaction, raid);
     else if (action === 'maybe') await toggleMaybe(interaction, raid);
     else if (action === 'leave') await leave(interaction, raid);
+    else if (action === 'remind') await showReminderMenu(interaction, raid);
+    else if (action === 'remindset') await chooseReminder(interaction, raid);
   },
 };
 

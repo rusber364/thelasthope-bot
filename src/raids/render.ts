@@ -180,6 +180,11 @@ function buildControls(raid: Raid) {
       .setStyle(ButtonStyle.Secondary)
       .setEmoji(uiComponentEmoji('leave'))
       .setLabel('Отписаться'),
+    new ButtonBuilder()
+      .setCustomId(`raid:remind:${raid.id}`)
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji(uiComponentEmoji('countdown'))
+      .setLabel('Напомнить'),
   ];
 
   return [

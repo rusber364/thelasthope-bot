@@ -104,6 +104,41 @@ export function setRaidStatus(id: number, status: RaidStatus): void {
 /** Перенести рейд: новое время начала, напоминания и «Сбор!» — заново от него. */
 export function setRaidStart(id: number, startsAt: number): void {
   db.prepare('UPDATE raids SET starts_at = ?, reminded_day = 0, reminded_hour = 0, reminded_gather = 0 WHERE id = ?').run(startsAt, id);
+  db.prepare('UPDATE raid_personal_reminders SET sent = 0 WHERE raid_id = ?').run(id);
+}
+
+// --- Личные напоминания («Напомнить» на реге) ---
+
+export function getPersonalReminder(raidId: number, userId: string): number | null {
+  const row = db.prepare('SELECT minutes FROM raid_personal_reminders WHERE raid_id = ? AND user_id = ?').get(raidId, userId) as { minutes: number } | undefined;
+  return row ? Number(row.minutes) : null;
+}
+
+/** minutes = null — убрать напоминание. */
+export function setPersonalReminder(raidId: number, userId: string, minutes: number | null): void {
+  if (minutes === null) {
+    db.prepare('DELETE FROM raid_personal_reminders WHERE raid_id = ? AND user_id = ?').run(raidId, userId);
+    return;
+  }
+  db.prepare(
+    'INSERT INTO raid_personal_reminders (raid_id, user_id, minutes) VALUES (?, ?, ?) ON CONFLICT (raid_id, user_id) DO UPDATE SET minutes = excluded.minutes, sent = 0',
+  ).run(raidId, userId, minutes);
+}
+
+/** Личные напоминания, которым пора: рега открыта, до начала осталось не больше выбранных минут. */
+export function duePersonalReminders(now: number): { raidId: number; userId: string; minutes: number }[] {
+  return (
+    db
+      .prepare(
+        `SELECT r.raid_id, r.user_id, r.minutes FROM raid_personal_reminders r JOIN raids ON raids.id = r.raid_id
+         WHERE r.sent = 0 AND raids.status = 'open' AND raids.starts_at > ? AND raids.starts_at - r.minutes * 60000 <= ?`,
+      )
+      .all(now, now) as { raid_id: number; user_id: string; minutes: number }[]
+  ).map((row) => ({ raidId: Number(row.raid_id), userId: String(row.user_id), minutes: Number(row.minutes) }));
+}
+
+export function markPersonalReminderSent(raidId: number, userId: string): void {
+  db.prepare('UPDATE raid_personal_reminders SET sent = 1 WHERE raid_id = ? AND user_id = ?').run(raidId, userId);
 }
 
 /** Событие Discord, созданное для реги (null — его нет). */
