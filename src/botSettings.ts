@@ -44,6 +44,13 @@ export interface VoiceRoleLink {
 }
 export const ARCHIVE_MODES: ArchiveMode[] = ['off', 'move', 'delete'];
 
+/** Автоочистка канала: удалять сообщения старше hours часов (закреплённые — никогда, сообщения бота — если keepBot выключено). */
+export interface AutoCleanRule {
+  channelId: string;
+  hours: number;
+  keepBot: boolean;
+}
+
 /** Шаблон реги: заготовка для создания в два клика из админки. */
 export interface RaidTemplate {
   /** Не меняется после создания — по нему находят шаблон при создании реги. */
@@ -94,6 +101,8 @@ export interface BotSettings {
   sticky: { intervalSeconds: number; items: { channelId: string; text: string }[] };
   /** Шаблоны рег (страница «Шаблоны рег» в админке). */
   raidTemplates: RaidTemplate[];
+  /** Автоочистка каналов. */
+  autoClean: AutoCleanRule[];
   /** Прощание при выходе участника. Подстановки: {user} {name} {server} {members}. */
   farewell: { channelId: string | null; text: string };
   /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {auth} {welcome} {role}. */
@@ -108,7 +117,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, templates: 25, templateDescription: 1000 };
+export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, templates: 25, templateDescription: 1000, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -151,6 +160,7 @@ function defaults(): BotSettings {
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
     raidTemplates: [],
+    autoClean: [],
     farewell: { channelId: null, text: '**{name}** покидает {server}. Удачи в Азероте! 👋 Нас теперь {members}.' },
     welcomeDm: {
       enabled: false,
@@ -271,6 +281,16 @@ export function validateSettings(s: BotSettings): string[] {
     if (!t.channelId) errors.push(`${name}: выбери канал.`);
   });
   if (s.raidTemplates.length > LIMITS.templates) errors.push(`Шаблонов рег — не больше ${LIMITS.templates}.`);
+
+  s.autoClean.forEach((rule, index) => {
+    const name = `Автоочистка ${index + 1}`;
+    if (!rule.channelId) errors.push(`${name}: выбери канал.`);
+    if (!Number.isInteger(rule.hours) || rule.hours < 1 || rule.hours > LIMITS.autoCleanHours) {
+      errors.push(`${name}: срок — целое число часов от 1 до ${LIMITS.autoCleanHours}.`);
+    }
+  });
+  if (new Set(s.autoClean.map((rule) => rule.channelId)).size !== s.autoClean.length) errors.push('Автоочистка: у канала может быть только одно правило.');
+  if (s.autoClean.length > LIMITS.autoCleanChannels) errors.push(`Автоочистка: не больше ${LIMITS.autoCleanChannels} каналов.`);
 
   s.voiceRoles.forEach((link, index) => {
     if (!link.channelId || !link.roleId) errors.push(`Голосовая роль ${index + 1}: нужны и голосовой канал, и роль.`);

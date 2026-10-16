@@ -429,3 +429,20 @@ test('шаблоны рег: сохранить, создать регу на д
   assert.deepEqual(getSettings().raidTemplates, []);
   assert.equal((await post(`/templates/${template.id}/create`, [['_csrf', 'token'], ['date', tomorrow]])).status, 404);
 });
+
+test('автоочистка: правило сохраняется, неверный срок — ошибка, правило убирается галочкой', async () => {
+  const page = await (await app.request('/autoclean', { headers: { Cookie: await cookieFor(ADMIN) } })).text();
+  assert.match(page, /Автоочистка каналов/);
+
+  const bad = await post('/autoclean', [['_csrf', 'token'], ['count', '1'], ['ac0_channel', 'c2'], ['ac0_hours', '0'], ['ac0_keepBot', 'on']]);
+  assert.equal(bad.status, 400);
+  assert.match(await bad.text(), /срок — целое число часов от 1 до 720/);
+
+  const ok = await post('/autoclean', [['_csrf', 'token'], ['count', '2'], ['ac0_channel', 'c2'], ['ac0_hours', '48'], ['ac1_channel', ''], ['ac1_hours', '24'], ['ac1_keepBot', 'on']]);
+  assert.equal(ok.status, 302);
+  assert.deepEqual(getSettings().autoClean, [{ channelId: 'c2', hours: 48, keepBot: false }]);
+
+  const removed = await post('/autoclean', [['_csrf', 'token'], ['count', '1'], ['ac0_channel', 'c2'], ['ac0_hours', '48'], ['ac0_delete', 'on']]);
+  assert.equal(removed.status, 302);
+  assert.deepEqual(getSettings().autoClean, []);
+});

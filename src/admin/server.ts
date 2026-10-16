@@ -11,7 +11,8 @@ import {
   type GuildMember,
 } from 'discord.js';
 import { Hono, type Context } from 'hono';
-import { LOG_CATEGORIES, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings, type RaidSchedule, type RaidTemplate, type VoiceRoleLink } from '../botSettings.ts';
+import { LOG_CATEGORIES, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings, type RaidSchedule, type RaidTemplate, type VoiceRoleLink, type AutoCleanRule } from '../botSettings.ts';
+import { runAutoClean } from '../lib/autoClean.ts';
 import { parseDate, parseTime, toEpochMs } from '../lib/time.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { config } from '../config.ts';
@@ -32,6 +33,7 @@ import { listRaids } from '../raids/store.ts';
 import { clearSession, finishLogin, readSession, saveSession, startLogin, type Session } from './auth.ts';
 import {
   alertsPage,
+  autoCleanPage,
   channelsPage,
   deniedPage,
   homePage,
@@ -441,6 +443,19 @@ export function createApp(client: Client<true>) {
     }
   });
 
+  // --- Автоочистка ---
+  app.get('/autoclean', (c) => c.html(autoCleanPage(ctx(c, 'autoclean'), getSettings(), textChannels(c.get('guild')))));
+  app.post('/autoclean', async (c) => {
+    const guild = c.get('guild');
+    const next = structuredClone(getSettings());
+    const errors: string[] = [];
+    next.autoClean = readAutoClean(guild, c.get('body'), errors);
+    const response = await save(c, next, errors, 'Автоочистка', '/autoclean', (s, e) => autoCleanPage(ctx(c, 'autoclean', { errors: e }), s, textChannels(guild)));
+    // Новые правила применяются сразу, не дожидаясь следующего прохода.
+    if (response.status === 302) void runAutoClean(client).catch((error) => console.error('Автоочистка:', error));
+    return response;
+  });
+
   // --- Липкие сообщения ---
   app.get('/sticky', (c) => c.html(stickyPage(ctx(c, 'sticky'), getSettings(), textChannels(c.get('guild')))));
   app.post('/sticky', async (c) => {
@@ -637,6 +652,22 @@ function readStickies(guild: Guild, body: Body, errors: string[]): { channelId: 
     items.push({ channelId: pickChannel(guild, channelRaw, `Липкое сообщение ${i + 1}`, errors) ?? '', text: stickyText });
   }
   return items;
+}
+
+function readAutoClean(guild: Guild, body: Body, errors: string[]): AutoCleanRule[] {
+  const count = Number(text(body.count)) || 0;
+  const rules: AutoCleanRule[] = [];
+  for (let i = 0; i < count; i++) {
+    if (text(body[`ac${i}_delete`]) === 'on') continue;
+    const channelRaw = text(body[`ac${i}_channel`]);
+    if (!channelRaw) continue; // пустая строка для нового
+    rules.push({
+      channelId: pickChannel(guild, channelRaw, `Автоочистка ${i + 1}`, errors) ?? '',
+      hours: Number(text(body[`ac${i}_hours`])),
+      keepBot: text(body[`ac${i}_keepBot`]) === 'on',
+    });
+  }
+  return rules;
 }
 
 function readTemplates(guild: Guild, body: Body, errors: string[]): RaidTemplate[] {

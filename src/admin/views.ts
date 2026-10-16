@@ -20,7 +20,7 @@ export interface Option {
 export interface PageContext {
   user: { name: string; avatar: string | null };
   csrf: string;
-  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'templates' | 'sticky';
+  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'templates' | 'sticky' | 'autoclean';
   notice?: string;
   errors?: string[];
 }
@@ -35,6 +35,7 @@ const NAV: [PageContext['active'], string, string][] = [
   ['raids', '/raids', 'Расписание рег'],
   ['templates', '/templates', 'Шаблоны рег'],
   ['sticky', '/sticky', 'Липкие сообщения'],
+  ['autoclean', '/autoclean', 'Автоочистка'],
 ];
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -660,6 +661,32 @@ export function pollResultsPage(ctx: PageContext, info: PollResultsInfo, stats: 
       </div>`,
     )}
     ${info.published ? html`<script>try { localStorage.removeItem('tlh-poll-draft'); } catch {}</script>` : ''}`,
+  );
+}
+
+export function autoCleanPage(ctx: PageContext, s: BotSettings, channels: Option[]): Html {
+  const rows = [...s.autoClean, { channelId: '', hours: 24, keepBot: true }];
+  return layout(
+    'Автоочистка',
+    ctx,
+    html`<h1>Автоочистка каналов</h1>
+    <p class="lead">Бот раз в 10 минут удаляет в выбранных каналах сообщения старше указанного срока — например, во флуде или ЛФГ. Закреплённые сообщения не трогает никогда. Сообщения старше 14 дней Discord не даёт удалять пачкой — их бот убирает по одному, понемногу за проход. Вместо записи на каждое сообщение в «лог-сообщения» приходит одна сводка. Последняя строка — для нового канала.</p>
+    <form method="post">${csrfField(ctx)}
+      <input type="hidden" name="count" value="${rows.length}">
+      ${rows.map(
+        (rule, i) => html`<div class="card">
+          <div class="row">
+            <div><label>Канал</label>${select(`ac${i}_channel`, channels, rule.channelId || null)}</div>
+            <div><label>Удалять сообщения старше (часов)</label><input type="number" name="ac${i}_hours" min="1" max="720" value="${rule.hours}"></div>
+          </div>
+          <div class="actions">
+            <label class="check"><input type="checkbox" name="ac${i}_keepBot" ${rule.keepBot ? 'checked' : ''}> не трогать сообщения бота (реги, опросы, закрепы)</label>
+            ${rule.channelId ? html`<label class="check"><input type="checkbox" name="ac${i}_delete"> убрать правило</label>` : ''}
+          </div>
+        </div>`,
+      )}
+      <div class="actions"><button>Сохранить</button></div>
+    </form>`,
   );
 }
 

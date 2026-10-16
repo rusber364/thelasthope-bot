@@ -5,7 +5,7 @@ import { LOG_COLORS, isLogChannel, sendLog } from './send.ts';
 
 const TEXT_LIMIT = 1000;
 
-/** ID сообщений, которые бот удалил сам (фильтр мата) — их удаление уже записано в «лог-модерация». */
+/** ID сообщений, которые бот удалил сам (фильтр мата, автоочистка) — их удаление он записывает сам. */
 const deletedByBot = new Set<string>();
 
 export function markDeletedByBot(messageId: string): void {
@@ -68,6 +68,11 @@ export function registerMessageLogs(client: Client): void {
 
   client.on(Events.MessageBulkDelete, async (messages, channel) => {
     if (isLogChannel(channel.id)) return;
+    // Пачку удалил сам бот (автоочистка) — сводку он запишет сам.
+    if (messages.every((m) => deletedByBot.has(m.id))) {
+      messages.forEach((m) => deletedByBot.delete(m.id));
+      return;
+    }
     const authors = new Set(messages.filter((m) => !m.partial).map((m) => (m.partial ? '' : m.author.tag)));
     const embed = new EmbedBuilder()
       .setColor(LOG_COLORS.delete)
