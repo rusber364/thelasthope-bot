@@ -67,7 +67,7 @@
 
 ## 🔧 Запустить бота
 
-Инструкция по установке и устройству бота — в **[docs/development.md](docs/development.md)**.
+Инструкция по установке и устройству бота — в **[docs/development.md](docs/development.md)**. Как поселить бота на сервер, чтобы он работал круглосуточно, — **[docs/deploy.md](docs/deploy.md)**.
 
 ---
 

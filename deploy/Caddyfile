@@ -1,0 +1,8 @@
+# Caddy сам получает и продлевает HTTPS-сертификат Let's Encrypt для домена.
+# Замени admin.example.com на свой домен (A-запись домена должна указывать на IP сервера).
+# Установка: sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+admin.example.com {
+	encode gzip
+	# Админка слушает только 127.0.0.1 — снаружи к ней можно попасть только через Caddy по HTTPS.
+	reverse_proxy 127.0.0.1:3000
+}

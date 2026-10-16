@@ -76,6 +76,10 @@ There is no build step and no linter. `pnpm deploy` must be re-run whenever a co
 
 **Other features.** Welcome message and the public poll message use Components V2 (`MessageFlags.IsComponentsV2`; such messages can't contain embeds or `content`). The profanity filter (`src/lib/profanity.ts`) normalizes text (lookalike letters, separators, repeated letters, spaced letters) then matches roots with a whitelist; when changing it, add cases to `profanity.test.ts` (both caught and must-not-trigger words).
 
+## Deployment
+
+`docs/deploy.md` is the VPS guide (Ubuntu, Node 26, systemd unit in `deploy/thelasthope-bot.service`, Caddy reverse proxy with automatic HTTPS in `deploy/Caddyfile`, `ADMIN_URL=https://…` switches the admin to secure cookies). `lib/backup.ts` copies the DB online with `node:sqlite` `backup()` into `data/backups/` once a day (checked hourly, also on start) and keeps 14 copies; `pnpm backup` does it manually. Only one bot instance may run per token — two instances handle every event twice.
+
 ## Conventions
 
 - User-facing Russian text addresses the user with «ты» and avoids gendered forms (no «записался/уверен»; rephrase neutrally).

@@ -13,6 +13,7 @@
     "start": "node --env-file=.env src/index.ts",
     "deploy": "node --env-file=.env src/deploy-commands.ts",
     "brand": "node --env-file=.env src/scripts/brand.ts",
+    "backup": "node src/scripts/backup.ts",
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc"
   },

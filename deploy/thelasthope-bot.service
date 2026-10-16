@@ -1,0 +1,23 @@
+# Служба systemd для бота: запуск при загрузке сервера и автоперезапуск при сбое.
+# Установка (см. docs/deploy.md):
+#   sudo cp deploy/thelasthope-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now thelasthope-bot
+[Unit]
+Description=The Last Hope — бот гильдии
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tlh
+WorkingDirectory=/opt/thelasthope-bot
+ExecStart=/usr/bin/node --env-file=.env src/index.ts
+Restart=always
+RestartSec=10
+# Бот и админка не должны трогать ничего за пределами своей папки.
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/thelasthope-bot/data
+
+[Install]
+WantedBy=multi-user.target

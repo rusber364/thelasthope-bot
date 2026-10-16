@@ -10,6 +10,7 @@ import { startRaidScheduler } from '../raids/scheduler.ts';
 import { startTempRoleExpiry } from '../lib/tempRoles.ts';
 import { startAutoClean } from '../lib/autoClean.ts';
 import { startTempChannelExpiry } from '../lib/tempChannels.ts';
+import { startDailyBackup } from '../lib/backup.ts';
 
 /** Срабатывает один раз, когда бот подключился и загрузил список серверов. */
 export function registerReadyEvent(client: Client): void {
@@ -37,6 +38,7 @@ export function registerReadyEvent(client: Client): void {
     startTempRoleExpiry(readyClient);
     startAutoClean(readyClient);
     startTempChannelExpiry(readyClient);
+    startDailyBackup();
     startAdmin(readyClient);
   });
 }
