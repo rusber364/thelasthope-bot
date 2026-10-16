@@ -1,13 +1,15 @@
 import { Events, MessageFlags, type Client, type GuildMember } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { buildWelcome } from '../welcome/welcome.ts';
+import { sendWelcomeDm } from '../welcome/dm.ts';
 
-/** Новый участник зашёл на сервер: выдаём автороль и пишем приветствие. */
+/** Новый участник зашёл на сервер: выдаём автороль, пишем приветствие в канал и (если включено) в личку. */
 export function registerWelcomeEvent(client: Client): void {
   client.on(Events.GuildMemberAdd, async (member) => {
     if (member.user.bot) return;
     await giveAutorole(member);
     await sendWelcome(member);
+    await sendWelcomeDm(member);
   });
 }
 

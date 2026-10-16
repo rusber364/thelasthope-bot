@@ -15,6 +15,7 @@ const { getSettings } = await import('../botSettings.ts');
 const channel = (id: string, name: string, type = ChannelType.GuildText) => ({ id, name, type, rawPosition: Number(id.slice(1)), parent: null, isSendable: () => false });
 const role = (id: string, name: string, position: number, extra = {}) => ({ id, name, position, managed: false, editable: true, ...extra });
 const ADMIN = '10';
+const dms: { content?: string }[] = [];
 const guild = {
   id: 'g1',
   name: 'Тест',
@@ -22,7 +23,13 @@ const guild = {
   channels: { cache: new Collection([channel('c1', 'приветствие'), channel('c2', 'лог-голос'), channel('c3', 'голос', ChannelType.GuildVoice)].map((c) => [c.id, c])) },
   roles: { cache: new Collection([role('g1', '@everyone', 0), role('r1', 'Гость', 1), role('r2', 'Офицер', 5, { editable: false })].map((r) => [r.id, r])) },
   members: {
-    fetch: async (id: string) => ({ id, permissions: { has: () => id === ADMIN } }),
+    fetch: async (id: string) => ({
+      id,
+      displayName: 'Тестер',
+      guild,
+      permissions: { has: () => id === ADMIN },
+      send: async (payload: { content?: string }) => void dms.push(payload),
+    }),
     // Для сверки голосовых ролей после сохранения: на подставном сервере никого нет.
     cache: { filter: () => ({ map: () => [] }), get: () => undefined },
   },
@@ -160,6 +167,28 @@ test('прощание: канал и текст сохраняются, пус�
   const empty = await post('/farewell', [['_csrf', 'token'], ['farewellChannel', 'c2'], ['farewellText', '  ']]);
   assert.equal(empty.status, 400);
   assert.match(await empty.text(), /Текст прощания: не может быть пустым/);
+});
+
+test('приветствие в личку: галочка, текст и пробная отправка', async () => {
+  const page = await (await app.request('/welcome', { headers: { Cookie: await cookieFor(ADMIN) } })).text();
+  assert.match(page, /Приветствие в личку/);
+  assert.equal(getSettings().welcomeDm.enabled, false, 'по умолчанию выключено');
+
+  const on = await post('/welcome/dm', [['_csrf', 'token'], ['dmEnabled', 'on'], ['dmText', 'Привет, {name}! Это {server}.']]);
+  assert.equal(on.status, 302);
+  assert.deepEqual(getSettings().welcomeDm, { enabled: true, text: 'Привет, {name}! Это {server}.' });
+
+  const off = await post('/welcome/dm', [['_csrf', 'token'], ['dmText', 'Привет, {name}! Это {server}.']]);
+  assert.equal(off.status, 302);
+  assert.equal(getSettings().welcomeDm.enabled, false, 'снятая галочка выключает');
+
+  const empty = await post('/welcome/dm', [['_csrf', 'token'], ['dmEnabled', 'on'], ['dmText', ' ']]);
+  assert.equal(empty.status, 400);
+  assert.match(await empty.text(), /Приветствие в личку: не может быть пустым/);
+
+  const trial = await post('/welcome/dm/test', [['_csrf', 'token']]);
+  assert.match(decodeURIComponent(trial.headers.get('location') ?? ''), /отправлено тебе в личку/);
+  assert.equal(dms.at(-1)?.content, 'Привет, Тестер! Это Тест.');
 });
 
 test('лог-рейдов настраивается на странице логов', async () => {

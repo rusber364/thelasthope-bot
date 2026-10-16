@@ -18,6 +18,7 @@ import { syncVoiceRoles } from '../lib/voiceRoles.ts';
 import { refreshStickies } from '../lib/sticky.ts';
 import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
+import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
 import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
 import { listPolls } from '../polls/store.ts';
 import { listRaids } from '../raids/store.ts';
@@ -226,6 +227,24 @@ export function createApp(client: Client<true>) {
   app.post('/welcome/test', async (c) => {
     const sent = await sendWelcome(c.get('member'));
     return done(c, '/welcome', sent ? 'Пробное приветствие отправлено в канал приветствия.' : 'Канал приветствия не выбран или боту туда нельзя писать.');
+  });
+
+  // --- Приветствие в личку ---
+  app.post('/welcome/dm', async (c) => {
+    const body = c.get('body');
+    const next = structuredClone(getSettings());
+    next.welcomeDm = { enabled: text(body.dmEnabled) === 'on', text: text(body.dmText) };
+    return save(c, next, [], 'Приветствие в личку', '/welcome', (s, e) => welcomePage(ctx(c, 'welcome', { errors: e }), s, textChannels(c.get('guild'))));
+  });
+  app.post('/welcome/dm/test', async (c) => {
+    const result = await sendWelcomeDm(c.get('member'), true);
+    const messages: Record<WelcomeDmResult, string> = {
+      sent: 'Пробное приветствие отправлено тебе в личку.',
+      closed: 'Не получилось: у тебя закрыты личные сообщения от участников сервера (ПКМ по иконке сервера → Настройки конфиденциальности).',
+      failed: 'Не получилось отправить — подробности в консоли бота.',
+      off: '',
+    };
+    return done(c, '/welcome', messages[result]);
   });
 
   // --- Прощание ---

@@ -77,6 +77,8 @@ export interface BotSettings {
   sticky: { intervalSeconds: number; items: { channelId: string; text: string }[] };
   /** Прощание при выходе участника. Подстановки: {user} {name} {server} {members}. */
   farewell: { channelId: string | null; text: string };
+  /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {auth} {welcome} {role}. */
+  welcomeDm: { enabled: boolean; text: string };
   /** Оповещения офицерам: посещаемость, поздние отписки. */
   alerts: {
     channelId: string | null;
@@ -128,6 +130,13 @@ function defaults(): BotSettings {
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
     farewell: { channelId: null, text: '**{name}** покидает {server}. Удачи в Азероте! 👋 Нас теперь {members}.' },
+    welcomeDm: {
+      enabled: false,
+      text:
+        'Привет, {name}! 👋 Добро пожаловать в **{server}** — гильдию Альянса в Warcraft Forever.\n\n' +
+        'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Пройди {auth}.\n3. Возьми роль «{role}» кнопкой в {welcome}.\n\n' +
+        'Есть вопросы — пиши офицерам. До встречи в Азероте! ⚔️',
+    },
   };
 }
 
@@ -188,6 +197,7 @@ export function validateSettings(s: BotSettings): string[] {
     ['Текст кнопки роли', s.welcome.guestButton, LIMITS.button],
     ['Текст кнопки правил', s.welcome.rulesButton, LIMITS.button],
     ['Текст прощания', s.farewell.text, LIMITS.text],
+    ['Приветствие в личку', s.welcomeDm.text, LIMITS.text],
   ];
   for (const [name, value, max] of texts) {
     if (!value.trim()) errors.push(`${name}: не может быть пустым.`);

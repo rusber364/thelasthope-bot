@@ -244,6 +244,17 @@ export function welcomePage(ctx: PageContext, s: BotSettings, channels: Option[]
         <button class="secondary" formaction="/welcome/test">Прислать пробное приветствие (с тобой в роли новичка)</button>
       </div>
     </form>
+    <h1 style="margin-top:28px">Приветствие в личку</h1>
+    <p class="lead">Кроме приветствия в канале, бот может написать новичку в личные сообщения: памятку и кнопки-ссылки на правила и авторизацию. Подстановки: <code>{name}</code> — имя, <code>{user}</code> — упоминание, <code>{server}</code> — сервер, <code>{rules}</code>, <code>{auth}</code>, <code>{welcome}</code> — каналы правил, авторизации и приветствия, <code>{role}</code> — роль «Гость». Если у новичка закрыта личка, бот просто пропустит его.</p>
+    <form method="post" action="/welcome/dm" class="card">${csrfField(ctx)}
+      <label class="check"><input type="checkbox" name="dmEnabled" ${s.welcomeDm.enabled ? 'checked' : ''}> присылать новичкам в личку</label>
+      <label>Текст</label><textarea name="dmText" style="min-height:150px">${s.welcomeDm.text}</textarea>
+      <div class="actions">
+        <button>Сохранить</button>
+        <button class="secondary" formaction="/welcome/dm/test">Прислать пробное тебе в личку</button>
+      </div>
+      <p class="hint">Пробное сообщение приходит с сохранённым текстом, даже если галочка снята.</p>
+    </form>
     <h1 style="margin-top:28px">Прощание</h1>
     <p class="lead">Когда участник уходит с сервера, бот пишет в выбранный канал. Подстановки: <code>{user}</code> — упоминание, <code>{name}</code> — имя, <code>{server}</code> — сервер, <code>{members}</code> — сколько осталось участников.</p>
     <form method="post" action="/farewell" class="card">${csrfField(ctx)}
