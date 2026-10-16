@@ -386,7 +386,7 @@ test('опросы: шаблон, ошибки по строкам, предпр
   saveResponse(anonymous.id, '20', { answers: { q1: ['o1'] }, done: [0] }, true);
   const hidden = await (await get(`/polls/${anonymous.id}?view=users`)).text();
   assert.match(hidden, /Опрос анонимный — ответы по участникам не показываются/);
-  assert.doesNotMatch(hidden, /Тестер/);
+  assert.doesNotMatch(hidden, /details class="person"/, 'карточек людей нет');
 
   const foreign = createPoll('другой-сервер', 'x', stored.definition, 'u');
   assert.equal((await get(`/polls/${foreign.id}`)).status, 404);
