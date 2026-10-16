@@ -11,6 +11,8 @@ export interface StoredPoll {
   createdBy: string;
   createdAt: number;
   closed: boolean;
+  /** Исходный текст опроса (у опросов из старых версий бота — null). */
+  source: string | null;
 }
 
 export interface PollResponse {
@@ -32,6 +34,7 @@ function toPoll(row: Row): StoredPoll {
     createdBy: String(row.created_by),
     createdAt: Number(row.created_at),
     closed: Boolean(row.closed),
+    source: row.source == null ? null : String(row.source),
   };
 }
 
@@ -44,10 +47,10 @@ function toResponse(row: Row): PollResponse {
   };
 }
 
-export function createPoll(guildId: string, channelId: string, definition: PollDefinition, createdBy: string): StoredPoll {
+export function createPoll(guildId: string, channelId: string, definition: PollDefinition, createdBy: string, source: string | null = null): StoredPoll {
   const row = db
-    .prepare('INSERT INTO polls (guild_id, channel_id, definition, created_by, created_at) VALUES (?, ?, ?, ?, ?) RETURNING *')
-    .get(guildId, channelId, JSON.stringify(definition), createdBy, Date.now());
+    .prepare('INSERT INTO polls (guild_id, channel_id, definition, created_by, created_at, source) VALUES (?, ?, ?, ?, ?, ?) RETURNING *')
+    .get(guildId, channelId, JSON.stringify(definition), createdBy, Date.now(), source);
   return toPoll(row as Row);
 }
 
@@ -90,6 +93,14 @@ export function saveResponse(pollId: number, userId: string, state: PollState, c
 
 export function resetResponse(pollId: number, userId: string): void {
   db.prepare('DELETE FROM poll_responses WHERE poll_id = ? AND user_id = ?').run(pollId, userId);
+}
+
+/** Сколько человек начали опрос (total) и сколько из них дошли до конца (completed). */
+export function countResponses(pollId: number): { total: number; completed: number } {
+  const row = db
+    .prepare('SELECT COUNT(*) AS total, COUNT(completed_at) AS completed FROM poll_responses WHERE poll_id = ?')
+    .get(pollId) as { total: number; completed: number };
+  return { total: Number(row.total), completed: Number(row.completed) };
 }
 
 export function listResponses(pollId: number): PollResponse[] {

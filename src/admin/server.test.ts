@@ -10,26 +10,45 @@ process.env.DISCORD_CLIENT_SECRET = 'x';
 
 const { createApp } = await import('./server.ts');
 const { getSettings } = await import('../botSettings.ts');
+const { createPoll, getPoll, saveResponse } = await import('../polls/store.ts');
 
 // Подставной «Discord»: сервер с двумя текстовыми каналами, голосовым и ролями.
 const channel = (id: string, name: string, type = ChannelType.GuildText) => ({ id, name, type, rawPosition: Number(id.slice(1)), parent: null, isSendable: () => false });
 const role = (id: string, name: string, position: number, extra = {}) => ({ id, name, position, managed: false, editable: true, ...extra });
 const ADMIN = '10';
 const dms: { content?: string }[] = [];
+// Канал для опросов: туда бот может писать, а сообщение опроса — найти и перерисовать.
+const pollPosts: { files?: unknown[]; components?: unknown[] }[] = [];
+const pollEdits: unknown[] = [];
+const pollChannel = {
+  ...channel('c4', 'опросы'),
+  guildId: 'g1',
+  isSendable: () => true,
+  isTextBased: () => true,
+  send: async (payload: { files?: unknown[] }) => {
+    pollPosts.push(payload);
+    return { id: `m${pollPosts.length}`, url: `https://discord.com/channels/g1/c4/m${pollPosts.length}` };
+  },
+  messages: { fetch: async () => ({ attachments: new Map(), edit: async (payload: unknown) => void pollEdits.push(payload) }) },
+};
+const member = (id: string) => ({
+  id,
+  displayName: 'Тестер',
+  user: { username: 'tester' },
+  guild,
+  permissions: { has: () => id === ADMIN },
+  send: async (payload: { content?: string }) => void dms.push(payload),
+});
 const guild = {
   id: 'g1',
   name: 'Тест',
   memberCount: 5,
-  channels: { cache: new Collection([channel('c1', 'приветствие'), channel('c2', 'лог-голос'), channel('c3', 'голос', ChannelType.GuildVoice)].map((c) => [c.id, c])) },
+  channels: { cache: new Collection([channel('c1', 'приветствие'), channel('c2', 'лог-голос'), channel('c3', 'голос', ChannelType.GuildVoice), pollChannel].map((c) => [c.id, c])) },
   roles: { cache: new Collection([role('g1', '@everyone', 0), role('r1', 'Гость', 1), role('r2', 'Офицер', 5, { editable: false })].map((r) => [r.id, r])) },
   members: {
-    fetch: async (id: string) => ({
-      id,
-      displayName: 'Тестер',
-      guild,
-      permissions: { has: () => id === ADMIN },
-      send: async (payload: { content?: string }) => void dms.push(payload),
-    }),
+    // Один участник по id или несколько ({ user: [...] }) — для имён в итогах опросов.
+    fetch: async (arg: string | { user: string[] }) =>
+      typeof arg === 'string' ? member(arg) : new Collection(arg.user.map((id) => [id, member(id)])),
     // Для сверки голосовых ролей после сохранения: на подставном сервере никого нет.
     cache: { filter: () => ({ map: () => [] }), get: () => undefined },
   },
@@ -274,4 +293,84 @@ test('расписание: несколько дней, удаление и п�
   const bad = await post('/raids', base.map(([k, v]) => [k, k === 's0_raidTime' ? '25:99' : v]));
   assert.equal(bad.status, 400);
   assert.match(await bad.text(), /время рейда/);
+});
+
+test('опросы: шаблон, ошибки по строкам, предпросмотр, публикация, итоги, таблица, копия, закрытие', async () => {
+  const cookie = { Cookie: await cookieFor(ADMIN) };
+  const get = async (path: string) => app.request(path, { headers: cookie });
+  const postForm = async (fields: [string, string | Blob][]) => {
+    const body = new FormData();
+    for (const [key, value] of fields) body.append(key, value);
+    return app.request('/polls/new', { method: 'POST', headers: cookie, body });
+  };
+
+  assert.match(await (await get('/polls')).text(), /Опросов пока нет/);
+  const editor = await (await get('/polls/new')).text();
+  assert.match(editor, /Warcraft Forever — формат гильдии/, 'открывается шаблон');
+  assert.match(editor, /data-draft="restore"/);
+
+  const broken = await postForm([['_csrf', 'token'], ['action', 'check'], ['source', '# Опрос\n\n### Вопрос без страницы']]);
+  assert.equal(broken.status, 400);
+  assert.match(await broken.text(), /data-line="3">Строка 3: вопрос должен быть внутри блока/);
+
+  const source = '# Рейды осенью\n\n## Дни\n\n### Какие дни удобны? *\n[ ] Четверг\n[ ] Пятница\n\n### Пожелания\nОтвет: длинный\n\n## Про четверг\nЕсли: Какие дни удобны? != Четверг\n\n### Почему не четверг?\nОтвет: короткий\n';
+  const preview = await postForm([['_csrf', 'token'], ['action', 'check'], ['source', source]]);
+  assert.equal(preview.status, 200);
+  const previewPage = await preview.text();
+  assert.match(previewPage, /Предпросмотр/);
+  assert.match(previewPage, /Показывается, только если «Какие дни удобны\?» ≠ «Четверг»/);
+
+  const noChannel = await postForm([['_csrf', 'token'], ['action', 'publish'], ['source', source]]);
+  assert.equal(noChannel.status, 400);
+  assert.match(await noChannel.text(), /Выбери канал/);
+  assert.equal(pollPosts.length, 0);
+
+  const image = new File([new Uint8Array([137, 80, 78, 71])], 'осень.png', { type: 'image/png' });
+  const published = await postForm([['_csrf', 'token'], ['action', 'publish'], ['source', source], ['channel', 'c4'], ['role', 'r1'], ['image', image]]);
+  assert.equal(published.status, 302);
+  const location = published.headers.get('location') ?? '';
+  const id = Number(/\/polls\/(\d+)\?published=1/.exec(location)?.[1]);
+  assert.ok(id, location);
+  assert.equal(pollPosts.length, 1);
+  assert.equal(pollPosts[0]!.files?.length, 1, 'картинка ушла вложением');
+  const stored = getPoll(id)!;
+  assert.equal(stored.source, source);
+  assert.equal(stored.messageId, 'm1');
+  assert.equal(stored.definition.mentionRoleId, 'r1');
+
+  saveResponse(id, '20', { answers: { q1: ['o1', 'o2'], q2: ['Пораньше бы'] }, done: [0] }, true);
+  saveResponse(id, '21', { answers: { q1: ['o2'] }, done: [0] }, false);
+  const results = await (await get(location)).text();
+  assert.match(results, /Опрос опубликован/);
+  assert.match(results, /<b>1<\/b>завершили/);
+  assert.match(results, /50% · 1/);
+  assert.match(results, /100% · 2/);
+  assert.match(results, /Тестер \(@tester\):<\/b> Пораньше бы/);
+  assert.match(results, /localStorage\.removeItem/, 'после публикации черновик забывается');
+
+  const list = await (await get('/polls')).text();
+  assert.match(list, /Рейды осенью/);
+  assert.match(list, /\+1 не закончили/);
+
+  const csv = await get(`/polls/${id}/csv`);
+  assert.match(csv.headers.get('content-type') ?? '', /text\/csv/);
+  const bytes = Buffer.from(await csv.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], 'BOM для Excel');
+  const table = bytes.toString('utf8');
+  assert.match(table, /Какие дни удобны\?/);
+  assert.match(table, /Тестер \(@tester\)/);
+
+  const copy = await (await get(`/polls/new?from=${id}`)).text();
+  assert.match(copy, /data-draft="keep"/);
+  assert.match(copy, /Почему не четверг\?/);
+
+  const closed = await post(`/polls/${id}/close`, [['_csrf', 'token']]);
+  assert.equal(closed.status, 302);
+  assert.equal(getPoll(id)!.closed, true);
+  assert.equal(pollEdits.length, 1, 'сообщение опроса перерисовано');
+  assert.doesNotMatch(await (await get(`/polls/${id}`)).text(), /Закрыть опрос<\/button>/);
+
+  const foreign = createPoll('другой-сервер', 'x', stored.definition, 'u');
+  assert.equal((await get(`/polls/${foreign.id}`)).status, 404);
+  assert.equal((await get('/polls/999')).status, 404);
 });

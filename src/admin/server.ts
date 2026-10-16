@@ -20,7 +20,11 @@ import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
 import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
-import { listPolls } from '../polls/store.ts';
+import { countResponses, getPoll, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
+import { parsePollFile } from '../polls/format.ts';
+import { buildResultsCsv } from '../polls/render.ts';
+import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, closeAndRedraw, memberNames, pollStats, publishPoll } from '../polls/service.ts';
+import { settings } from '../settings.ts';
 import { listRaids } from '../raids/store.ts';
 import { clearSession, finishLogin, readSession, saveSession, startLogin, type Session } from './auth.ts';
 import {
@@ -30,17 +34,24 @@ import {
   homePage,
   loginPage,
   logsPage,
+  pollEditorPage,
+  pollResultsPage,
+  pollsPage,
   raidsPage,
   stickyPage,
   welcomePage,
   type Option,
   type PageContext,
+  type PollEditorResult,
+  type PollForm,
 } from './views.ts';
 
 type Body = Record<string, string | File | (string | File)[]>;
 type Env = { Variables: { session: Session; member: GuildMember; guild: Guild; body: Body } };
 
 const LOGO = new URL('../../logo.jpg', import.meta.url);
+const POLL_TEMPLATE = new URL('../../examples/poll-example.txt', import.meta.url);
+const MAX_POLL_SOURCE = 200 * 1024;
 const PUBLIC_PATHS = new Set(['/', '/login', '/auth/callback', '/logo.jpg', '/logout']);
 
 export function startAdmin(client: Client<true>): void {
@@ -261,6 +272,118 @@ export function createApp(client: Client<true>) {
     return done(c, '/welcome', sent ? 'Пробное прощание отправлено в канал прощаний.' : 'Канал прощаний не выбран или боту туда нельзя писать.');
   });
 
+  // --- Опросы ---
+  app.get('/polls', (c) => {
+    const guild = c.get('guild');
+    const rows = listPolls(guild.id, 100).map((poll) => ({
+      id: poll.id,
+      title: poll.definition.title,
+      channel: channelName(guild, poll.channelId),
+      closed: poll.closed,
+      ...countResponses(poll.id),
+      createdAt: formatDateTime(poll.createdAt),
+      url: messageUrl(poll),
+    }));
+    return c.html(pollsPage(ctx(c, 'polls'), rows));
+  });
+  app.get('/polls/new', async (c) => {
+    const guild = c.get('guild');
+    const copy = guildPoll(guild, c.req.query('from'));
+    const form: PollForm = copy?.source
+      ? { source: copy.source, channelId: copy.channelId, roleId: copy.definition.mentionRoleId ?? null, draft: 'keep' }
+      : { source: (await readFile(POLL_TEMPLATE, 'utf8')).replace(/\r\n/g, '\n'), channelId: null, roleId: null, draft: c.req.query('fresh') ? 'reset' : 'restore' };
+    return c.html(pollEditorPage(ctx(c, 'polls'), form, textChannels(guild), mentionRoles(guild), {}));
+  });
+  app.post('/polls/new', async (c) => {
+    const guild = c.get('guild');
+    const body = c.get('body');
+    const form: PollForm = { source: rawText(body.source), channelId: text(body.channel) || null, roleId: text(body.role) || null, draft: 'keep' };
+    const page = (result: PollEditorResult, status: 200 | 400) =>
+      c.html(pollEditorPage(ctx(c, 'polls'), form, textChannels(guild), mentionRoles(guild), result), status);
+
+    if (form.source.length > MAX_POLL_SOURCE) return page({ errors: ['Текст опроса слишком длинный (больше 200 КБ).'] }, 400);
+    const parsed = parsePollFile(form.source);
+    if (!parsed.ok) return page({ errors: parsed.errors }, 400);
+    if (text(body.action) !== 'publish') return page({ preview: parsed.poll }, 200);
+
+    const errors: string[] = [];
+    const channelId = pickChannel(guild, body.channel, 'Канал опроса', errors);
+    if (!channelId && !errors.length) errors.push('Выбери канал, куда опубликовать опрос.');
+    const roleId = pickRole(guild, body.role, 'Роль для упоминания', errors);
+    const image = body.image instanceof File && body.image.size > 0 ? body.image : null;
+    if (image && (!image.type.startsWith('image/') || image.size > MAX_IMAGE_SIZE)) errors.push('Картинка должна быть изображением до 8 МБ.');
+    const channel = channelId ? guild.channels.cache.get(channelId) : undefined;
+    const me = guild.members.me;
+    if (channel?.isTextBased() && me && !channel.permissionsFor(me)?.has(PUBLISH_PERMISSIONS)) {
+      errors.push(`В #${channel.name} боту нужны права: видеть канал, отправлять сообщения и прикреплять файлы.`);
+    }
+    if (errors.length || !channel?.isTextBased()) return page({ preview: parsed.poll, publishErrors: errors }, 400);
+
+    try {
+      const { poll } = await publishPoll(channel, parsed.poll, c.get('session').userId, {
+        ...(image ? { image: { data: Buffer.from(await image.arrayBuffer()), fileName: image.name } } : {}),
+        ...(roleId ? { mentionRoleId: roleId } : {}),
+        source: form.source,
+      });
+      await logPollAction(c, LOG_COLORS.create, 'Опрос опубликован через админку', poll);
+      return c.redirect(`/polls/${poll.id}?published=1&ok=${encodeURIComponent('Опрос опубликован.')}`);
+    } catch (error) {
+      console.error('Не удалось опубликовать опрос из админки:', error);
+      return page({ preview: parsed.poll, publishErrors: ['Discord не принял сообщение — подробности в консоли бота.'] }, 400);
+    }
+  });
+  app.get('/polls/:id{[0-9]+}', async (c) => {
+    const guild = c.get('guild');
+    const poll = guildPoll(guild, c.req.param('id'));
+    if (!poll) return c.notFound();
+    const stats = pollStats(poll, listResponses(poll.id));
+    const authors = [...new Set(stats.questions.flatMap((q) => q.texts.map((t) => t.userId)).filter((id): id is string => id !== null))];
+    const names = authors.length ? await memberNames(guild, authors) : new Map<string, string>();
+    const info = {
+      id: poll.id,
+      title: poll.definition.title,
+      channel: channelName(guild, poll.channelId),
+      url: messageUrl(poll),
+      closed: poll.closed,
+      anonymous: poll.definition.anonymous,
+      canCopy: poll.source !== null,
+      published: c.req.query('published') === '1',
+    };
+    return c.html(pollResultsPage(ctx(c, 'polls'), info, stats, names));
+  });
+  app.get('/polls/:id{[0-9]+}/csv', async (c) => {
+    const guild = c.get('guild');
+    const poll = guildPoll(guild, c.req.param('id'));
+    if (!poll) return c.notFound();
+    const responses = listResponses(poll.id);
+    const names = poll.definition.anonymous ? new Map<string, string>() : await memberNames(guild, responses.map((r) => r.userId));
+    return c.body(buildResultsCsv(poll, responses, names), 200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="poll-${poll.id}.csv"`,
+    });
+  });
+  app.post('/polls/:id{[0-9]+}/close', async (c) => {
+    const guild = c.get('guild');
+    const poll = guildPoll(guild, c.req.param('id'));
+    if (!poll) return c.notFound();
+    if (poll.closed) return done(c, `/polls/${poll.id}`, 'Опрос уже закрыт.');
+    await closeAndRedraw(guild, poll);
+    await logPollAction(c, LOG_COLORS.delete, 'Опрос закрыт через админку', poll);
+    return done(c, `/polls/${poll.id}`, 'Опрос закрыт: новые ответы больше не принимаются.');
+  });
+
+  /** Запись в «лог-сервер» о действии с опросом из админки. */
+  async function logPollAction(c: Context<Env>, color: number, title: string, poll: StoredPoll): Promise<void> {
+    await sendLog(
+      c.get('guild'),
+      'server',
+      new EmbedBuilder()
+        .setColor(color)
+        .setTitle(title)
+        .setDescription(`**Кто:** <@${c.get('session').userId}>\n**Опрос:** #${poll.id} «${poll.definition.title}»\n**Канал:** <#${poll.channelId}>`),
+    );
+  }
+
   // --- Липкие сообщения ---
   app.get('/sticky', (c) => c.html(stickyPage(ctx(c, 'sticky'), getSettings(), textChannels(c.get('guild')))));
   app.post('/sticky', async (c) => {
@@ -341,6 +464,36 @@ export function createApp(client: Client<true>) {
 function text(value: Body[string] | undefined): string {
   const first = Array.isArray(value) ? value[0] : value;
   return typeof first === 'string' ? first.replace(/\r\n/g, '\n').trim() : '';
+}
+
+/** Как text(), но без обрезки пробелов: номера строк в ошибках опроса должны совпадать с текстом в поле. */
+function rawText(value: Body[string] | undefined): string {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === 'string' ? first.replace(/\r\n/g, '\n') : '';
+}
+
+/** Опрос этого сервера по id из адреса; чужие и несуществующие — null. */
+function guildPoll(guild: Guild, id: string | undefined): StoredPoll | null {
+  const poll = id && /^\d+$/.test(id) ? getPoll(Number(id)) : null;
+  return poll?.guildId === guild.id ? poll : null;
+}
+
+function channelName(guild: Guild, channelId: string): string {
+  const channel = guild.channels.cache.get(channelId);
+  return channel ? `#${channel.name}` : 'канал удалён';
+}
+
+function messageUrl(poll: StoredPoll): string | null {
+  return poll.messageId ? `https://discord.com/channels/${poll.guildId}/${poll.channelId}/${poll.messageId}` : null;
+}
+
+function formatDateTime(ms: number): string {
+  return new Date(ms).toLocaleString('ru-RU', { timeZone: settings.timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Роли для упоминания: высота роли не важна, поэтому без предупреждений «выше роли бота». */
+function mentionRoles(guild: Guild): Option[] {
+  return roleOptions(guild).map(({ id, name }) => ({ id, name }));
 }
 
 function list(value: Body[string] | undefined): string[] {

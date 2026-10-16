@@ -3,6 +3,8 @@
 import { html } from 'hono/html';
 import type { HtmlEscapedString } from 'hono/utils/html';
 import { LOG_CATEGORIES, LOG_LABELS, type ArchiveMode, type BotSettings, type RaidSchedule } from '../botSettings.ts';
+import { estimatedMinutes, questionCount, type PollDefinition, type QuestionKind } from '../polls/format.ts';
+import type { PollStats } from '../polls/service.ts';
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -18,7 +20,7 @@ export interface Option {
 export interface PageContext {
   user: { name: string; avatar: string | null };
   csrf: string;
-  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'raids' | 'sticky';
+  active: 'home' | 'channels' | 'logs' | 'alerts' | 'welcome' | 'polls' | 'raids' | 'sticky';
   notice?: string;
   errors?: string[];
 }
@@ -29,6 +31,7 @@ const NAV: [PageContext['active'], string, string][] = [
   ['logs', '/logs', 'Логи'],
   ['alerts', '/alerts', 'Оповещения'],
   ['welcome', '/welcome', 'Приветствие'],
+  ['polls', '/polls', 'Опросы'],
   ['raids', '/raids', 'Расписание рег'],
   ['sticky', '/sticky', 'Липкие сообщения'],
 ];
@@ -69,6 +72,16 @@ const STYLE = html`<style>
   .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; } .stat b { display:block; font-size:22px; }
   .login { max-width:420px; margin:80px auto; text-align:center; } .login img { width:160px; border-radius:16px; }
   code { background:#232842; padding:1px 5px; border-radius:4px; }
+  textarea.code { font:13px/1.5 Consolas, "Cascadia Mono", monospace; min-height:440px; tab-size:2; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-size:13px; font-weight:600; } tr:last-child td { border-bottom:0; }
+  a.link, td a, .errors a { color:#8ea1ff; }
+  .tag { font-size:12px; padding:1px 8px; border-radius:10px; background:#2b3150; color:var(--muted); white-space:nowrap; } .tag.open { background:#1f3b2a; color:var(--green); }
+  .opt { display:grid; grid-template-columns:minmax(0,1fr) 180px 90px; gap:10px; align-items:center; margin:6px 0; } @media (max-width:640px){ .opt { grid-template-columns:1fr 90px; } .opt .bar { display:none; } }
+  .bar { background:#232842; border-radius:4px; height:10px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--gold); }
+  .num { color:var(--muted); font-size:13px; text-align:right; white-space:nowrap; }
+  ul.answers { margin:8px 0 0; padding-left:18px; } ul.answers li { margin:4px 0; white-space:pre-wrap; }
+  .preview ol { padding-left:20px; } .preview li { margin:6px 0; } .preview ul { color:var(--muted); margin:4px 0; }
 </style>`;
 
 function layout(title: string, ctx: PageContext | null, body: Html): Html {
@@ -382,6 +395,218 @@ export function stickyPage(ctx: PageContext, s: BotSettings, channels: Option[])
       )}
       <div class="actions"><button>Сохранить</button></div>
     </form>`,
+  );
+}
+
+// --- Опросы ---
+
+export interface PollRow {
+  id: number;
+  title: string;
+  channel: string;
+  closed: boolean;
+  total: number;
+  completed: number;
+  createdAt: string;
+  url: string | null;
+}
+
+export function pollsPage(ctx: PageContext, rows: PollRow[]): Html {
+  return layout(
+    'Опросы',
+    ctx,
+    html`<h1>Опросы</h1>
+    <p class="lead">Опросы на несколько страниц с условиями — то же, что <code>/poll create</code>, только в браузере: написать, проверить, опубликовать, смотреть итоги.</p>
+    <div class="actions" style="margin:0 0 16px"><a href="/polls/new"><button type="button">Новый опрос</button></a></div>
+    ${rows.length
+      ? html`<div class="card"><table>
+          <tr><th>#</th><th>Опрос</th><th>Канал</th><th>Ответы</th><th>Статус</th><th>Создан</th></tr>
+          ${rows.map(
+            (row) => html`<tr>
+              <td>${row.id}</td>
+              <td><a href="/polls/${row.id}">${row.title}</a></td>
+              <td>${row.url ? html`<a href="${row.url}" target="_blank" rel="noopener">${row.channel}</a>` : row.channel}</td>
+              <td>${row.completed}${row.total > row.completed ? html` <span class="hint">+${row.total - row.completed} не закончили</span>` : ''}</td>
+              <td>${row.closed ? html`<span class="tag">закрыт</span>` : html`<span class="tag open">открыт</span>`}</td>
+              <td class="hint">${row.createdAt}</td>
+            </tr>`,
+          )}
+        </table></div>`
+      : html`<div class="card">Опросов пока нет. Нажми «Новый опрос» — откроется шаблон с подсказками.</div>`}`,
+  );
+}
+
+export interface PollForm {
+  source: string;
+  channelId: string | null;
+  roleId: string | null;
+  /** Черновик в браузере: restore — подставить сохранённый, reset — забыть, keep — не трогать. */
+  draft: 'restore' | 'reset' | 'keep';
+}
+
+export interface PollEditorResult {
+  /** Ошибки в тексте опроса («Строка N: …»). */
+  errors?: string[];
+  /** Почему не получилось опубликовать (канал, картинка, права). */
+  publishErrors?: string[];
+  preview?: PollDefinition;
+}
+
+const KIND_LABELS: Record<QuestionKind, string> = {
+  single: 'один вариант',
+  multiple: 'несколько вариантов',
+  short: 'короткий ответ текстом',
+  paragraph: 'длинный ответ текстом',
+};
+
+export function pollEditorPage(ctx: PageContext, form: PollForm, channels: Option[], roles: Option[], result: PollEditorResult): Html {
+  const lineOf = (error: string) => /^Строка (\d+)/.exec(error)?.[1] ?? '';
+  return layout(
+    'Новый опрос',
+    ctx,
+    html`<p><a class="link" href="/polls">← Все опросы</a></p>
+    <h1>Новый опрос</h1>
+    <p class="lead">Опрос пишется текстом: <code>#</code> — заголовок, <code>##</code> — страница (до 5 вопросов), <code>###</code> — вопрос (<code>*</code> в конце — обязательный), <code>( )</code> — один вариант, <code>[ ]</code> — несколько, <code>Ответ: короткий</code> — ответ текстом, <code>Если: Вопрос = Вариант</code> — страница по условию. Строки с <code>//</code> — подсказки, бот их пропускает. «Проверить» покажет, как бот понял опрос.</p>
+    ${result.errors?.length
+      ? html`<div class="card errors"><b>Ошибки в тексте опроса</b> <span class="hint">— нажми на ошибку, чтобы перейти к строке</span>
+          <ul>${result.errors.map((error) => html`<li><a href="#" data-line="${lineOf(error)}">${error}</a></li>`)}</ul></div>`
+      : ''}
+    ${result.publishErrors?.length
+      ? html`<div class="card errors"><b>Не опубликовано:</b><ul>${result.publishErrors.map((error) => html`<li>${error}</li>`)}</ul></div>`
+      : ''}
+    <form method="post" action="/polls/new" enctype="multipart/form-data">${csrfField(ctx)}
+      <div class="card">
+        <label>Текст опроса <span class="hint">— черновик сохраняется в браузере, пока не опубликуешь</span></label>
+        <textarea name="source" class="code" spellcheck="false" data-draft="${form.draft}">${form.source}</textarea>
+      </div>
+      <div class="card">
+        <div class="row">
+          <div><label>Канал</label>${select('channel', channels, form.channelId)}</div>
+          <div><label>Упомянуть роль <span class="hint">— необязательно</span></label>${select('role', roles, form.roleId, '— никого —')}</div>
+        </div>
+        <label>Картинка <span class="hint">— файл до 8 МБ, выбери перед публикацией; или строка «Картинка: ссылка» в тексте</span></label>
+        <input type="file" name="image" accept="image/*">
+        <div class="actions">
+          <button name="action" value="check" class="secondary">Проверить</button>
+          <button name="action" value="publish" onclick="return confirm('Опубликовать опрос в выбранный канал?')">Опубликовать</button>
+          <a href="/polls/new?fresh=1"><button type="button" class="secondary" onclick="return confirm('Заменить текст шаблоном? Черновик пропадёт.')">Начать с шаблона</button></a>
+        </div>
+      </div>
+    </form>
+    ${result.preview ? pollPreview(result.preview) : ''}
+    <script>
+    (() => {
+      const area = document.querySelector('textarea[name=source]');
+      const key = 'tlh-poll-draft';
+      const storage = {
+        get() { try { return localStorage.getItem(key); } catch { return null; } },
+        set(value) { try { localStorage.setItem(key, value); } catch {} },
+        clear() { try { localStorage.removeItem(key); } catch {} },
+      };
+      if (area.dataset.draft === 'restore') { const saved = storage.get(); if (saved) area.value = saved; }
+      if (area.dataset.draft === 'reset') storage.clear();
+      area.addEventListener('input', () => storage.set(area.value));
+      // Клик по ошибке — выделить нужную строку в тексте.
+      document.querySelectorAll('[data-line]').forEach((link) => link.addEventListener('click', (event) => {
+        event.preventDefault();
+        const line = Number(link.dataset.line);
+        if (!line) return;
+        const lines = area.value.split('\\n');
+        let start = 0;
+        for (let i = 0; i < line - 1 && i < lines.length; i++) start += lines[i].length + 1;
+        area.focus();
+        area.setSelectionRange(start, start + (lines[line - 1] || '').length);
+        area.scrollTop = Math.max(0, line - 4) * (parseFloat(getComputedStyle(area).lineHeight) || 20);
+      }));
+    })();
+    </script>`,
+  );
+}
+
+/** Как бот понял опрос: страницы, условия, вопросы и варианты. */
+function pollPreview(poll: PollDefinition): Html {
+  const questions = poll.blocks.flatMap((block) => block.questions);
+  const describe = (questionId: string, value: string, negate: boolean) => {
+    const question = questions.find((q) => q.id === questionId);
+    const option = question?.options.find((o) => o.value === value);
+    return html`«${question?.title ?? questionId}» ${negate ? '≠' : '='} «${option?.label ?? value}»`;
+  };
+  return html`<h1 style="margin-top:28px">Предпросмотр</h1>
+    <p class="lead">Ошибок нет. Так бот понял опрос — проверь и жми «Опубликовать».</p>
+    <div class="card preview">
+      <b style="font-size:18px">${poll.title}</b>
+      ${poll.description ? html`<p style="white-space:pre-wrap">${poll.description}</p>` : ''}
+      ${poll.image && /^https?:\/\//.test(poll.image) ? html`<img src="${poll.image}" alt="" style="max-width:100%; border-radius:8px">` : ''}
+      <div class="hint">Кнопка «${poll.button}» · страниц: ${poll.blocks.length} · вопросов: ${questionCount(poll)} · примерно ${estimatedMinutes(poll)} мин · ${poll.anonymous ? 'анонимный — офицеры увидят только статистику' : 'офицеры увидят, кто как ответил'}</div>
+    </div>
+    ${poll.blocks.map(
+      (block, index) => html`<div class="card preview">
+        <b>Страница ${index + 1}. ${block.title}</b>
+        ${block.conditions.length
+          ? html`<div class="warn">Показывается, только если ${block.conditions.map((c, i) => html`${i ? ' и ' : ''}${describe(c.questionId, c.optionValue, c.negate)}`)}</div>`
+          : ''}
+        ${block.intro ? html`<p class="hint" style="white-space:pre-wrap">${block.intro}</p>` : ''}
+        <ol>
+          ${block.questions.map(
+            (q) => html`<li><b>${q.title}</b>${q.required ? html` <span class="warn">*</span>` : ''} <span class="hint">— ${KIND_LABELS[q.kind]}</span>
+              ${q.hint ? html`<div class="hint">${q.hint}</div>` : ''}
+              ${q.options.length
+                ? html`<ul>${q.options.map((o) => html`<li>${o.label}${o.description ? html` <span class="hint">— ${o.description}</span>` : ''}</li>`)}</ul>`
+                : ''}</li>`,
+          )}
+        </ol>
+      </div>`,
+    )}`;
+}
+
+export interface PollResultsInfo {
+  id: number;
+  title: string;
+  channel: string;
+  url: string | null;
+  closed: boolean;
+  anonymous: boolean;
+  canCopy: boolean;
+  /** Только что опубликован — забыть черновик в браузере. */
+  published: boolean;
+}
+
+export function pollResultsPage(ctx: PageContext, info: PollResultsInfo, stats: PollStats, names: Map<string, string>): Html {
+  const shownTexts = 100;
+  return layout(
+    info.title,
+    ctx,
+    html`<p><a class="link" href="/polls">← Все опросы</a></p>
+    <h1>${info.title}</h1>
+    <p class="lead">Опрос #${info.id} · ${info.channel} · ${info.closed ? 'закрыт' : 'открыт'} · ${info.anonymous ? 'анонимный' : 'с именами'}${info.url ? html` · <a class="link" href="${info.url}" target="_blank" rel="noopener">открыть в Discord</a>` : ''}</p>
+    <div class="stats">
+      <div class="card stat"><b>${stats.completed}</b>завершили</div>
+      <div class="card stat"><b>${stats.total - stats.completed}</b>начали, но не закончили</div>
+    </div>
+    <div class="actions" style="margin:0 0 16px">
+      <a href="/polls/${info.id}/csv"><button type="button" class="secondary">Скачать таблицу для Excel</button></a>
+      ${info.canCopy ? html`<a href="/polls/new?from=${info.id}"><button type="button" class="secondary">Создать копию</button></a>` : ''}
+      ${info.closed
+        ? ''
+        : html`<form method="post" action="/polls/${info.id}/close" style="margin:0" onsubmit="return confirm('Закрыть опрос? Новые ответы перестанут приниматься.')">${csrfField(ctx)}<button class="danger">Закрыть опрос</button></form>`}
+    </div>
+    ${stats.questions.map(
+      (q, index) => html`${index === 0 || stats.questions[index - 1]!.block !== q.block ? html`<h1 style="margin-top:24px; font-size:18px">${q.block}</h1>` : ''}
+      <div class="card">
+        <b>${q.title}</b> <span class="hint">— ответили: ${q.answered}</span>
+        ${q.options.map(
+          (o) => html`<div class="opt"><div>${o.label}</div><div class="bar"><i style="width:${o.percent}%"></i></div><div class="num">${o.percent}% · ${o.count}</div></div>`,
+        )}
+        ${q.kind === 'short' || q.kind === 'paragraph'
+          ? q.texts.length
+            ? html`<ul class="answers">${q.texts.slice(0, shownTexts).map(
+                (t) => html`<li>${t.userId ? html`<b>${names.get(t.userId) ?? 'ушёл с сервера'}:</b> ` : ''}${t.text}</li>`,
+              )}</ul>${q.texts.length > shownTexts ? html`<div class="hint">…ещё ${q.texts.length - shownTexts} — в таблице.</div>` : ''}`
+            : html`<div class="hint">Ответов пока нет.</div>`
+          : ''}
+      </div>`,
+    )}
+    ${info.published ? html`<script>try { localStorage.removeItem('tlh-poll-draft'); } catch {}</script>` : ''}`,
   );
 }
 
