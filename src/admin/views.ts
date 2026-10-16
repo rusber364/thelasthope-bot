@@ -83,6 +83,9 @@ const STYLE = html`<style>
   .bar { background:#232842; border-radius:4px; height:10px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--gold); }
   .num { color:var(--muted); font-size:13px; text-align:right; white-space:nowrap; }
   ul.answers { margin:8px 0 0; padding-left:18px; } ul.answers li { margin:4px 0; white-space:pre-wrap; }
+  .tabs { display:flex; gap:6px; margin:0 0 16px; } .tabs a { padding:7px 14px; border-radius:6px; background:#232842; color:var(--muted); text-decoration:none; } .tabs a.on { background:var(--blue); color:#fff; }
+  details.person { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 16px; margin-bottom:10px; } details.person summary { cursor:pointer; font-weight:600; }
+  details.person dl { margin:8px 0 0; } details.person dt { color:var(--muted); font-size:13px; margin-top:8px; } details.person dd { margin:2px 0 0; white-space:pre-wrap; }
   .preview ol { padding-left:20px; } .preview li { margin:6px 0; } .preview ul { color:var(--muted); margin:4px 0; }
 </style>`;
 
@@ -630,7 +633,22 @@ export interface PollResultsInfo {
   published: boolean;
 }
 
-export function pollResultsPage(ctx: PageContext, info: PollResultsInfo, stats: PollStats, names: Map<string, string>): Html {
+/** Один человек на вкладке «По участникам». */
+export interface RespondentView {
+  name: string;
+  completed: boolean;
+  when: string;
+  answers: { block: string; question: string; answer: string }[];
+}
+
+export function pollResultsPage(
+  ctx: PageContext,
+  info: PollResultsInfo,
+  stats: PollStats,
+  names: Map<string, string>,
+  view: 'stats' | 'users' = 'stats',
+  respondents: RespondentView[] = [],
+): Html {
   const shownTexts = 100;
   return layout(
     info.title,
@@ -649,7 +667,12 @@ export function pollResultsPage(ctx: PageContext, info: PollResultsInfo, stats: 
         ? ''
         : html`<form method="post" action="/polls/${info.id}/close" style="margin:0" onsubmit="return confirm('Закрыть опрос? Новые ответы перестанут приниматься.')">${csrfField(ctx)}<button class="danger">Закрыть опрос</button></form>`}
     </div>
-    ${stats.questions.map(
+    <nav class="tabs">
+      <a href="/polls/${info.id}" class="${view === 'stats' ? 'on' : ''}">Общая статистика</a>
+      <a href="/polls/${info.id}?view=users" class="${view === 'users' ? 'on' : ''}">По участникам (${stats.total})</a>
+    </nav>
+    ${view === 'users' ? respondentsSection(info, respondents) : ''}
+    ${view !== 'stats' ? '' : stats.questions.map(
       (q, index) => html`${index === 0 || stats.questions[index - 1]!.block !== q.block ? html`<h1 style="margin-top:24px; font-size:18px">${q.block}</h1>` : ''}
       <div class="card">
         <b>${q.title}</b> <span class="hint">— ответили: ${q.answered}</span>
@@ -667,6 +690,22 @@ export function pollResultsPage(ctx: PageContext, info: PollResultsInfo, stats: 
     )}
     ${info.published ? html`<script>try { localStorage.removeItem('tlh-poll-draft'); } catch {}</script>` : ''}`,
   );
+}
+
+function respondentsSection(info: PollResultsInfo, respondents: RespondentView[]): Html {
+  if (info.anonymous) return html`<div class="card">Опрос анонимный — ответы по участникам не показываются. Общая статистика — на соседней вкладке.</div>`;
+  if (!respondents.length) return html`<div class="card">Ответов пока нет.</div>`;
+  return html`<p class="hint">Нажми на имя, чтобы раскрыть ответы. Сначала те, кто дошёл до конца, внутри — свежие сверху.</p>
+    ${respondents.map(
+      (person, index) => html`<details class="person" ${index < 3 ? 'open' : ''}>
+        <summary>${person.name} <span class="hint">— ${person.completed ? 'опрос пройден' : 'опрос не закончен'} · ${person.when} · ответов: ${person.answers.length}</span></summary>
+        ${person.answers.length
+          ? html`<dl>${person.answers.map(
+              (a, i) => html`${i === 0 || person.answers[i - 1]!.block !== a.block ? html`<dt style="color:var(--gold); margin-top:12px">${a.block}</dt>` : ''}<dt>${a.question}</dt><dd>${a.answer}</dd>`,
+            )}</dl>`
+          : html`<div class="hint">Ответов на вопросы пока нет.</div>`}
+      </details>`,
+    )}`;
 }
 
 export function autoCleanPage(ctx: PageContext, s: BotSettings, channels: Option[]): Html {

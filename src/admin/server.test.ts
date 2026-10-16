@@ -354,6 +354,12 @@ test('опросы: шаблон, ошибки по строкам, предпр
   assert.match(results, /Тестер \(@tester\):<\/b> Пораньше бы/);
   assert.match(results, /localStorage\.removeItem/, 'после публикации черновик забывается');
 
+  const byUser = await (await get(`/polls/${id}?view=users`)).text();
+  assert.match(byUser, /По участникам \(2\)/);
+  assert.match(byUser, /Тестер \(@tester\) <span class="hint">— опрос пройден/);
+  assert.match(byUser, /<dt>Какие дни удобны\?<\/dt><dd>Четверг; Пятница<\/dd>/);
+  assert.match(byUser, /опрос не закончен/);
+
   const list = await (await get('/polls')).text();
   assert.match(list, /Рейды осенью/);
   assert.match(list, /\+1 не закончили/);
@@ -375,6 +381,12 @@ test('опросы: шаблон, ошибки по строкам, предпр
   assert.equal(getPoll(id)!.closed, true);
   assert.equal(pollEdits.length, 1, 'сообщение опроса перерисовано');
   assert.doesNotMatch(await (await get(`/polls/${id}`)).text(), /Закрыть опрос<\/button>/);
+
+  const anonymous = createPoll('g1', 'c4', { ...stored.definition, anonymous: true }, 'u');
+  saveResponse(anonymous.id, '20', { answers: { q1: ['o1'] }, done: [0] }, true);
+  const hidden = await (await get(`/polls/${anonymous.id}?view=users`)).text();
+  assert.match(hidden, /Опрос анонимный — ответы по участникам не показываются/);
+  assert.doesNotMatch(hidden, /Тестер/);
 
   const foreign = createPoll('другой-сервер', 'x', stored.definition, 'u');
   assert.equal((await get(`/polls/${foreign.id}`)).status, 404);

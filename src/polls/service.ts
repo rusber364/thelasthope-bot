@@ -127,3 +127,32 @@ function shuffle<T>(items: T[]): void {
     [items[i], items[j]] = [items[j]!, items[i]!];
   }
 }
+
+export interface RespondentAnswers {
+  userId: string;
+  completed: boolean;
+  updatedAt: number;
+  /** Только вопросы, на которые человек ответил, в порядке опроса. */
+  answers: { block: string; question: string; answer: string }[];
+}
+
+/** Ответы, сгруппированные по людям: сначала дошедшие до конца, внутри — свежие первыми (чистая функция). */
+export function answersByUser(poll: StoredPoll, responses: PollResponse[]): RespondentAnswers[] {
+  const questions = poll.definition.blocks.flatMap((block) => block.questions.map((question) => ({ block: block.title, question })));
+  return responses
+    .map((response) => ({
+      userId: response.userId,
+      completed: response.completedAt !== null,
+      updatedAt: response.updatedAt,
+      answers: questions.flatMap(({ block, question }) => {
+        const values = response.state.answers[question.id] ?? [];
+        if (!values.length || !values.some((v) => v.trim())) return [];
+        const answer =
+          question.kind === 'short' || question.kind === 'paragraph'
+            ? values[0]!
+            : values.map((value) => question.options.find((o) => o.value === value)?.label ?? value).join('; ');
+        return [{ block, question: question.title, answer }];
+      }),
+    }))
+    .sort((a, b) => Number(b.completed) - Number(a.completed) || b.updatedAt - a.updatedAt);
+}

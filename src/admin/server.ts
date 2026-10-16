@@ -27,7 +27,7 @@ import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
 import { countResponses, getPoll, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { parsePollFile } from '../polls/format.ts';
 import { buildResultsCsv } from '../polls/render.ts';
-import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, closeAndRedraw, memberNames, pollStats, publishPoll } from '../polls/service.ts';
+import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, memberNames, pollStats, publishPoll } from '../polls/service.ts';
 import { settings } from '../settings.ts';
 import { listRaids } from '../raids/store.ts';
 import { clearSession, finishLogin, readSession, saveSession, startLogin, type Session } from './auth.ts';
@@ -343,9 +343,25 @@ export function createApp(client: Client<true>) {
     const guild = c.get('guild');
     const poll = guildPoll(guild, c.req.param('id'));
     if (!poll) return c.notFound();
-    const stats = pollStats(poll, listResponses(poll.id));
-    const authors = [...new Set(stats.questions.flatMap((q) => q.texts.map((t) => t.userId)).filter((id): id is string => id !== null))];
-    const names = authors.length ? await memberNames(guild, authors) : new Map<string, string>();
+    const responses = listResponses(poll.id);
+    const stats = pollStats(poll, responses);
+    const view = c.req.query('view') === 'users' ? 'users' : 'stats';
+    // Имена нужны авторам текстовых ответов (статистика) или всем ответившим (вкладка «По участникам»).
+    const people =
+      view === 'users' && !poll.definition.anonymous
+        ? responses.map((r) => r.userId)
+        : stats.questions.flatMap((q) => q.texts.map((t) => t.userId)).filter((id): id is string => id !== null);
+    const unique = [...new Set(people)];
+    const names = unique.length ? await memberNames(guild, unique) : new Map<string, string>();
+    const respondents =
+      view === 'users' && !poll.definition.anonymous
+        ? answersByUser(poll, responses).map((person) => ({
+            name: names.get(person.userId) ?? `ушёл с сервера (ID ${person.userId})`,
+            completed: person.completed,
+            when: formatDateTime(person.updatedAt),
+            answers: person.answers,
+          }))
+        : [];
     const info = {
       id: poll.id,
       title: poll.definition.title,
@@ -356,7 +372,7 @@ export function createApp(client: Client<true>) {
       canCopy: poll.source !== null,
       published: c.req.query('published') === '1',
     };
-    return c.html(pollResultsPage(ctx(c, 'polls'), info, stats, names));
+    return c.html(pollResultsPage(ctx(c, 'polls'), info, stats, names, view, respondents));
   });
   app.get('/polls/:id{[0-9]+}/csv', async (c) => {
     const guild = c.get('guild');

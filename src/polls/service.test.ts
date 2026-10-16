@@ -110,3 +110,18 @@ test('закрытие: опрос закрыт в базе, сообщение 
   assert.equal(getPoll(stored.id)!.closed, true);
   assert.equal(edits.length, 1);
 });
+
+test('ответы по людям: только отвеченные вопросы, сначала дошедшие до конца, варианты — названиями', async () => {
+  const { answersByUser } = await import('./service.ts');
+  const people = answersByUser(poll(false), [
+    { ...response('u3', {}, false), updatedAt: 5 },
+    { ...response('u1', { q1: ['o1', 'o2'], q2: ['Пораньше бы'] }), updatedAt: 1 },
+    { ...response('u2', { q1: ['o2'] }), updatedAt: 3 },
+  ]);
+  assert.deepEqual(people.map((p) => [p.userId, p.completed]), [['u2', true], ['u1', true], ['u3', false]]);
+  assert.deepEqual(people[1]!.answers, [
+    { block: 'Дни', question: 'Какие дни удобны?', answer: 'Четверг; Пятница' },
+    { block: 'Дни', question: 'Пожелания', answer: 'Пораньше бы' },
+  ]);
+  assert.deepEqual(people[2]!.answers, []);
+});
