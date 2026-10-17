@@ -10,12 +10,15 @@
   },
   "scripts": {
     "dev": "node --watch --env-file=.env src/index.ts",
+    "dev:admin": "pnpm --filter admin-ui dev",
     "start": "node --env-file=.env src/index.ts",
+    "build": "pnpm --filter admin-ui build",
     "deploy": "node --env-file=.env src/deploy-commands.ts",
     "brand": "node --env-file=.env src/scripts/brand.ts",
     "backup": "node src/scripts/backup.ts",
     "test": "node --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "check:admin": "pnpm --filter admin-ui check"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

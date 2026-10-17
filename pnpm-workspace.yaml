@@ -1,0 +1,8 @@
+# Рабочая область: корень — бот, admin-ui — интерфейс админки (собирается Vite+).
+packages:
+  - admin-ui
+
+overrides:
+  # Vite+ работает со своим ядром Vite и закреплённым Vitest — так требует его установка.
+  vite: npm:@voidzero-dev/vite-plus-core@1.3.0
+  vitest: 5.0.5

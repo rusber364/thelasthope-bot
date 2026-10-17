@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-17 23:12'
-updated_date: '2026-10-17 23:20'
+updated_date: '2026-10-17 23:53'
 labels: []
 dependencies: []
 priority: high
@@ -40,4 +40,6 @@ ordinal: 15000
 
 <!-- SECTION:NOTES:BEGIN -->
 Этап 1: JSON API готов — /me, /overview, /options, /settings (+ PUT по 10 разделам с проверкой каналов/ролей и validateSettings, запись в лог-сервер, побочные действия: сверка голосовых ролей, список рейдов, закрепы, автоочистка), пробные отправки, оформление, опросы (шаблон, проверка, публикация multipart, итоги с ответами по людям, CSV, копия, закрытие), посещаемость, создание реги из шаблона. Вход: та же сессия; 401/403 JSON; CSRF — заголовок X-CSRF-Token. apiTypes.ts без импортов, совпадение с типами бота проверяет компилятор (settingsJson, satisfies). Тесты: api.test.ts (8), всего 181/181.
+
+Этап 2: каркас admin-ui (pnpm-workspace). Vite+ 1.3 (vp dev/build/check; vite → @voidzero-dev/vite-plus-core, vitest 5.0.5 через overrides). shadcn/ui на Base UI (style base-nova; по решению владельца вместо Radix — ради Combobox и Field), Tailwind v4, тема с золотым акцентом: тёмная по умолчанию, светлая, как в системе (свой ThemeProvider вместо next-themes, ключ tlh-theme, скрипт в index.html против вспышки). Каркас: Sidebar с иконками Lucide, шапка с переключателем темы, меню пользователя «Выйти»; экраны входа/«Нет доступа»/ошибки; API-клиент с X-CSRF-Token и обработкой 401/403 (перепроверка /api/me); TanStack Query; страница Главная (статистика, оформление бота, карточки разделов), остальные разделы — заглушки. Типы API общие через алиас @api → src/admin/apiTypes.ts. Скрипты в корне: pnpm build, pnpm dev:admin, pnpm check:admin; ADMIN_API_URL меняет адрес бота для прокси dev-сервера.
 <!-- SECTION:NOTES:END -->

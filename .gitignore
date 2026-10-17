@@ -5,5 +5,9 @@ node_modules/
 # База данных бота (реги, записи, опросы и ответы)
 data/
 
-# Личные настройки Claude Code (разрешения на этом компьютере)
+# Личные настройки Claude Code (разрешения и серверы предпросмотра на этом компьютере)
 .claude/settings.local.json
+.claude/launch.json
+
+# Собранная админка (pnpm build)
+admin-ui/dist/
