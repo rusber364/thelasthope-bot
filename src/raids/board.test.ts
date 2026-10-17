@@ -98,3 +98,28 @@ test('много изменений подряд — одно обновлени
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(log.length, before + 1);
 });
+
+test('своё старое сообщение списка бот удаляет без записи в «лог-сообщения» (даже после перезапуска)', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { Events } = await import('discord.js');
+  const { registerMessageLogs } = await import('../logs/messages.ts');
+  const logged: string[] = [];
+  const s = structuredClone(getSettings());
+  s.logs.messages = { channelId: 'L', enabled: true };
+  saveSettings(s);
+  const logGuild = { channels: { cache: new Map([['L', { isSendable: () => true, send: async () => void logged.push('log') }]]) } };
+  const events = new EventEmitter();
+  registerMessageLogs(events as never);
+
+  setBoardChannel('A');
+  await refreshBoard(client as never, 'g');
+  const before = log.length;
+  setBoardChannel('B'); // переезд: старое сообщение в A удаляется
+  await refreshBoard(client as never, 'g');
+  const deletedId = log.slice(before).find((line) => line.startsWith('delete '))!.slice('delete '.length);
+
+  // После перезапуска бот не знает автора удалённого сообщения (partial) — раньше это попадало в лог.
+  events.emit(Events.MessageDelete, { id: deletedId, partial: true, guild: logGuild, channelId: 'A' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(logged, []);
+});

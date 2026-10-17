@@ -3,6 +3,7 @@
 import { EmbedBuilder, TimestampStyles, time, type Client } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { db } from '../db.ts';
+import { markDeletedByBot } from '../logs/messages.ts';
 import { uiEmoji } from './emojis.ts';
 import { getSignups, upcomingRaids, type Raid } from './store.ts';
 
@@ -61,6 +62,7 @@ export async function refreshBoard(client: Client, guildId: string): Promise<voi
   // Канал сменили или список выключили — убираем старое сообщение.
   if (stored && stored.channel_id !== channelId) {
     const old = guild.channels.cache.get(stored.channel_id);
+    markDeletedByBot(stored.message_id); // своё сообщение — в «лог-сообщения» не пишем
     if (old?.isTextBased()) await old.messages.delete(stored.message_id).catch(() => {});
     db.prepare('DELETE FROM raid_boards WHERE guild_id = ?').run(guildId);
   }

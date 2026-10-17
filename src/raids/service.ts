@@ -3,6 +3,7 @@ import { MessageFlags, PermissionFlagsBits, TimestampStyles, time, type Client, 
 import { settings } from '../settings.ts';
 import { classById, specById } from './classes.ts';
 import { requestBoardRefresh } from './board.ts';
+import { markDeletedByBot } from '../logs/messages.ts';
 import { syncRaidEventLater } from './events.ts';
 import { specEmoji } from './emojis.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
@@ -95,6 +96,7 @@ async function redraw(client: Client, raidId: number): Promise<void> {
     if (message.flags.has(MessageFlags.IsComponentsV2)) {
       const fresh = await channel.send(buildRaidCreateMessage(raid, getSignups(raid.id), null, image));
       setRaidMessage(raid.id, fresh.id);
+      markDeletedByBot(message.id);
       await message.delete().catch(() => {});
       return;
     }

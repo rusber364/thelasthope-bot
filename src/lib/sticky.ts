@@ -4,6 +4,7 @@
 import { Events, type Client, type Guild, type Message, type SendableChannels } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { db } from '../db.ts';
+import { markDeletedByBot } from '../logs/messages.ts';
 
 /** Минимальная пауза после последнего сообщения: чтобы поток сообщений не дёргал закреп. */
 const QUIET_MS = 3_000;
@@ -34,7 +35,10 @@ function storeMessageId(channelId: string, messageId: string | null): void {
 /** Удалить прошлую копию и опубликовать текст заново. text = null — только убрать закреп. */
 export async function repostSticky(channel: SendableChannels & { id: string; messages: { delete(id: string): Promise<unknown> } }, text: string | null): Promise<void> {
   const previous = storedMessageId(channel.id);
-  if (previous) await channel.messages.delete(previous).catch(() => {});
+  if (previous) {
+    markDeletedByBot(previous); // своя прошлая копия — в «лог-сообщения» не пишем
+    await channel.messages.delete(previous).catch(() => {});
+  }
   if (!text) {
     storeMessageId(channel.id, null);
     return;

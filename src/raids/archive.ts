@@ -3,6 +3,7 @@
 import { EmbedBuilder, TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { LOG_COLORS } from '../logs/send.ts';
+import { markDeletedByBot } from '../logs/messages.ts';
 import { ROLES, ROLE_ORDER, specById, type RaidRole } from './classes.ts';
 import { buildRaidMessage } from './render.ts';
 import { attendanceCounts, getSignups, markArchived, raidsDueForArchive, type AttendanceStatus, type Raid, type Signup } from './store.ts';
@@ -75,7 +76,10 @@ export async function archiveRaids(client: Client<true>): Promise<void> {
       await channel.send({ embeds: [summary], allowedMentions: { parse: [] } });
     }
 
-    if (channel && raid.messageId) await channel.messages.delete(raid.messageId).catch(() => {});
+    if (channel && raid.messageId) {
+      markDeletedByBot(raid.messageId); // своё сообщение — в «лог-сообщения» не пишем
+      await channel.messages.delete(raid.messageId).catch(() => {});
+    }
     markArchived(raid.id);
   }
 }
