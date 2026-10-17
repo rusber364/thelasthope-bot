@@ -3,7 +3,6 @@
 import { readFile } from 'node:fs/promises';
 import { serve } from '@hono/node-server';
 import {
-  ChannelType,
   EmbedBuilder,
   PermissionFlagsBits,
   type Client,
@@ -24,7 +23,7 @@ import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
 import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
-import { countResponses, getPoll, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
+import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { parsePollFile } from '../polls/format.ts';
 import { buildResultsCsv } from '../polls/render.ts';
 import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pollStats, publishPoll } from '../polls/service.ts';
@@ -33,6 +32,21 @@ import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceS
 import { settings } from '../settings.ts';
 import { listRaids } from '../raids/store.ts';
 import { clearSession, finishLogin, readSession, saveSession, startLogin, type Session } from './auth.ts';
+import { createApi } from './api.ts';
+import {
+  channelName,
+  checkChannel,
+  checkRole,
+  checkVoiceChannel,
+  formatDateTime,
+  guildPoll,
+  mentionRoles,
+  messageUrl,
+  roleOptions,
+  textChannels,
+  todayInKyiv,
+  voiceChannels,
+} from './forms.ts';
 import {
   alertsPage,
   attendancePage,
@@ -49,7 +63,6 @@ import {
   stickyPage,
   templatesPage,
   welcomePage,
-  type Option,
   type PageContext,
   type PollEditorResult,
   type PollForm,
@@ -97,6 +110,7 @@ export function createApp(client: Client<true>) {
 
   // Всё остальное — только для админов сервера. Права перепроверяются на каждом запросе.
   app.use('*', async (c, next) => {
+    if (c.req.path.startsWith('/api/')) return next(); // у JSON API свои проверки (api.ts)
     const session = await readSession(c);
     if (!session) {
       if (PUBLIC_PATHS.has(c.req.path)) return next();
@@ -117,6 +131,9 @@ export function createApp(client: Client<true>) {
     c.set('guild', guild);
     return next();
   });
+
+  // JSON API для нового интерфейса (admin-ui).
+  app.route('/api', createApi(client, () => adminGuild(client)));
 
   const ctx = (c: Context<Env>, active: PageContext['active'], extra: Partial<PageContext> = {}): PageContext => {
     const session = c.get('session');
@@ -589,97 +606,16 @@ function rawText(value: Body[string] | undefined): string {
   return typeof first === 'string' ? first.replace(/\r\n/g, '\n') : '';
 }
 
-/** Опрос этого сервера по id из адреса; чужие и несуществующие — null. */
-function guildPoll(guild: Guild, id: string | undefined): StoredPoll | null {
-  const poll = id && /^\d+$/.test(id) ? getPoll(Number(id)) : null;
-  return poll?.guildId === guild.id ? poll : null;
-}
-
-function channelName(guild: Guild, channelId: string): string {
-  const channel = guild.channels.cache.get(channelId);
-  return channel ? `#${channel.name}` : 'канал удалён';
-}
-
-function messageUrl(poll: StoredPoll): string | null {
-  return poll.messageId ? `https://discord.com/channels/${poll.guildId}/${poll.channelId}/${poll.messageId}` : null;
-}
-
-function formatDateTime(ms: number): string {
-  return new Date(ms).toLocaleString('ru-RU', { timeZone: settings.timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-/** Роли для упоминания: высота роли не важна, поэтому без предупреждений «выше роли бота». */
-function mentionRoles(guild: Guild): Option[] {
-  return roleOptions(guild).map(({ id, name }) => ({ id, name }));
-}
-
 function list(value: Body[string] | undefined): string[] {
   if (value === undefined) return [];
   return (Array.isArray(value) ? value : [value]).filter((v): v is string => typeof v === 'string');
 }
 
-const TEXT_TYPES = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
-
-function textChannels(guild: Guild): Option[] {
-  return guild.channels.cache
-    .filter((channel) => TEXT_TYPES.has(channel.type))
-    .sort((a, b) => ('rawPosition' in a && 'rawPosition' in b ? a.rawPosition - b.rawPosition : 0))
-    .sort((a, b) => (a.parent?.rawPosition ?? -1) - (b.parent?.rawPosition ?? -1))
-    .map((channel) => ({ id: channel.id, name: `#${channel.name}`, ...(channel.parent ? { group: channel.parent.name } : {}) }));
-}
-
-const VOICE_TYPES = new Set([ChannelType.GuildVoice, ChannelType.GuildStageVoice]);
-
-function voiceChannels(guild: Guild): Option[] {
-  return guild.channels.cache
-    .filter((channel) => VOICE_TYPES.has(channel.type))
-    .sort((a, b) => ('rawPosition' in a && 'rawPosition' in b ? a.rawPosition - b.rawPosition : 0))
-    .map((channel) => ({ id: channel.id, name: `🔊 ${channel.name}`, ...(channel.parent ? { group: channel.parent.name } : {}) }));
-}
-
-function pickVoiceChannel(guild: Guild, value: Body[string] | undefined, name: string, errors: string[]): string | null {
-  const id = text(value);
-  if (!id) return null;
-  const channel = guild.channels.cache.get(id);
-  if (!channel || !VOICE_TYPES.has(channel.type)) {
-    errors.push(`${name}: такого голосового канала нет на сервере.`);
-    return null;
-  }
-  return id;
-}
-
-function roleOptions(guild: Guild): Option[] {
-  return guild.roles.cache
-    .filter((role) => role.id !== guild.id && !role.managed)
-    .sort((a, b) => b.position - a.position)
-    .map((role) => ({
-      id: role.id,
-      name: role.name,
-      ...(role.editable ? {} : { warning: 'Роль стоит выше роли бота — бот не сможет её выдать. Подними роль бота в настройках сервера.' }),
-    }));
-}
-
-function pickChannel(guild: Guild, value: Body[string] | undefined, name: string, errors: string[]): string | null {
-  const id = text(value);
-  if (!id) return null;
-  const channel = guild.channels.cache.get(id);
-  if (!channel || !TEXT_TYPES.has(channel.type)) {
-    errors.push(`${name}: такого текстового канала нет на сервере.`);
-    return null;
-  }
-  return id;
-}
-
-function pickRole(guild: Guild, value: Body[string] | undefined, name: string, errors: string[]): string | null {
-  const id = text(value);
-  if (!id) return null;
-  const role = guild.roles.cache.get(id);
-  if (!role || role.id === guild.id || role.managed) {
-    errors.push(`${name}: такой роли нет на сервере.`);
-    return null;
-  }
-  return id;
-}
+// Поля HTML-форм → общие проверки из forms.ts.
+const pickChannel = (guild: Guild, value: Body[string] | undefined, name: string, errors: string[]) => checkChannel(guild, text(value), name, errors);
+const pickVoiceChannel = (guild: Guild, value: Body[string] | undefined, name: string, errors: string[]) =>
+  checkVoiceChannel(guild, text(value), name, errors);
+const pickRole = (guild: Guild, value: Body[string] | undefined, name: string, errors: string[]) => checkRole(guild, text(value), name, errors);
 
 function readStickies(guild: Guild, body: Body, errors: string[]): { channelId: string; text: string }[] {
   const count = Number(text(body.count)) || 0;
@@ -730,10 +666,6 @@ function readTemplates(guild: Guild, body: Body, errors: string[]): RaidTemplate
     });
   }
   return items;
-}
-
-function todayInKyiv(): string {
-  return Temporal.Now.plainDateISO(settings.timeZone).toString();
 }
 
 function readVoiceRoles(guild: Guild, body: Body, errors: string[]): VoiceRoleLink[] {

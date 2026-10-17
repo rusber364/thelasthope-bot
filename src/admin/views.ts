@@ -9,14 +9,8 @@ import { KIND_LABELS as ATTENDANCE_LABELS, type PlayerSummary } from '../raids/a
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
-export interface Option {
-  id: string;
-  name: string;
-  /** Подзаголовок группы в списке (категория канала). */
-  group?: string;
-  /** Предупреждение рядом с выбором (например, роль выше роли бота). */
-  warning?: string;
-}
+import type { Option } from './apiTypes.ts';
+export type { Option };
 
 export interface PageContext {
   user: { name: string; avatar: string | null };
