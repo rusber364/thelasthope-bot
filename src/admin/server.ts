@@ -50,7 +50,11 @@ export function createApp(client: Client<true>) {
   });
   app.get('/auth/callback', async (c) => {
     const user = await finishLogin(c);
-    if (!user) return c.redirect('/?login-failed');
+    if (!user) {
+      // Старая сессия (например, другого аккаунта) скрыла бы ошибку — показываем экран входа с ней.
+      clearSession(c);
+      return c.redirect('/?login-failed');
+    }
     await saveSession(c, user);
     return c.redirect('/');
   });

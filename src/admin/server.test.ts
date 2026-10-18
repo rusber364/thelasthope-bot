@@ -69,10 +69,12 @@ test('вход через Discord: переход на Discord, неудачны
   assert.equal(target.searchParams.get('scope'), 'identify');
   assert.match(login.headers.get('set-cookie') ?? '', /tlh_oauth_state=/);
 
-  // Без кода и state от Discord — назад на страницу входа с пометкой об ошибке.
+  // Без кода и state от Discord (или state устарел) — назад на страницу входа с пометкой об ошибке,
+  // а прежняя сессия удаляется, чтобы ошибку не заслонил экран «Нет доступа» другого аккаунта.
   const callback = await app.request('/auth/callback');
   assert.equal(callback.status, 302);
   assert.equal(callback.headers.get('location'), '/?login-failed');
+  assert.match(callback.headers.get('set-cookie') ?? '', /tlh_session=;.*Max-Age=0/);
 
   const logout = await app.request('/logout');
   assert.equal(logout.status, 302);
