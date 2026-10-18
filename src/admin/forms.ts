@@ -1,6 +1,6 @@
 // Общие помощники админки: варианты для выпадающих списков и проверка того, что выбранные каналы и роли
 // действительно есть на сервере. Ими пользуется JSON API админки (api.ts).
-import { ChannelType, type Guild } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
 import { getPoll, type StoredPoll } from '../polls/store.ts';
 import type { Option } from './apiTypes.ts';
 
@@ -34,9 +34,19 @@ export function roleOptions(guild: Guild): Option[] {
     }));
 }
 
-/** Роли для упоминания: высота роли не важна, поэтому без предупреждений «выше роли бота». */
+export const NOT_MENTIONABLE =
+  'Роль нельзя упоминать — уведомление не придёт. Включи в настройках роли «Разрешить всем @упоминать эту роль» или дай боту право «Упоминать @everyone, @here и все роли».';
+
+/**
+ * Роли для упоминания: высота роли не важна, поэтому без предупреждения «выше роли бота». Зато предупреждаем,
+ * если упоминание никого не уведомит: роль не упоминаемая, а у бота нет права упоминать все роли.
+ */
 export function mentionRoles(guild: Guild): Option[] {
-  return roleOptions(guild).map(({ warning: _, ...option }) => option);
+  const canMentionAll = guild.members.me?.permissions.has(PermissionFlagsBits.MentionEveryone) ?? false;
+  return roleOptions(guild).map(({ warning: _, ...option }) => {
+    const role = guild.roles.cache.get(option.id);
+    return role && !role.mentionable && !canMentionAll ? { ...option, warning: NOT_MENTIONABLE } : option;
+  });
 }
 
 /** Текстовый канал этого сервера или null (пусто — не выбран, чужой — ошибка в errors). */

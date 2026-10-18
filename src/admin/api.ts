@@ -264,7 +264,12 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           intervalSeconds: num(sticky.intervalSeconds),
           items: arr(sticky.items).map((raw, i) => {
             const item = obj(raw);
-            return { channelId: checkChannel(guild, id(item.channelId), `Липкое сообщение ${i + 1}`, errors) ?? '', text: text(item.text) };
+            const roleIds = [...new Set(arr(item.roleIds).map(id))].map((roleId) => checkRole(guild, roleId, `Липкое сообщение ${i + 1}: роль`, errors));
+            return {
+              channelId: checkChannel(guild, id(item.channelId), `Липкое сообщение ${i + 1}`, errors) ?? '',
+              text: text(item.text),
+              roleIds: roleIds.filter((roleId): roleId is string => roleId !== null),
+            };
           }),
         };
       },

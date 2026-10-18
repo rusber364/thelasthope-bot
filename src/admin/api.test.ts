@@ -50,7 +50,7 @@ const guild = {
   memberCount: 5,
   iconURL: () => null,
   channels: { cache: new Collection([channel('c1', 'приветствие'), channel('c2', 'лог-голос'), channel('c3', 'голос', ChannelType.GuildVoice), postChannel].map((c) => [c.id, c])) },
-  roles: { cache: new Collection([role('g1', '@everyone', 0), role('r1', 'Гость', 1), role('r2', 'Офицер', 5, { editable: false })].map((r) => [r.id, r])) },
+  roles: { cache: new Collection([role('g1', '@everyone', 0), role('r1', 'Гость', 1), role('r2', 'Офицер', 5, { editable: false, mentionable: true })].map((r) => [r.id, r])) },
   members: {
     fetch: async (arg: string | { user: string[] }) => (typeof arg === 'string' ? member(arg) : new Collection(arg.user.map((id) => [id, member(id)]))),
     cache: { filter: () => ({ map: () => [] }), get: () => undefined },
@@ -124,6 +124,10 @@ test('главная, варианты для списков и оформлен
   assert.deepEqual(options.voiceChannels.map((o: { id: string }) => o.id), ['c3']);
   assert.ok(options.roles.find((o: { id: string; warning?: string }) => o.id === 'r2').warning, 'роль выше роли бота — с предупреждением');
   assert.ok(!options.roles.some((o: { id: string }) => o.id === 'g1'), '@everyone не предлагаем');
+  // Для упоминания: «выше роли бота» неважно, а неупоминаемая роль (без права боту упоминать всех) — с предупреждением.
+  const mention = (roleId: string) => options.mentionRoles.find((o: { id: string; warning?: string }) => o.id === roleId);
+  assert.match(mention('r1').warning, /уведомление не придёт/);
+  assert.equal(mention('r2').warning, undefined);
 
   const avatar = await call('POST', '/branding/avatar');
   assert.match(avatar.json!.message, /Аватар бота обновлён/);
@@ -201,6 +205,13 @@ test('расписание рег, липкие сообщения, автооч
   const sticky = await put('sticky', { sticky: { intervalSeconds: 15, items: [{ channelId: 'c1', text: 'Правила' }, { channelId: 'c1', text: '' }] } });
   assert.equal(sticky.status, 400);
   assert.ok(sticky.json!.errors.some((e: string) => /в одном канале может быть только одно/.test(e)));
+  // Роли для упоминания: повтор убирается, чужая роль и @everyone — ошибка.
+  const withRoles = await put('sticky', { sticky: { intervalSeconds: 15, items: [{ channelId: 'c1', text: 'Сбор', roleIds: ['r1', 'r1', 'r2'] }] } });
+  assert.equal(withRoles.status, 200);
+  assert.deepEqual(getSettings().sticky.items, [{ channelId: 'c1', text: 'Сбор', roleIds: ['r1', 'r2'] }]);
+  const badRole = await put('sticky', { sticky: { intervalSeconds: 15, items: [{ channelId: 'c1', text: 'Сбор', roleIds: ['r9', 'g1'] }] } });
+  assert.equal(badRole.status, 400);
+  assert.deepEqual(badRole.json!.errors, ['Липкое сообщение 1: роль: такой роли нет на сервере.']);
 
   assert.equal((await put('autoclean', { autoClean: [{ channelId: 'c2', hours: 48, keepBot: true }] })).status, 200);
   assert.deepEqual(getSettings().autoClean, [{ channelId: 'c2', hours: 48, keepBot: true }]);

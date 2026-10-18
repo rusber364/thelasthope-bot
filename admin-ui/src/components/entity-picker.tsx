@@ -4,6 +4,9 @@ import type { Option } from '@api';
 import { Button } from '@/components/ui/button';
 import {
   Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
   ComboboxCollection,
   ComboboxContent,
   ComboboxEmpty,
@@ -13,6 +16,8 @@ import {
   ComboboxLabel,
   ComboboxList,
   ComboboxTrigger,
+  ComboboxValue,
+  useComboboxAnchor,
 } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useOptions } from '@/lib/queries';
@@ -149,3 +154,69 @@ export const VoicePicker = makePicker((o) => o.voiceChannels, 'voice');
 export const RolePicker = makePicker((o) => o.roles, 'role');
 /** Роль для упоминания: высота роли неважна. */
 export const MentionPicker = makePicker((o) => o.mentionRoles, 'mention');
+
+/** Несколько ролей для упоминания: метки с цветом роли и список с поиском. max — сколько ролей можно выбрать. */
+export function MentionRolesPicker({
+  value,
+  onChange,
+  max,
+  id,
+}: {
+  value: string[];
+  onChange: (value: string[]) => void;
+  max: number;
+  id?: string;
+}) {
+  const { data } = useOptions();
+  const anchor = useComboboxAnchor();
+  if (!data) return <Skeleton className="h-8 w-full" />;
+  const options = data.mentionRoles;
+  // Роль могли удалить на сервере — оставляем метку, чтобы её было видно и можно было убрать.
+  const selected = value.map((roleId) => options.find((o) => o.id === roleId) ?? { id: roleId, name: 'удалена с сервера' });
+  const silent = selected.filter((role) => role.warning);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Combobox
+        items={options}
+        multiple
+        value={selected}
+        onValueChange={(next: Option[]) => onChange(next.slice(0, max).map((o) => o.id))}
+        itemToStringLabel={(option: Option) => option.name}
+        isItemEqualToValue={(a: Option, b: Option) => a.id === b.id}
+        autoHighlight
+      >
+        <ComboboxChips ref={anchor}>
+          <ComboboxValue>
+            {selected.map((role) => (
+              <ComboboxChip key={role.id} className={role.warning ? 'text-amber-700 dark:text-amber-300' : undefined}>
+                {role.warning ? <TriangleAlert className="size-3 text-amber-500" /> : <OptionIcon kind="mention" option={role} />}
+                {role.name}
+              </ComboboxChip>
+            ))}
+          </ComboboxValue>
+          <ComboboxChipsInput id={id} placeholder={selected.length ? '' : 'Никого — выбери роли'} disabled={selected.length >= max} />
+        </ComboboxChips>
+        <ComboboxContent anchor={anchor}>
+          <ComboboxEmpty>Ничего не найдено</ComboboxEmpty>
+          <ComboboxList>
+            {(option: Option) => (
+              <ComboboxItem key={option.id} value={option}>
+                <OptionIcon kind="mention" option={option} />
+                <span className="truncate">{option.name}</span>
+                {option.warning && <TriangleAlert className="ml-auto text-amber-500" />}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+      {silent.length > 0 && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" />
+          <span>
+            {silent.map((role) => role.name).join(', ')}: {silent[0]!.warning}
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}

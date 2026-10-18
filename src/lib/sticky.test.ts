@@ -4,7 +4,7 @@ import { mock, test } from 'node:test';
 import { Events } from 'discord.js';
 
 process.env.BOT_DB_PATH = ':memory:';
-const { nextRepostDelay, refreshStickies, registerSticky } = await import('./sticky.ts');
+const { nextRepostDelay, refreshStickies, registerSticky, repostSticky } = await import('./sticky.ts');
 const { getSettings, saveSettings } = await import('../botSettings.ts');
 
 test('задержка: пауза тишины и не чаще интервала', () => {
@@ -39,7 +39,7 @@ const message = (authorId: string, content: string) => ({
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const s = structuredClone(getSettings());
-s.sticky = { intervalSeconds: 15, items: [{ channelId: 'S', text: 'Правила рег: записывайтесь до 19:00' }] };
+s.sticky = { intervalSeconds: 15, items: [{ channelId: 'S', text: 'Правила рег: записывайтесь до 19:00', roleIds: [] }] };
 saveSettings(s);
 
 test('пачка сообщений — одна перестановка, своя копия не считается, не чаще раза в 15 секунд', async () => {
@@ -92,4 +92,39 @@ test('запуск: закреп последний — не трогаем; у�
   const lastSticky = channel.lastMessageId;
   await refreshStickies(guild as never);
   assert.ok(deleted.includes(lastSticky!), 'копия удалена из канала, где закрепа больше нет');
+});
+
+test('роли: упоминание в начале, уведомление — только при первой публикации и после изменения', async () => {
+  // Отдельный канал «R»: запоминаем, кого бот разрешал уведомить в каждом сообщении.
+  const sent: { content: string; allowedMentions: unknown }[] = [];
+  const raidChannel = {
+    id: 'R',
+    lastMessageId: null as string | null,
+    isSendable: () => true,
+    send: async (payload: { content: string; allowedMentions: unknown }) => {
+      sent.push(payload);
+      raidChannel.lastMessageId = `r${sent.length}`;
+      return { id: raidChannel.lastMessageId };
+    },
+    messages: { delete: async () => {} },
+  };
+  const item = { channelId: 'R', text: 'Сбор на рейд в 19:45', roleIds: ['r1', 'r2'] };
+  const withRoles = structuredClone(getSettings());
+  withRoles.sticky.items = [item];
+  saveSettings(withRoles);
+  const guild = { channels: { cache: new Map([['R', raidChannel]]) } };
+
+  await refreshStickies(guild as never);
+  assert.equal(sent[0]!.content, '<@&r1> <@&r2>\nСбор на рейд в 19:45\n-# 📌 закреплено');
+  assert.deepEqual(sent[0]!.allowedMentions, { roles: ['r1', 'r2'] }, 'первая публикация уведомляет роли');
+
+  // Перестановка вниз после сообщений в канале и принудительное обновление после сохранения без изменений — без пинга.
+  await repostSticky(raidChannel as never, item);
+  await refreshStickies(guild as never, true);
+  assert.match(sent[2]!.content, /^<@&r1> <@&r2>\n/, 'упоминание по-прежнему видно');
+  assert.deepEqual(sent.slice(1).map((m) => m.allowedMentions), [{ parse: [] }, { parse: [] }]);
+
+  // Текст поменяли — роли снова получают уведомление.
+  await repostSticky(raidChannel as never, { ...item, text: 'Сбор на рейд в 20:00' });
+  assert.deepEqual(sent[3]!.allowedMentions, { roles: ['r1', 'r2'] });
 });

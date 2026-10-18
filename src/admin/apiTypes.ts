@@ -71,7 +71,8 @@ export interface Settings {
   };
   logs: Record<LogCategory, { channelId: string | null; enabled: boolean }>;
   voiceRoles: { channelId: string; roleId: string }[];
-  sticky: { intervalSeconds: number; items: { channelId: string; text: string }[] };
+  /** roleIds — роли, которые упоминаются в начале липкого сообщения. */
+  sticky: { intervalSeconds: number; items: { channelId: string; text: string; roleIds: string[] }[] };
   raidTemplates: RaidTemplate[];
   autoClean: { channelId: string; hours: number; keepBot: boolean }[];
   farewell: { channelId: string | null; text: string };

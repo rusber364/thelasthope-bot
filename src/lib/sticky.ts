@@ -1,8 +1,10 @@
 // Липкие сообщения (как в Carl-bot Premium): текст, который всегда последний в канале.
 // После новых сообщений бот удаляет свою прошлую копию и публикует текст заново внизу —
 // не чаще раза в N секунд, а пачка сообщений подряд даёт одну перестановку.
+// Роли из настроек упоминаются в начале сообщения; уведомление они получают только при первой публикации
+// и после изменения текста или ролей — иначе пинг приходил бы после каждой пачки сообщений в канале.
 import { Events, type Client, type Guild, type Message, type SendableChannels } from 'discord.js';
-import { getSettings } from '../botSettings.ts';
+import { getSettings, type StickyItem } from '../botSettings.ts';
 import { db } from '../db.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 
@@ -18,33 +20,56 @@ export function nextRepostDelay(now: number, lastRepostAt: number, intervalMs: n
 const timers = new Map<string, NodeJS.Timeout>();
 const lastRepost = new Map<string, number>();
 
-function stickyFor(channelId: string): string | null {
-  return getSettings().sticky.items.find((item) => item.channelId === channelId)?.text ?? null;
+type StickyContent = Pick<StickyItem, 'text' | 'roleIds'>;
+
+function stickyFor(channelId: string): StickyItem | null {
+  return getSettings().sticky.items.find((item) => item.channelId === channelId) ?? null;
 }
 
-function storedMessageId(channelId: string): string | null {
-  const row = db.prepare('SELECT message_id FROM sticky_messages WHERE channel_id = ?').get(channelId) as { message_id: string } | undefined;
-  return row?.message_id ?? null;
+/** Текст сообщения: упоминания ролей отдельной строкой в начале, затем текст и подпись «закреплено». */
+export function stickyContent(item: StickyContent): string {
+  const mentions = item.roleIds.map((id) => `<@&${id}>`).join(' ');
+  return (mentions ? `${mentions}
+` : '') + item.text + FOOTER;
 }
 
-function storeMessageId(channelId: string, messageId: string | null): void {
-  if (messageId) db.prepare('INSERT INTO sticky_messages (channel_id, message_id) VALUES (?, ?) ON CONFLICT (channel_id) DO UPDATE SET message_id = excluded.message_id').run(channelId, messageId);
-  else db.prepare('DELETE FROM sticky_messages WHERE channel_id = ?').run(channelId);
+const signatureOf = (item: StickyContent) => JSON.stringify([item.text, item.roleIds]);
+
+function stored(channelId: string): { messageId: string; signature: string | null } | null {
+  const row = db.prepare('SELECT message_id, signature FROM sticky_messages WHERE channel_id = ?').get(channelId) as
+    | { message_id: string; signature: string | null }
+    | undefined;
+  return row ? { messageId: row.message_id, signature: row.signature } : null;
 }
 
-/** Удалить прошлую копию и опубликовать текст заново. text = null — только убрать закреп. */
-export async function repostSticky(channel: SendableChannels & { id: string; messages: { delete(id: string): Promise<unknown> } }, text: string | null): Promise<void> {
-  const previous = storedMessageId(channel.id);
+function storeMessage(channelId: string, messageId: string | null, signature: string | null = null): void {
+  if (messageId) {
+    db.prepare(
+      'INSERT INTO sticky_messages (channel_id, message_id, signature) VALUES (?, ?, ?) ON CONFLICT (channel_id) DO UPDATE SET message_id = excluded.message_id, signature = excluded.signature',
+    ).run(channelId, messageId, signature);
+  } else db.prepare('DELETE FROM sticky_messages WHERE channel_id = ?').run(channelId);
+}
+
+/** Удалить прошлую копию и опубликовать сообщение заново. item = null — только убрать закреп. */
+export async function repostSticky(
+  channel: SendableChannels & { id: string; messages: { delete(id: string): Promise<unknown> } },
+  item: StickyContent | null,
+): Promise<void> {
+  const previous = stored(channel.id);
   if (previous) {
-    markDeletedByBot(previous); // своя прошлая копия — в «лог-сообщения» не пишем
-    await channel.messages.delete(previous).catch(() => {});
+    markDeletedByBot(previous.messageId); // своя прошлая копия — в «лог-сообщения» не пишем
+    await channel.messages.delete(previous.messageId).catch(() => {});
   }
-  if (!text) {
-    storeMessageId(channel.id, null);
+  if (!item) {
+    storeMessage(channel.id, null);
     return;
   }
-  const message = await channel.send({ content: text + FOOTER, allowedMentions: { parse: [] } });
-  storeMessageId(channel.id, message.id);
+  // Уведомление ролям — только если такого текста с такими ролями ещё не публиковали; при перестановке упоминание
+  // видно, но без повторного пинга.
+  const signature = signatureOf(item);
+  const notify = previous?.signature !== signature;
+  const message = await channel.send({ content: stickyContent(item), allowedMentions: notify ? { roles: item.roleIds } : { parse: [] } });
+  storeMessage(channel.id, message.id, signature);
   lastRepost.set(channel.id, Date.now());
 }
 
@@ -57,9 +82,9 @@ function schedule(message: Message<true>): void {
     channelId,
     setTimeout(() => {
       timers.delete(channelId);
-      const text = stickyFor(channelId);
-      if (text && message.channel.isSendable()) {
-        void repostSticky(message.channel, text).catch((error) => console.error('Не удалось переставить закреп:', error));
+      const item = stickyFor(channelId);
+      if (item && message.channel.isSendable()) {
+        void repostSticky(message.channel, item).catch((error) => console.error('Не удалось переставить закреп:', error));
       }
     }, delay),
   );
@@ -81,20 +106,20 @@ export function registerSticky(client: Client): void {
 export async function refreshStickies(guild: Guild, force = false): Promise<void> {
   const items = getSettings().sticky.items;
   const configured = new Set(items.map((item) => item.channelId));
-  const stored = db.prepare('SELECT channel_id FROM sticky_messages').all() as { channel_id: string }[];
+  const published = db.prepare('SELECT channel_id FROM sticky_messages').all() as { channel_id: string }[];
 
-  for (const { channel_id: channelId } of stored) {
+  for (const { channel_id: channelId } of published) {
     if (configured.has(channelId)) continue;
     const channel = guild.channels.cache.get(channelId);
     if (channel?.isSendable() && 'messages' in channel) await repostSticky(channel, null);
-    else storeMessageId(channelId, null);
+    else storeMessage(channelId, null);
   }
   for (const item of items) {
     const channel = guild.channels.cache.get(item.channelId);
     if (!channel?.isSendable() || !('messages' in channel)) continue;
-    const current = storedMessageId(item.channelId);
+    const current = stored(item.channelId)?.messageId;
     // Закреп уже последний и текст не менялся — трогать не нужно.
     if (!force && current && channel.lastMessageId === current) continue;
-    await repostSticky(channel, item.text).catch((error) => console.error('Не удалось опубликовать закреп:', error));
+    await repostSticky(channel, item).catch((error) => console.error('Не удалось опубликовать закреп:', error));
   }
 }

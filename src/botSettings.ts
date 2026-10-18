@@ -20,6 +20,13 @@ export const LOG_LABELS: Record<LogCategory, { title: string; hint: string }> = 
   raids: { title: 'лог-рейдов', hint: 'запись на реги, смена спека, «под вопросом», отписки' },
 };
 
+/** Липкое сообщение в канале. roleIds — кого упомянуть в начале сообщения. */
+export interface StickyItem {
+  channelId: string;
+  text: string;
+  roleIds: string[];
+}
+
 export interface RaidSchedule {
   /** Не меняется после создания: по нему бот понимает, что рега на этот день уже открыта. */
   id: string;
@@ -98,7 +105,7 @@ export interface BotSettings {
   /** Связки «голосовой канал → роль». */
   voiceRoles: VoiceRoleLink[];
   /** Липкие сообщения: текст, который бот держит последним в канале. */
-  sticky: { intervalSeconds: number; items: { channelId: string; text: string }[] };
+  sticky: { intervalSeconds: number; items: StickyItem[] };
   /** Шаблоны рег (страница «Шаблоны рег» в админке). */
   raidTemplates: RaidTemplate[];
   /** Автоочистка каналов. */
@@ -119,7 +126,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, templates: 25, templateDescription: 1000, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -201,6 +208,7 @@ export function getSettings(): BotSettings {
   const merged = merge(defaults(), saved);
   // Массивы из базы заменяют умолчания целиком — дополняем расписания полями, которых не было в старых версиях.
   merged.raids.schedules = merged.raids.schedules.map((schedule) => ({ ...schedule, pingRoleId: schedule.pingRoleId ?? null }));
+  merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
   cache = merged;
   return cache;
 }
@@ -268,6 +276,7 @@ export function validateSettings(s: BotSettings): string[] {
     if (!item.channelId) errors.push(`Липкое сообщение ${index + 1}: выбери канал.`);
     if (!item.text.trim()) errors.push(`Липкое сообщение ${index + 1}: текст не может быть пустым.`);
     else if (item.text.length > LIMITS.stickyText) errors.push(`Липкое сообщение ${index + 1}: не длиннее ${LIMITS.stickyText} символов.`);
+    if (item.roleIds.length > LIMITS.stickyRoles) errors.push(`Липкое сообщение ${index + 1}: упомянуть можно не больше ${LIMITS.stickyRoles} ролей.`);
   });
   if (new Set(s.sticky.items.map((i) => i.channelId)).size !== s.sticky.items.length) {
     errors.push('Липкие сообщения: в одном канале может быть только одно.');
