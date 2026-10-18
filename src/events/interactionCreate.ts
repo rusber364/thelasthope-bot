@@ -1,6 +1,7 @@
 import { Events, MessageFlags, type Client, type Interaction } from 'discord.js';
 import { commandsByName } from '../commands/index.ts';
 import { componentHandlers } from '../components.ts';
+import { handlePollInteraction, pollHandler } from '../polls/handlers.ts';
 import { raidWizardHandler } from '../raids/wizard.ts';
 
 /**
@@ -44,8 +45,9 @@ async function route(interaction: Interaction): Promise<void> {
   if (interaction.isMessageComponent() || interaction.isModalSubmit()) {
     const [prefix = '', ...args] = interaction.customId.split(':');
     if (!interaction.inCachedGuild()) {
-      // Вне сервера — только кнопки создания реги в личке.
+      // Вне сервера — кнопки создания реги в личке и опросы (анкету новичков бот присылает и в личку).
       if (prefix === raidWizardHandler.prefix && interaction.isMessageComponent()) await raidWizardHandler.handle(interaction, args);
+      else if (prefix === pollHandler.prefix && !interaction.inGuild()) await handlePollInteraction(interaction, args);
       return;
     }
     await componentHandlers.get(prefix)?.handle(interaction, args);

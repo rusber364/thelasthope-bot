@@ -1,12 +1,12 @@
 // Анкета новичков — обычный опрос, отмеченный в настройках (onboarding.pollId). Кнопку «Пройти анкету» показывает
 // приветствие, а предложить анкету тем, кто уже на сервере, можно обычной публикацией опроса в канале.
 // Когда анкету заполнили до конца: выдать и снять роли из настроек и прислать офицерам карточку с ответами.
-import { Colors, EmbedBuilder, type GuildMember } from 'discord.js';
+import { AttachmentBuilder, Colors, EmbedBuilder, type GuildMember } from 'discord.js';
 import { getSettings, type Onboarding } from '../botSettings.ts';
 import { sendAlert } from '../logs/alerts.ts';
 import type { PollState } from './format.ts';
 import { answersByUser } from './service.ts';
-import type { StoredPoll } from './store.ts';
+import { getPollFile, type StoredPoll } from './store.ts';
 
 const REASON = 'Анкета новичка заполнена';
 // Ограничения Discord для embed: 25 полей, 256 символов в названии поля, 1024 — в значении, 6000 — на всё.
@@ -26,7 +26,25 @@ export async function onOnboardingCompleted(member: GuildMember, poll: StoredPol
   const { onboarding } = getSettings();
   if (onboarding.pollId !== poll.id) return;
   await updateRoles(member, onboarding);
-  if (onboarding.notify) await sendAlert(member.guild, buildCompletedCard(member, poll, state));
+  if (!onboarding.notify) return;
+  const card = buildCompletedCard(member, poll, state);
+  const files = poll.definition.anonymous ? [] : answerImages(poll, state);
+  // Первая картинка — прямо в карточке, остальные — вложениями под ней.
+  if (files[0]) card.setImage(`attachment://${files[0].name}`);
+  await sendAlert(member.guild, card, files);
+}
+
+/** Картинки-ответы человека — вложениями к карточке офицерам. */
+export function answerImages(poll: StoredPoll, state: PollState): AttachmentBuilder[] {
+  const files: AttachmentBuilder[] = [];
+  for (const question of poll.definition.blocks.flatMap((block) => block.questions)) {
+    const id = question.kind === 'image' ? state.answers[question.id]?.[0] : undefined;
+    const file = id ? getPollFile(Number(id)) : null;
+    if (!file || file.pollId !== poll.id) continue;
+    const ext = file.contentType.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png';
+    files.push(new AttachmentBuilder(Buffer.from(file.data), { name: `answer-${question.id}.${ext}` }));
+  }
+  return files;
 }
 
 async function updateRoles(member: GuildMember, { roleId, removeRoleId }: Onboarding): Promise<void> {
@@ -57,9 +75,9 @@ export function buildCompletedCard(member: GuildMember, poll: StoredPoll, state:
   const answers = person?.answers ?? [];
   let total = (embed.data.title?.length ?? 0) + (embed.data.description?.length ?? 0);
   let shown = 0;
-  for (const { question, answer } of answers) {
+  for (const { question, answer, image } of answers) {
     const name = clip(question, FIELD_NAME);
-    const value = clip(answer, FIELD_VALUE);
+    const value = image === undefined ? clip(answer, FIELD_VALUE) : '🖼️ картинка — ниже';
     if (shown === FIELDS - 1 || total + name.length + value.length > EMBED_TOTAL) break;
     embed.addFields({ name, value });
     total += name.length + value.length;

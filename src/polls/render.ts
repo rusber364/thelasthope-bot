@@ -20,6 +20,7 @@ import {
   type PollQuestion,
   type PollState,
 } from './format.ts';
+import { config } from '../config.ts';
 import type { PollResponse, StoredPoll } from './store.ts';
 
 const ACCENT = 0xf0b232; // жёлтая полоска, как на скриншоте
@@ -133,6 +134,10 @@ function buildQuestion(question: PollQuestion): LabelBuilder {
   }));
   const minValues = question.required ? 1 : 0;
 
+  if (question.kind === 'image') {
+    return label.setFileUploadComponent((upload) => upload.setCustomId(question.id).setRequired(question.required).setMinValues(minValues).setMaxValues(1));
+  }
+
   if (question.kind === 'single' && options.length <= LIMITS.radioOptions) {
     return label.setRadioGroupComponent((radio) => radio.setCustomId(question.id).setRequired(question.required).addOptions(options));
   }
@@ -175,6 +180,10 @@ export function buildResultsText(poll: StoredPoll, responses: PollResponse[]): s
         lines.push(`**${question.title}** — ответов: ${answered.length} (сами ответы — в файле)`);
         continue;
       }
+      if (question.kind === 'image') {
+        lines.push(`**${question.title}** — картинок: ${answered.length} (смотреть — в админке)`);
+        continue;
+      }
       lines.push(`**${question.title}** — ответили: ${answered.length}`);
       for (const option of question.options) {
         const count = answered.filter((r) => r.state.answers[question.id]!.includes(option.value)).length;
@@ -201,6 +210,8 @@ export function buildResultsCsv(poll: StoredPoll, responses: PollResponse[], nam
     ...questions.map((q) => {
       const values = response.state.answers[q.id] ?? [];
       if (q.kind === 'short' || q.kind === 'paragraph') return values[0] ?? '';
+      // Картинка — ссылка на неё в админке (открывается, если ты вошёл в админку).
+      if (q.kind === 'image') return values[0] ? `${config.adminUrl}/api/polls/${poll.id}/files/${values[0]}` : '';
       return values.map((value) => q.options.find((o) => o.value === value)?.label ?? value).join('; ');
     }),
   ]);

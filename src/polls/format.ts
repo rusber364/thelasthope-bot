@@ -15,8 +15,9 @@
 //   ( ) Один из вариантов | подсказка под вариантом
 //   [ ] Несколько вариантов
 //   Ответ: короткий | длинный     ← ответ текстом
+//   Ответ: картинка               ← загрузить картинку (скриншот персонажа и т.п.)
 
-export type QuestionKind = 'single' | 'multiple' | 'short' | 'paragraph';
+export type QuestionKind = 'single' | 'multiple' | 'short' | 'paragraph' | 'image';
 
 export interface PollOption {
   value: string;
@@ -190,7 +191,8 @@ export function parsePollFile(source: string): ParseResult {
       const value = normalize(answer[1]!);
       if (['короткий', 'строка', 'текст'].includes(value)) question.kind = 'short';
       else if (['длинный', 'абзац', 'большой'].includes(value)) question.kind = 'paragraph';
-      else return error(n, 'после «Ответ:» напиши «короткий» или «длинный».');
+      else if (['картинка', 'картинку', 'фото', 'скриншот', 'изображение'].includes(value)) question.kind = 'image';
+      else return error(n, 'после «Ответ:» напиши «короткий», «длинный» или «картинка».');
       question.kindLine = n;
       return;
     }

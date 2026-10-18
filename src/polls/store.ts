@@ -55,6 +55,7 @@ export function createPoll(guildId: string, channelId: string, definition: PollD
 }
 
 export function deletePoll(id: number): void {
+  db.prepare('DELETE FROM poll_files WHERE poll_id = ?').run(id);
   db.prepare('DELETE FROM polls WHERE id = ?').run(id);
 }
 
@@ -93,6 +94,47 @@ export function saveResponse(pollId: number, userId: string, state: PollState, c
 
 export function resetResponse(pollId: number, userId: string): void {
   db.prepare('DELETE FROM poll_responses WHERE poll_id = ? AND user_id = ?').run(pollId, userId);
+  deletePollFiles(pollId, userId);
+}
+
+/** Картинка из ответа на опрос. */
+export interface PollFile {
+  id: number;
+  pollId: number;
+  userId: string;
+  questionId: string;
+  name: string;
+  contentType: string;
+  data: Uint8Array;
+}
+
+/** Сохранить картинку-ответ; прежняя картинка этого человека на этот вопрос удаляется. Возвращает id. */
+export function savePollFile(file: Omit<PollFile, 'id'>): number {
+  deletePollFiles(file.pollId, file.userId, file.questionId);
+  const row = db
+    .prepare('INSERT INTO poll_files (poll_id, user_id, question_id, name, content_type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id')
+    .get(file.pollId, file.userId, file.questionId, file.name, file.contentType, file.data, Date.now()) as { id: number };
+  return Number(row.id);
+}
+
+/** Удалить картинки человека в опросе: на один вопрос или на все. */
+export function deletePollFiles(pollId: number, userId: string, questionId?: string): void {
+  if (questionId) db.prepare('DELETE FROM poll_files WHERE poll_id = ? AND user_id = ? AND question_id = ?').run(pollId, userId, questionId);
+  else db.prepare('DELETE FROM poll_files WHERE poll_id = ? AND user_id = ?').run(pollId, userId);
+}
+
+export function getPollFile(id: number): PollFile | null {
+  const row = db.prepare('SELECT * FROM poll_files WHERE id = ?').get(id) as Row | undefined;
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    pollId: Number(row.poll_id),
+    userId: String(row.user_id),
+    questionId: String(row.question_id),
+    name: String(row.name),
+    contentType: String(row.content_type),
+    data: row.data as Uint8Array,
+  };
 }
 
 /** Сколько человек начали опрос (total) и сколько из них дошли до конца (completed). */

@@ -18,7 +18,7 @@ import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
 import { estimatedMinutes, parsePollFile, questionCount } from '../polls/format.ts';
 import { buildResultsCsv } from '../polls/render.ts';
 import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pollStats, publishPoll } from '../polls/service.ts';
-import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
+import { countResponses, getPollFile, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
 import { KINDS, isKind, type ActivityKind, type RoleLimits } from '../raids/kinds.ts';
@@ -244,6 +244,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           pollId,
           offer: text(onboarding.offer),
           button: text(onboarding.button),
+          dm: bool(onboarding.dm),
           roleId: checkRole(guild, id(onboarding.roleId), 'Анкета: роль после заполнения', errors),
           removeRoleId: checkRole(guild, id(onboarding.removeRoleId), 'Анкета: роль, которую снять', errors),
           notify: bool(onboarding.notify),
@@ -475,6 +476,19 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       names: Object.fromEntries(names),
       respondents,
     } satisfies Api.PollResultsResponse);
+  });
+
+  // Картинка-ответ. Тип — только PNG/JPG/GIF/WEBP (проверен при загрузке); CSP и nosniff — на всякий случай.
+  api.get('/polls/:id{[0-9]+}/files/:file{[0-9]+}', (c) => {
+    const poll = guildPoll(c.get('guild'), c.req.param('id'));
+    const file = poll ? getPollFile(Number(c.req.param('file'))) : null;
+    if (!poll || !file || file.pollId !== poll.id) return fail(c, ['Картинка не найдена.'], 404);
+    return c.body(Buffer.from(file.data), 200, {
+      'Content-Type': file.contentType,
+      'Cache-Control': 'private, max-age=86400',
+      'Content-Security-Policy': "default-src 'none'",
+      'X-Content-Type-Options': 'nosniff',
+    });
   });
 
   api.get('/polls/:id{[0-9]+}/source', (c) => {

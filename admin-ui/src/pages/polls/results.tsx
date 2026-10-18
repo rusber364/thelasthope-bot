@@ -46,6 +46,23 @@ import { formatDateTime } from '@/lib/format';
 import { NotFoundPage } from '@/pages/not-found';
 
 const SHOWN_TEXTS = 100;
+const SHOWN_IMAGES = 60;
+
+/** Картинка-ответ: превью, по клику — полный размер в новой вкладке. */
+function AnswerImage({ pollId, fileId, caption }: { pollId: number; fileId: number; caption?: string }) {
+  const url = `/api/polls/${pollId}/files/${fileId}`;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="flex min-w-0 flex-col gap-1">
+      <img
+        src={url}
+        alt={caption ?? 'картинка'}
+        loading="lazy"
+        className="aspect-video w-full rounded-lg border bg-muted object-cover hover:opacity-90"
+      />
+      {caption && <span className="truncate text-xs text-muted-foreground">{caption}</span>}
+    </a>
+  );
+}
 
 function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: number }) {
   return (
@@ -60,7 +77,15 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: n
   );
 }
 
-function QuestionStats({ question, names }: { question: PollStats['questions'][number]; names: Record<string, string> }) {
+function QuestionStats({
+  pollId,
+  question,
+  names,
+}: {
+  pollId: number;
+  question: PollStats['questions'][number];
+  names: Record<string, string>;
+}) {
   const texts = question.kind === 'short' || question.kind === 'paragraph';
   return (
     <Card size="sm">
@@ -99,12 +124,32 @@ function QuestionStats({ question, names }: { question: PollStats['questions'][n
               )}
             </ul>
           ))}
+        {question.kind === 'image' &&
+          (question.images.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Картинок пока нет.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {question.images.slice(0, SHOWN_IMAGES).map((image) => (
+                <AnswerImage
+                  key={image.fileId}
+                  pollId={pollId}
+                  fileId={image.fileId}
+                  caption={image.userId ? (names[image.userId] ?? 'ушёл с сервера') : undefined}
+                />
+              ))}
+              {question.images.length > SHOWN_IMAGES && (
+                <p className="col-span-full text-sm text-muted-foreground">
+                  …ещё {question.images.length - SHOWN_IMAGES} — по участникам или ссылками в таблице для Excel.
+                </p>
+              )}
+            </div>
+          ))}
       </CardContent>
     </Card>
   );
 }
 
-function Respondent({ person, open }: { person: PollRespondent; open: boolean }) {
+function Respondent({ pollId, person, open }: { pollId: number; person: PollRespondent; open: boolean }) {
   return (
     <details open={open} className="group rounded-xl border bg-card">
       <summary className="flex cursor-pointer list-none items-center gap-3 p-3 [&::-webkit-details-marker]:hidden">
@@ -124,7 +169,15 @@ function Respondent({ person, open }: { person: PollRespondent; open: boolean })
                   <div className="mt-2 mb-1 text-xs font-medium tracking-wide text-primary uppercase first:mt-0">{answer.block}</div>
                 )}
                 <dt className="text-muted-foreground">{answer.question}</dt>
-                <dd className="whitespace-pre-wrap">{answer.answer}</dd>
+                <dd className="whitespace-pre-wrap">
+                  {answer.image === undefined ? (
+                    answer.answer
+                  ) : (
+                    <div className="mt-1 max-w-xs">
+                      <AnswerImage pollId={pollId} fileId={answer.image} />
+                    </div>
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
@@ -263,7 +316,7 @@ export function PollResultsPage() {
               {(i === 0 || stats.questions[i - 1]!.block !== question.block) && (
                 <h2 className="mt-2 text-sm font-medium text-muted-foreground first:mt-0">{question.block}</h2>
               )}
-              <QuestionStats question={question} names={names} />
+              <QuestionStats pollId={info.id} question={question} names={names} />
             </div>
           ))}
         </TabsContent>
@@ -290,7 +343,9 @@ export function PollResultsPage() {
               {people.length === 0 ? (
                 <ListEmpty>Никого не нашлось.</ListEmpty>
               ) : (
-                people.map((person, i) => <Respondent key={`${person.name}-${i}`} person={person} open={i < 3 && !search} />)
+                people.map((person, i) => (
+                  <Respondent key={`${person.name}-${i}`} pollId={info.id} person={person} open={i < 3 && !search} />
+                ))
               )}
             </>
           )}

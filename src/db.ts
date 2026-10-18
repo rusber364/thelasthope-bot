@@ -100,6 +100,22 @@ if (addColumn('raid_signups', 'reminded', 'INTEGER NOT NULL DEFAULT 0')) {
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 
+// Картинки из ответов на опросы («Ответ: картинка»). Ссылки Discord на вложения со временем перестают
+// открываться, поэтому бот хранит сами файлы. В ответе на вопрос лежит id картинки отсюда.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS poll_files (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    poll_id      INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+    user_id      TEXT    NOT NULL,
+    question_id  TEXT    NOT NULL,
+    name         TEXT    NOT NULL,
+    content_type TEXT    NOT NULL,
+    data         BLOB    NOT NULL,
+    created_at   INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS poll_files_answer ON poll_files (poll_id, user_id, question_id);
+`);
+
 // Создание реги по шагам в личке: один черновик на офицера (переживает перезапуск бота)
 // и своя картинка реги — её заново прикрепляют при каждой перерисовке сообщения.
 db.exec(`

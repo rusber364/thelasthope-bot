@@ -142,7 +142,12 @@ export function WelcomePage() {
     ...(offerSurvey ? [{ label: o.button, emoji: '📝', style: 'primary' as const }] : []),
     ...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : []),
   ];
-  const dmButtons: PreviewButton[] = [...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : [])];
+  // Анкета «и в личку» приходит кнопкой в том же сообщении.
+  const surveyInDm = offerSurvey && o.dm;
+  const dmButtons: PreviewButton[] = [
+    ...(surveyInDm ? [{ label: o.button, emoji: '📝', style: 'primary' as const }] : []),
+    ...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : []),
+  ];
 
   return (
     <>
@@ -251,7 +256,9 @@ export function WelcomePage() {
         </TabsContent>
 
         <TabsContent value="dm">
-          <WithPreview preview={<DiscordPreview parts={[d.text]} values={values.dm} buttons={dmButtons} />}>
+          <WithPreview
+            preview={<DiscordPreview parts={[d.text, surveyInDm ? `📝 ${o.offer}` : '']} values={values.dm} buttons={dmButtons} />}
+          >
             <FormErrors errors={dm.errors} />
             <SectionCard
               title="Приветствие в личку"
@@ -388,6 +395,20 @@ export function WelcomePage() {
                   value={o.button}
                   onChange={(e) => onboarding.update(patch('onboarding', { button: e.target.value }))}
                 />
+              </Field>
+              <Field orientation="horizontal" className="items-start">
+                <Switch
+                  id="onboarding-dm"
+                  checked={o.dm}
+                  onCheckedChange={(dm: boolean) => onboarding.update(patch('onboarding', { dm }))}
+                />
+                <div className="flex flex-col gap-0.5">
+                  <FieldLabel htmlFor="onboarding-dm">И в личку</FieldLabel>
+                  <FieldDescription>
+                    Новичку придёт личное сообщение с этой строкой и кнопкой анкеты — вместе с приветствием в личку, а если оно выключено,
+                    отдельно. Анкету можно пройти прямо в личке.
+                  </FieldDescription>
+                </div>
               </Field>
             </SectionCard>
 

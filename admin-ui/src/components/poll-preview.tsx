@@ -9,6 +9,7 @@ export const KIND_LABELS: Record<QuestionKind, string> = {
   multiple: 'несколько вариантов',
   short: 'короткий ответ',
   paragraph: 'длинный ответ',
+  image: 'картинка',
 };
 
 export function PollPreview({ poll, minutes, questions }: { poll: PollDefinition; minutes: number | null; questions: number | null }) {

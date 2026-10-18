@@ -92,3 +92,36 @@ test('закрытая личка: без ошибок, приветствие �
     errors.mock.restore();
   }
 });
+
+test('анкета новичков в личку: кнопкой в приветствии, а при выключенном приветствии — отдельным сообщением; переключатель «в личку»', async () => {
+  const { createPoll } = await import('../polls/store.ts');
+  const { parsePollFile } = await import('../polls/format.ts');
+  const parsed = parsePollFile('# Анкета\n## О себе\n### Ник\nОтвет: короткий');
+  assert.ok(parsed.ok);
+  const survey = createPoll('G', 'W', parsed.poll, 'officer');
+  const set = (welcomeDm: boolean, dm: boolean) => {
+    const next = structuredClone(getSettings());
+    next.welcomeDm.enabled = welcomeDm;
+    next.onboarding = { ...next.onboarding, pollId: survey.id, dm, offer: 'Пройди анкету, {name}!' };
+    saveSettings(next);
+  };
+  const buttons = (dm: Dm) => dm.components.flatMap((row) => row.toJSON().components) as { custom_id?: string; label?: string }[];
+
+  set(true, true);
+  let dms: Dm[] = [];
+  assert.equal(await sendWelcomeDm(member(async (payload) => dms.push(payload)) as never), 'sent');
+  assert.match(dms[0]!.content, /📝 Пройди анкету, Морозко!/);
+  assert.equal(buttons(dms[0]!)[0]?.custom_id, `poll:start:${survey.id}`);
+
+  set(false, true);
+  dms = [];
+  assert.equal(await sendWelcomeDm(member(async (payload) => dms.push(payload)) as never), 'sent', 'приветствие выключено, но анкета уходит');
+  assert.match(dms[0]!.content, /^Привет, Морозко! 👋 Добро пожаловать в \*\*The Last Hope\*\*\.\n\n📝 Пройди анкету/);
+
+  set(false, false);
+  assert.equal(await sendWelcomeDm(member(async () => {}) as never), 'off', 'анкета не в личку и приветствие выключено — молчим');
+  set(true, false);
+  dms = [];
+  await sendWelcomeDm(member(async (payload) => dms.push(payload)) as never);
+  assert.ok(!buttons(dms[0]!).some((b) => b.custom_id?.startsWith('poll:')), 'анкета не в личку — кнопки нет');
+});

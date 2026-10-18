@@ -79,6 +79,8 @@ export interface QuestionStats {
   options: { label: string; count: number; percent: number }[];
   /** Текстовые ответы. userId = null в анонимном опросе (и порядок там перемешан). */
   texts: { userId: string | null; text: string }[];
+  /** Картинки-ответы (id в poll_files). userId = null в анонимном опросе. */
+  images: { userId: string | null; fileId: number }[];
 }
 
 export interface PollStats {
@@ -103,8 +105,13 @@ export function pollStats(poll: StoredPoll, responses: PollResponse[]): PollStat
       const texts = isText
         ? answered.map((r) => ({ userId: anonymous ? null : r.userId, text: r.state.answers[question.id]![0]! })).filter((t) => t.text.trim())
         : [];
-      if (anonymous) shuffle(texts);
-      return { block: block.title, title: question.title, kind: question.kind, required: question.required, answered: answered.length, options, texts };
+      const images =
+        question.kind === 'image' ? answered.map((r) => ({ userId: anonymous ? null : r.userId, fileId: Number(r.state.answers[question.id]![0]) })) : [];
+      if (anonymous) {
+        shuffle(texts);
+        shuffle(images);
+      }
+      return { block: block.title, title: question.title, kind: question.kind, required: question.required, answered: answered.length, options, texts, images };
     }),
   );
   return { total: responses.length, completed: responses.filter((r) => r.completedAt).length, questions };
@@ -121,8 +128,8 @@ export interface RespondentAnswers {
   userId: string;
   completed: boolean;
   updatedAt: number;
-  /** Только вопросы, на которые человек ответил, в порядке опроса. */
-  answers: { block: string; question: string; answer: string }[];
+  /** Только вопросы, на которые человек ответил, в порядке опроса. image — id картинки-ответа. */
+  answers: { block: string; question: string; answer: string; image?: number }[];
 }
 
 /** Ответы, сгруппированные по людям: сначала дошедшие до конца, внутри — свежие первыми (чистая функция). */
@@ -136,6 +143,7 @@ export function answersByUser(poll: StoredPoll, responses: PollResponse[]): Resp
       answers: questions.flatMap(({ block, question }) => {
         const values = response.state.answers[question.id] ?? [];
         if (!values.length || !values.some((v) => v.trim())) return [];
+        if (question.kind === 'image') return [{ block, question: question.title, answer: 'картинка', image: Number(values[0]) }];
         const answer =
           question.kind === 'short' || question.kind === 'paragraph'
             ? values[0]!

@@ -125,3 +125,25 @@ test('ответы по людям: только отвеченные вопро
   ]);
   assert.deepEqual(people[2]!.answers, []);
 });
+
+test('ответ-картинка: в форме — поле файла, в итогах и по людям — id картинки, в таблице — ссылка в админку', async () => {
+  const { buildBlockModal, buildResultsCsv } = await import('./render.ts');
+  const { answersByUser } = await import('./service.ts');
+  const parsed = parsePollFile('# Анкета\n## Персонаж\n### Скриншот персонажа *\nОтвет: картинка');
+  assert.ok(parsed.ok);
+  const question = parsed.poll.blocks[0]!.questions[0]!;
+  assert.equal(question.kind, 'image');
+
+  const poll = { id: 5, definition: parsed.poll } as never;
+  const upload = buildBlockModal(poll, 0, 1, 1).toJSON().components[0] as { component?: { type: number; max_values?: number; required?: boolean } };
+  assert.equal(upload.component?.type, 19, 'поле загрузки файла');
+  assert.equal(upload.component?.max_values, 1);
+  assert.equal(upload.component?.required, true);
+
+  const responses = [{ userId: 'u1', state: { answers: { [question.id]: ['12'] }, done: [0] }, completedAt: 1, updatedAt: 1 }];
+  assert.deepEqual(pollStats(poll, responses).questions[0]!.images, [{ userId: 'u1', fileId: 12 }]);
+  assert.deepEqual(answersByUser(poll, responses)[0]!.answers, [{ block: 'Персонаж', question: 'Скриншот персонажа', answer: 'картинка', image: 12 }]);
+  assert.match(buildResultsCsv(poll, responses, new Map()), /\/api\/polls\/5\/files\/12/);
+
+  assert.equal(parsePollFile('# Т\n## Б\n### В\nОтвет: видео').ok, false, 'неизвестный вид ответа — ошибка');
+});

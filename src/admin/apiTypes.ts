@@ -101,7 +101,7 @@ export interface Settings {
   farewell: { channelId: string | null; text: string };
   welcomeDm: { enabled: boolean; text: string };
   /** Анкета новичков: опрос в приветствии, роль и карточка офицерам после заполнения. */
-  onboarding: { pollId: number | null; offer: string; button: string; roleId: string | null; removeRoleId: string | null; notify: boolean };
+  onboarding: { pollId: number | null; offer: string; button: string; dm: boolean; roleId: string | null; removeRoleId: string | null; notify: boolean };
   alerts: { channelId: string | null; roleId: string | null; lateCancelHours: number; incidentChannelId: string | null };
 }
 
@@ -167,7 +167,7 @@ export interface OptionsResponse {
 
 // --- Опросы (повторяют PollDefinition и PollStats из src/polls) ---
 
-export type QuestionKind = 'single' | 'multiple' | 'short' | 'paragraph';
+export type QuestionKind = 'single' | 'multiple' | 'short' | 'paragraph' | 'image';
 
 export interface PollDefinition {
   title: string;
@@ -197,6 +197,8 @@ export interface PollStats {
     answered: number;
     options: { label: string; count: number; percent: number }[];
     texts: { userId: string | null; text: string }[];
+    /** Картинки-ответы: картинку отдаёт GET /api/polls/:id/files/:fileId. */
+    images: { userId: string | null; fileId: number }[];
   }[];
 }
 
@@ -232,7 +234,7 @@ export interface PollRespondent {
   name: string;
   completed: boolean;
   updatedAt: number;
-  answers: { block: string; question: string; answer: string }[];
+  answers: { block: string; question: string; answer: string; image?: number }[];
 }
 
 export interface PollResultsResponse {
