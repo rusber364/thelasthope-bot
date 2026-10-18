@@ -6,8 +6,8 @@ import { replyEphemeral } from '../lib/reply.ts';
 import { formatDuration } from '../lib/time.ts';
 import { sendAlert } from '../logs/alerts.ts';
 import { LOG_COLORS } from '../logs/send.ts';
-import { ROLES, classById, specById, specsOf, type RaidRole } from './classes.ts';
-import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
+import { ROLES, ROLE_ORDER, SPECS, classById, specById, type RaidRole } from './classes.ts';
+import { specComponentEmoji, uiEmoji } from './emojis.ts';
 import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
 import { KINDS, LIMIT_GROUPS, limitGroup } from './kinds.ts';
@@ -19,7 +19,7 @@ import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignu
 
 export const raidHandler: ComponentHandler = {
   prefix: 'raid',
-  async handle(interaction, [action, raidId]) {
+  async handle(interaction, [action, raidId, ...args]) {
     const raid = getRaid(Number(raidId));
     if (!raid) return replyEphemeral(interaction, 'Эта рега не найдена — возможно, её удалили.');
     if (raid.status === 'cancelled') return replyEphemeral(interaction, `${KINDS[raid.kind].title} отменили — записаться уже нельзя.`);
@@ -27,7 +27,8 @@ export const raidHandler: ComponentHandler = {
       return replyEphemeral(interaction, 'Запись закрыта — время начала уже прошло.');
     }
 
-    if (action === 'class') await chooseClass(interaction, raid);
+    if (action === 'role') await chooseRole(interaction, raid, args[0]);
+    else if (action === 'class') await outdatedMenu(interaction, raid);
     else if (action === 'spec') await chooseSpec(interaction, raid);
     else if (action === 'maybe') await toggleMaybe(interaction, raid);
     else if (action === 'leave') await leave(interaction, raid);
@@ -65,38 +66,52 @@ export function benchReason(main: Signup[], raid: Pick<Raid, 'size' | 'limits'>,
 const accessOf = (interaction: ComponentInteraction, raid: Raid) => signupAccess(new Set(interaction.member.roles.cache.keys()), raid);
 const noAccess = (raid: Raid) => `Эта рега для ролей: ${roleMentions([...raid.mainRoleIds, ...raid.reserveRoleIds])}. Если роль нужна — спроси офицеров.`;
 
-/** Шаг 1: выбрали класс в общем меню → показываем (только этому человеку) меню спеков. */
-async function chooseClass(interaction: ComponentInteraction, raid: Raid): Promise<void> {
-  if (!interaction.isStringSelectMenu()) return;
-  const wowClass = classById.get(interaction.values[0] ?? '');
-  if (!wowClass) return;
+/** Шаг 1: нажали кнопку роли → показываем (только этому человеку) спеки этой роли у всех классов. */
+async function chooseRole(interaction: ComponentInteraction, raid: Raid, roleId: string | undefined): Promise<void> {
+  const role = ROLE_ORDER.find((r) => r === roleId);
+  if (!role) return;
   const access = accessOf(interaction, raid);
   if (!access) return replyEphemeral(interaction, noAccess(raid));
 
   const current = getSignup(raid.id, interaction.user.id);
-  const lines = [`${classEmoji(wowClass)} **${wowClass.name}** — выбери специализацию:`.trim()];
+  const lines = [`${uiEmoji(role)} **${ROLES[role].one}** — выбери класс и специализацию:`];
   if (current) lines.push(`-# Сейчас в списке: ${describeSignup(current)}. Новый выбор её заменит.`);
   if (access === 'reserve') lines.push('-# С твоими ролями в эту регу записывают только в запас.');
+  else lines.push(...roleFullNote(raid, role, interaction.user.id));
 
-  // Роль, для которой места в основе по лимиту закончились, — с подписью: запись будет в запас.
-  const full = fullGroups(getSignups(raid.id), raid.size, raid.limits, interaction.user.id);
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`raid:spec:${raid.id}`)
-    .setPlaceholder('Специализация')
-    .addOptions(
-      specsOf(wowClass.id).map((spec) => ({
-        label: spec.name,
-        value: spec.id,
-        emoji: specComponentEmoji(spec),
-        description: full.has(limitGroup(spec.role)) ? `${ROLES[spec.role].one} · мест нет — в запас` : ROLES[spec.role].one,
-      })),
-    );
+    .setPlaceholder('Класс и специализация')
+    .addOptions(specMenuOptions(role));
 
   await interaction.reply({
     content: lines.join('\n'),
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
     flags: MessageFlags.Ephemeral,
   });
+}
+
+/** Спеки роли у всех классов — пункты меню «Воин — Защита». */
+export function specMenuOptions(role: RaidRole) {
+  return SPECS.filter((spec) => spec.role === role).map((spec) => ({
+    label: `${classById.get(spec.classId)?.name ?? spec.classId} — ${spec.name}`,
+    value: spec.id,
+    emoji: specComponentEmoji(spec),
+  }));
+}
+
+/** Места этой роли в основе по лимиту закончились — запись будет в запас. */
+function roleFullNote(raid: Raid, role: RaidRole, userId: string): string[] {
+  const group = limitGroup(role);
+  if (!fullGroups(getSignups(raid.id), raid.size, raid.limits, userId).has(group)) return [];
+  const title = LIMIT_GROUPS.find((g) => g.group === group)!.title;
+  return [`-# ${uiEmoji('bench')} ${title} уже набраны (${raid.limits[group]}) — запишу в запас, поднимешься, когда место освободится.`];
+}
+
+/** Нажали меню классов на сообщении из прошлой версии — перерисовываем регу с кнопками ролей. */
+async function outdatedMenu(interaction: ComponentInteraction, raid: Raid): Promise<void> {
+  await replyEphemeral(interaction, 'Запись теперь — кнопками ролей под регой. Обновляю её — нажми свою роль.');
+  await refreshRaidMessage(interaction.client, raid.id);
 }
 
 /** Шаг 2: выбрали спек → записываем и обновляем регу. */
@@ -139,7 +154,7 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
 async function toggleMaybe(interaction: ComponentInteraction, raid: Raid): Promise<void> {
   const signup = getSignup(raid.id, interaction.user.id);
   if (!signup) {
-    return replyEphemeral(interaction, 'Сначала выбери класс в меню записи — потом можно отметиться «под вопросом».');
+    return replyEphemeral(interaction, 'Сначала запишись кнопкой своей роли — потом можно отметиться «под вопросом».');
   }
   setTentative(raid.id, interaction.user.id, !signup.tentative);
   await replyEphemeral(

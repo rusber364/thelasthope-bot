@@ -19,15 +19,14 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  StringSelectMenuBuilder,
   TimestampStyles,
   escapeMarkdown,
   time,
   type APIEmbedField,
   type MessageEditOptions,
 } from 'discord.js';
-import { CLASSES, ROLES, ROLE_ORDER, specById, specsOf, type RaidRole } from './classes.ts';
-import { classComponentEmoji, specEmoji, uiComponentEmoji, uiEmoji } from './emojis.ts';
+import { ROLES, ROLE_ORDER, specById, type RaidRole } from './classes.ts';
+import { specEmoji, uiComponentEmoji, uiEmoji } from './emojis.ts';
 import { KINDS, LIMIT_GROUPS, hasLimits } from './kinds.ts';
 import { lineup, roleMentions } from './lineup.ts';
 import { plural } from '../lib/plural.ts';
@@ -172,25 +171,16 @@ function splitField(name: string, lines: string[], separator: string, inline: bo
   return fields;
 }
 
-/** Меню выбора класса и кнопки под регой. */
+/** Кнопки под регой: запись по роли (как в Raid-Helper) и действия с записью. */
 function buildControls(raid: Raid) {
-  const select = new StringSelectMenuBuilder()
-    .setCustomId(`raid:class:${raid.id}`)
-    .setPlaceholder('Записаться — выбери класс')
-    .addOptions(
-      CLASSES.map((wowClass) => {
-        const emoji = classComponentEmoji(wowClass);
-        return {
-          label: wowClass.name,
-          value: wowClass.id,
-          ...(emoji ? { emoji } : {}),
-          description: specsOf(wowClass.id)
-            .map((spec) => spec.name)
-            .join(' · ')
-            .slice(0, 100),
-        };
-      }),
-    );
+  // Роль → скрытое меню со спеками этой роли у всех классов (raid:role:<id>:<роль>).
+  const roles = ROLE_ORDER.map((role) =>
+    new ButtonBuilder()
+      .setCustomId(`raid:role:${raid.id}:${role}`)
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji(uiComponentEmoji(role))
+      .setLabel(ROLES[role].one),
+  );
 
   const buttons = [
     new ButtonBuilder()
@@ -210,8 +200,5 @@ function buildControls(raid: Raid) {
       .setLabel('Напомнить'),
   ];
 
-  return [
-    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(buttons),
-  ];
+  return [new ActionRowBuilder<ButtonBuilder>().addComponents(roles), new ActionRowBuilder<ButtonBuilder>().addComponents(buttons)];
 }

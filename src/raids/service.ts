@@ -19,6 +19,7 @@ import {
   setRaidMessage,
   setRaidStart,
   setRaidStatus,
+  upcomingRaids,
   type NewRaid,
   type Raid,
   type RaidImage,
@@ -63,6 +64,20 @@ export function raidUrl(raid: Raid): string {
 
 const refreshing = new Map<number, Promise<void>>();
 const pending = new Set<number>();
+
+/**
+ * Открытые реги, опубликованные до кнопок ролей (с меню классов), перерисовываем при запуске —
+ * один раз: после перерисовки старого меню в сообщении уже нет.
+ */
+export async function refreshOutdatedRaids(client: Client, guildId: string): Promise<void> {
+  for (const raid of upcomingRaids(guildId, 50)) {
+    if (!raid.messageId) continue;
+    const channel = await client.channels.fetch(raid.channelId).catch(() => null);
+    if (!channel?.isTextBased() || channel.isDMBased()) continue;
+    const message = await channel.messages.fetch(raid.messageId).catch(() => null);
+    if (message && JSON.stringify(message.components).includes('"raid:class:')) await refreshRaidMessage(client, raid.id);
+  }
+}
 
 /**
  * Перерисовывает сообщение реги по данным из базы.

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 process.env.BOT_DB_PATH = ':memory:';
-const { raidHandler } = await import('./handlers.ts');
-const { createRaid, getSignup, getSignups } = await import('./store.ts');
+const { raidHandler, specMenuOptions } = await import('./handlers.ts');
+const { createRaid, getSignup, getSignups, upsertSignup } = await import('./store.ts');
 const { lineup } = await import('./lineup.ts');
 const { getSettings, saveSettings } = await import('../botSettings.ts');
 
@@ -24,8 +24,14 @@ const raid = createRaid({ guildId: 'g', channelId: 'c', title: 'Огненные
 
 /** Что бот ответил участнику (скрытые ответы и обновления меню). */
 const answers: string[] = [];
+/** Пункты меню в последнем ответе (меню спеков после кнопки роли). */
+let lastOptions: { label: string; value: string }[] = [];
+type Payload = { content?: string; components?: { toJSON(): { components: { options?: { label: string; value: string }[] }[] } }[] };
 function interaction(kind: 'select' | 'button', values: string[] = []) {
-  const answer = async (payload: { content?: string }) => void answers.push(payload.content ?? '');
+  const answer = async (payload: Payload) => {
+    answers.push(payload.content ?? '');
+    lastOptions = payload.components?.flatMap((row) => row.toJSON().components.flatMap((c) => c.options ?? [])) ?? [];
+  };
   return {
     user: { id: 'u1' },
     member,
@@ -83,14 +89,14 @@ test('кто может записаться: без роли — отказ, р
   const last = () => answers.at(-1) ?? '';
   memberRoles.clear();
 
-  await raidHandler.handle(interaction('select', ['mage']), ['class', id]);
+  await raidHandler.handle(interaction('button'), ['role', id, 'ranged']);
   assert.match(last(), /Эта рега для ролей: <@&RAIDER>, <@&GUEST>/);
   await raidHandler.handle(interaction('select', ['mage_fire']), ['spec', id]);
   assert.match(last(), /Эта рега для ролей/, 'меню спеков, открытое раньше, тоже не записывает');
   assert.equal(getSignup(restricted.id, 'u1'), null);
 
   memberRoles.set('GUEST', {});
-  await raidHandler.handle(interaction('select', ['mage']), ['class', id]);
+  await raidHandler.handle(interaction('button'), ['role', id, 'ranged']);
   assert.match(last(), /только в запас/);
   await raidHandler.handle(interaction('select', ['mage_fire']), ['spec', id]);
   assert.equal(getSignup(restricted.id, 'u1')?.reserve, true);
@@ -102,4 +108,51 @@ test('кто может записаться: без роли — отказ, р
   await raidHandler.handle(interaction('select', ['mage_frost']), ['spec', id]);
   assert.equal(getSignup(restricted.id, 'u1')?.reserve, false);
   assert.doesNotMatch(last(), /в запасе/);
+});
+
+test('кнопка роли показывает спеки этой роли у всех классов', async () => {
+  memberRoles.clear();
+  await raidHandler.handle(interaction('button'), ['role', String(raid.id), 'tank']);
+  assert.match(answers.at(-1) ?? '', /\*\*Танк\*\* — выбери класс и специализацию/);
+  assert.deepEqual(
+    lastOptions.map((o) => o.label),
+    ['Воин — Защита', 'Паладин — Защита', 'Друид — Сила зверя (медведь)'],
+  );
+
+  // В каждом меню — только своя роль, и все спеки помещаются (у Discord до 25 пунктов).
+  const all = (['tank', 'melee', 'ranged', 'healer'] as const).flatMap((role) => specMenuOptions(role).map((o) => o.value));
+  assert.equal(new Set(all).size, all.length, 'спек не попадает в две роли');
+  for (const role of ['tank', 'melee', 'ranged', 'healer'] as const) assert.ok(specMenuOptions(role).length <= 25);
+  assert.ok(specMenuOptions('ranged').some((o) => o.value === 'priest_shadow'));
+  assert.ok(specMenuOptions('healer').some((o) => o.value === 'druid_resto'));
+
+  // Незнакомая роль в customId — ничего не делаем.
+  const before = answers.length;
+  await raidHandler.handle(interaction('button'), ['role', String(raid.id), 'bard']);
+  assert.equal(answers.length, before);
+});
+
+test('роль набрана по лимиту — предупреждаем ещё до выбора спека', async () => {
+  const dungeon = createRaid({
+    guildId: 'g',
+    channelId: 'c',
+    title: 'Мёртвые копи',
+    startsAt: Date.now() + 86_400_000,
+    size: 5,
+    createdBy: 'u',
+    kind: 'dungeon',
+    limits: { tank: 1, healer: 1, dps: 3 },
+  });
+  upsertSignup(dungeon.id, 'u2', 'warrior_prot', 'Танкист');
+  memberRoles.clear();
+
+  await raidHandler.handle(interaction('button'), ['role', String(dungeon.id), 'tank']);
+  assert.match(answers.at(-1) ?? '', /Танки уже набраны \(1\) — запишу в запас/);
+  await raidHandler.handle(interaction('button'), ['role', String(dungeon.id), 'healer']);
+  assert.doesNotMatch(answers.at(-1) ?? '', /набраны/);
+});
+
+test('меню классов со старого сообщения реги просит нажать кнопку роли', async () => {
+  await raidHandler.handle(interaction('select', ['mage']), ['class', String(raid.id)]);
+  assert.match(answers.at(-1) ?? '', /кнопками ролей/);
 });

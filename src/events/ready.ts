@@ -6,6 +6,7 @@ import { syncVoiceRoles } from '../lib/voiceRoles.ts';
 import { refreshStickies } from '../lib/sticky.ts';
 import { refreshBoard } from '../raids/board.ts';
 import { ensureAppEmojis } from '../raids/emojis.ts';
+import { refreshOutdatedRaids } from '../raids/service.ts';
 import { startRaidScheduler } from '../raids/scheduler.ts';
 import { startTempRoleExpiry } from '../lib/tempRoles.ts';
 import { startAutoClean } from '../lib/autoClean.ts';
@@ -36,6 +37,7 @@ export function registerReadyEvent(client: Client): void {
     // Список рейдов — после загрузки иконок, иначе он нарисуется обычными эмодзи вместо WoW.
     for (const guild of readyClient.guilds.cache.values()) {
       await refreshBoard(readyClient, guild.id).catch((error) => console.error('Не удалось обновить список рейдов:', error));
+      await refreshOutdatedRaids(readyClient, guild.id).catch((error) => console.error('Не удалось обновить старые реги:', error));
     }
     startRaidScheduler(readyClient);
     startTempRoleExpiry(readyClient);
