@@ -1,6 +1,6 @@
 // Общие части страниц настроек: карточка раздела, панель сохранения, ошибки, числовое поле, текст с подстановками.
 import { CircleAlert, RotateCcw, Save } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -130,6 +130,15 @@ export function NumberField({
         onBlur={() => setText(String(value))}
       />
       {suffix && <span className="text-sm text-muted-foreground">{suffix}</span>}
+    </div>
+  );
+}
+
+/** Время ЧЧ:ММ: узкое поле, а не на всю ширину (Field растягивает прямых потомков). */
+export function TimeInput({ className, ...props }: Omit<ComponentProps<typeof Input>, 'type'>) {
+  return (
+    <div>
+      <Input type="time" className={cn('w-32', className)} {...props} />
     </div>
   );
 }

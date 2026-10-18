@@ -1,8 +1,10 @@
+import { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import type { MeResponse } from '@api';
 import { AppSidebar } from '@/components/app-sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { findNavItem } from '@/nav';
 
@@ -27,7 +29,10 @@ export function Layout({ me }: { me: MeResponse }) {
           </div>
         </header>
         <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:p-6">
-          <Outlet />
+          {/* Пока грузится кусок страницы — скелет на её месте, меню и шапка остаются. */}
+          <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
+            <Outlet />
+          </Suspense>
         </main>
       </SidebarInset>
     </SidebarProvider>

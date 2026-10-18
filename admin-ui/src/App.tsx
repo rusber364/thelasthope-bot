@@ -1,5 +1,5 @@
 import { RotateCw } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { lazy, type ComponentType } from 'react';
 import { Route, Routes } from 'react-router';
 import { AuthScreen } from '@/components/auth-screen';
 import { Layout } from '@/components/layout';
@@ -7,27 +7,29 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { ApiFailure, errorText } from '@/lib/api';
 import { useMe } from '@/lib/queries';
-import { NAV } from '@/nav';
-import { AlertsPage } from '@/pages/alerts';
-import { AutoCleanPage } from '@/pages/autoclean';
-import { ChannelsPage } from '@/pages/channels';
 import { DeniedPage } from '@/pages/denied';
-import { HomePage } from '@/pages/home';
 import { LoginPage } from '@/pages/login';
-import { LogsPage } from '@/pages/logs';
 import { NotFoundPage } from '@/pages/not-found';
-import { PlaceholderPage } from '@/pages/placeholder';
-import { StickyPage } from '@/pages/sticky';
-import { WelcomePage } from '@/pages/welcome';
 
-/** Готовые разделы; остальные пока показывают заглушку. */
+/** Страница грузится отдельным куском, когда её впервые открывают. */
+function page<K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) {
+  return lazy(() => load().then((module) => ({ default: module[name] })));
+}
+
+const HomePage = page(() => import('@/pages/home'), 'HomePage');
+
+/** Разделы меню: адрес → страница (внутри раздела могут быть свои адреса, как у опросов). */
 const PAGES: Record<string, ComponentType> = {
-  '/channels': ChannelsPage,
-  '/welcome': WelcomePage,
-  '/logs': LogsPage,
-  '/alerts': AlertsPage,
-  '/sticky': StickyPage,
-  '/autoclean': AutoCleanPage,
+  '/channels': page(() => import('@/pages/channels'), 'ChannelsPage'),
+  '/welcome': page(() => import('@/pages/welcome'), 'WelcomePage'),
+  '/logs': page(() => import('@/pages/logs'), 'LogsPage'),
+  '/alerts': page(() => import('@/pages/alerts'), 'AlertsPage'),
+  '/raids': page(() => import('@/pages/raids'), 'RaidsPage'),
+  '/templates': page(() => import('@/pages/templates'), 'TemplatesPage'),
+  '/attendance': page(() => import('@/pages/attendance'), 'AttendancePage'),
+  '/polls': page(() => import('@/pages/polls'), 'PollsSection'),
+  '/sticky': page(() => import('@/pages/sticky'), 'StickyPage'),
+  '/autoclean': page(() => import('@/pages/autoclean'), 'AutoCleanPage'),
 };
 
 /** Сначала узнаём, кто вошёл: нет сессии — экран входа, нет права «Управлять сервером» — экран «Нет доступа». */
@@ -58,10 +60,9 @@ export function App() {
     <Routes>
       <Route element={<Layout me={me.data} />}>
         <Route index element={<HomePage />} />
-        {NAV.flatMap((group) => group.items).map((item) => {
-          const Page = PAGES[item.to];
-          return <Route key={item.to} path={`${item.to.slice(1)}/*`} element={Page ? <Page /> : <PlaceholderPage item={item} />} />;
-        })}
+        {Object.entries(PAGES).map(([path, Page]) => (
+          <Route key={path} path={`${path.slice(1)}/*`} element={<Page />} />
+        ))}
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

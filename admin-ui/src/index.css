@@ -123,6 +123,10 @@
 }
 
 @layer base {
+  /* Родные поля даты и времени, полосы прокрутки — в цвет темы. */
+  .dark {
+    color-scheme: dark;
+  }
   * {
     @apply border-border outline-ring/50;
   }
