@@ -135,10 +135,13 @@ test('ответ-картинка: в форме — поле файла, в и�
   assert.equal(question.kind, 'image');
 
   const poll = { id: 5, definition: parsed.poll } as never;
-  const upload = buildBlockModal(poll, 0, 1, 1).toJSON().components[0] as { component?: { type: number; max_values?: number; required?: boolean } };
+  const upload = buildBlockModal(poll, 0, 1, 1).toJSON().components[0] as {
+    component?: { type: number; max_values?: number; required?: boolean; file_types?: string[] };
+  };
   assert.equal(upload.component?.type, 19, 'поле загрузки файла');
   assert.equal(upload.component?.max_values, 1);
   assert.equal(upload.component?.required, true);
+  assert.deepEqual(upload.component?.file_types, ['image'], 'в окне выбора — только картинки');
 
   const responses = [{ userId: 'u1', state: { answers: { [question.id]: ['12'] }, done: [0] }, completedAt: 1, updatedAt: 1 }];
   assert.deepEqual(pollStats(poll, responses).questions[0]!.images, [{ userId: 'u1', fileId: 12 }]);

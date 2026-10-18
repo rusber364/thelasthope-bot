@@ -4,6 +4,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   Colors,
+  ComponentType,
   ContainerBuilder,
   LabelBuilder,
   ModalBuilder,
@@ -135,7 +136,15 @@ function buildQuestion(question: PollQuestion): LabelBuilder {
   const minValues = question.required ? 1 : 0;
 
   if (question.kind === 'image') {
-    return label.setFileUploadComponent((upload) => upload.setCustomId(question.id).setRequired(question.required).setMinValues(minValues).setMaxValues(1));
+    return label.setFileUploadComponent({
+      type: ComponentType.FileUpload,
+      custom_id: question.id,
+      required: question.required,
+      min_values: minValues,
+      max_values: 1,
+      // В окне выбора — только картинки (Discord смотрит на расширение; тип бот ещё раз проверяет после загрузки).
+      file_types: ['image'],
+    });
   }
 
   if (question.kind === 'single' && options.length <= LIMITS.radioOptions) {
