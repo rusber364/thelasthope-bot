@@ -189,18 +189,16 @@ test('логи, оповещения, приветствие, личка и пр
   assert.match(farewellTest.json!.errors[0], /нельзя писать/);
 });
 
-test('расписание рег, липкие сообщения, автоочистка: сохранение и проверки', async () => {
+test('настройки рег, липкие сообщения, автоочистка: сохранение и проверки', async () => {
   const raids = structuredClone(getSettings().raids);
-  raids.schedules[0]!.channelId = 'c1';
-  raids.schedules[0]!.days = [4, 5];
   raids.boardChannelId = 'c2';
   const ok = await put('raids', { raids });
   assert.equal(ok.status, 200);
-  assert.deepEqual(getSettings().raids.schedules[0]!.days, [4, 5]);
-  raids.schedules[0]!.raidTime = '25:99';
+  assert.equal(getSettings().raids.boardChannelId, 'c2');
+  raids.defaultTime = '25:99';
   const bad = await put('raids', { raids });
   assert.equal(bad.status, 400);
-  assert.ok(bad.json!.errors.some((e: string) => /время рейда/.test(e)));
+  assert.ok(bad.json!.errors.some((e: string) => /Время рейда по умолчанию/.test(e)));
 
   const sticky = await put('sticky', { sticky: { intervalSeconds: 15, items: [{ channelId: 'c1', text: 'Правила' }, { channelId: 'c1', text: '' }] } });
   assert.equal(sticky.status, 400);
@@ -220,11 +218,27 @@ test('расписание рег, липкие сообщения, автооч
   assert.equal((await put('nothing', {})).status, 404);
 });
 
-test('шаблоны рег: сохранить и создать регу на дату', async () => {
-  const saved = await put('templates', { raidTemplates: [{ title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'c4', pingRoleId: 'r1' }] });
+test('шаблоны рейдов: расписание и роли, проверки, создать регу на дату', async () => {
+  const slot = (raidDay: number, raidTime: string, openDay: number, openTime: string) => ({ raidDay, raidTime, openDay, openTime });
+  const base = { title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'c4' };
+  const saved = await put('templates', {
+    raidTemplates: [{ ...base, pingRoleIds: ['r1', 'r1', 'r2'], slots: [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')] }],
+  });
   assert.equal(saved.status, 200);
   const template = getSettings().raidTemplates[0]!;
   assert.ok(template.id);
+  assert.deepEqual(template.pingRoleIds, ['r1', 'r2'], 'повтор роли убран');
+  assert.deepEqual(template.slots, [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')]);
+
+  const bad = await put('templates', {
+    raidTemplates: [{ ...base, pingRoleIds: ['r9'], slots: [slot(3, '20:00', 2, '00:00'), slot(3, '21:00', 2, '24:00')] }],
+  });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.json!.errors, [
+    'Шаблон 1: роль для упоминания: такой роли нет на сервере.',
+    'Шаблон 1 («Огненные Недра»), расписание, строка 2: время открытия реги в формате ЧЧ:ММ.',
+    'Шаблон 1 («Огненные Недра»): в один день — только один рейд этого шаблона.',
+  ]);
 
   const tomorrow = Temporal.Now.plainDateISO('Europe/Kyiv').add({ days: 1 }).toString();
   const created = await call('POST', `/templates/${template.id}/create`, { date: tomorrow, time: '21:00' });

@@ -42,19 +42,15 @@ export interface StickyItem {
   roleIds: string[];
 }
 
-export interface RaidSchedule {
-  /** Не меняется после создания: по нему бот понимает, что рега на этот день уже открыта. */
-  id: string;
-  title: string;
-  channelId: string | null;
-  /** 1 — понедельник … 7 — воскресенье. */
-  days: number[];
-  openAt: string;
-  /** 0 — рейд в тот же день, что и открытие реги; 7 — через неделю. */
-  raidDayOffset: number;
+/**
+ * Строка расписания шаблона: рейд в raidDay в raidTime, рега на него открывается в openDay в openTime
+ * (ближайший такой момент до рейда, не дальше недели). Дни: 1 — понедельник … 7 — воскресенье.
+ */
+export interface RaidSlot {
+  raidDay: number;
   raidTime: string;
-  /** Роль, которую бот упоминает, когда открывает эту регу (null — без упоминания). */
-  pingRoleId: string | null;
+  openDay: number;
+  openTime: string;
 }
 
 export type ArchiveMode = 'off' | 'move' | 'delete';
@@ -73,17 +69,21 @@ export interface AutoCleanRule {
   keepBot: boolean;
 }
 
-/** Шаблон реги: заготовка для создания в два клика из админки. */
+/** Шаблон рейда: реги по расписанию и создание в два клика из админки. */
 export interface RaidTemplate {
-  /** Не меняется после создания — по нему находят шаблон при создании реги. */
+  /** Не меняется после создания: по нему находят шаблон и понимают, что рега по расписанию уже открыта. */
   id: string;
   title: string;
   description: string;
   size: number;
-  /** Время начала ЧЧ:ММ. */
+  /** Время начала ЧЧ:ММ для реги, созданной вручную. */
   time: string;
+  /** Канал рег (null — реги по этому шаблону не открываются). */
   channelId: string | null;
-  pingRoleId: string | null;
+  /** Роли, которые бот упоминает, когда открывает регу. */
+  pingRoleIds: string[];
+  /** Расписание (пусто — шаблон только для ручного создания). */
+  slots: RaidSlot[];
 }
 
 export interface BotSettings {
@@ -114,14 +114,13 @@ export interface BotSettings {
     boardChannelId: string | null;
     /** Создавать для каждой реги событие Discord (вкладка «События» сервера). */
     discordEvents: boolean;
-    schedules: RaidSchedule[];
   };
   logs: Record<LogCategory, { channelId: string | null; enabled: boolean }>;
   /** Связки «голосовой канал → роль». */
   voiceRoles: VoiceRoleLink[];
   /** Липкие сообщения: текст, который бот держит последним в канале. */
   sticky: { intervalSeconds: number; items: StickyItem[] };
-  /** Шаблоны рег (страница «Шаблоны рег» в админке). */
+  /** Шаблоны рейдов с расписанием (страница «Рейды» в админке). */
   raidTemplates: RaidTemplate[];
   /** Автоочистка каналов. */
   autoClean: AutoCleanRule[];
@@ -143,7 +142,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset: 14, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -169,10 +168,6 @@ function defaults(): BotSettings {
       archive: { mode: 'off', channelId: null, hours: 6 },
       boardChannelId: null,
       discordEvents: true,
-      schedules: [
-        { id: 'group1', title: 'Рейд — группа 1', channelId: env(config.raidChannel1Id), days: [4, 5, 1], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: null },
-        { id: 'group2', title: 'Рейд — группа 2', channelId: env(config.raidChannel2Id), days: [4, 5, 1], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: null },
-      ],
     },
     logs: {
       members: { channelId: null, enabled: true },
@@ -185,7 +180,7 @@ function defaults(): BotSettings {
     alerts: { channelId: null, roleId: null, lateCancelHours: 3, incidentChannelId: null },
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
-    raidTemplates: [],
+    raidTemplates: [defaultGroup('group1', 'Рейд — группа 1', env(config.raidChannel1Id)), defaultGroup('group2', 'Рейд — группа 2', env(config.raidChannel2Id))],
     autoClean: [],
     farewell: { channelId: null, text: '**{name}** покидает {server}. Удачи в Азероте! 👋 Нас теперь {members}.' },
     welcomeDm: {
@@ -206,8 +201,41 @@ function defaults(): BotSettings {
   };
 }
 
+/** Группа по умолчанию: рейды в чт, пт и пн в 20:00, рега открывается в тот же день в 00:00. */
+function defaultGroup(id: string, title: string, channelId: string | null): RaidTemplate {
+  const slots = [4, 5, 1].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' }));
+  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], slots };
+}
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * До шаблонов с расписанием реги открывались по raids.schedules: дни открытия и один сдвиг «рейд через N дней».
+ * Переносим их в шаблоны с тем же id (ключи уже открытых рег совпадут) — до merge(), который отбросил бы старый ключ.
+ */
+function migrateSchedules(saved: unknown): unknown {
+  if (!isObject(saved) || !isObject(saved.raids) || !Array.isArray(saved.raids.schedules)) return saved;
+  const { schedules, ...raids } = saved.raids;
+  const templates = Array.isArray(saved.raidTemplates) ? saved.raidTemplates : [];
+  const taken = new Set(templates.map((t) => (isObject(t) ? t.id : null)));
+  const size = typeof raids.defaultSize === 'number' ? raids.defaultSize : defaults().raids.defaultSize;
+  const converted = schedules.filter(isObject).filter((s) => !taken.has(s.id)).map((s) => {
+    const offset = Number(s.raidDayOffset) || 0;
+    const days = Array.isArray(s.days) ? s.days.map(Number) : [];
+    return {
+      id: s.id,
+      title: s.title,
+      description: '',
+      size,
+      time: s.raidTime,
+      channelId: s.channelId ?? null,
+      pingRoleIds: s.pingRoleId ? [s.pingRoleId] : [],
+      slots: days.map((day) => ({ raidDay: ((day - 1 + offset) % 7) + 1, raidTime: s.raidTime, openDay: day, openTime: s.openAt })),
+    };
+  });
+  return { ...saved, raids, raidTemplates: [...templates, ...converted] };
+}
 
 /** Сохранённое поверх умолчаний: объекты сливаются по ключам, массивы и значения заменяются целиком. */
 function merge<T>(base: T, saved: unknown): T {
@@ -230,9 +258,13 @@ export function getSettings(): BotSettings {
   } catch {
     console.error('Настройки в базе повреждены — использую значения по умолчанию.');
   }
-  const merged = merge(defaults(), saved);
-  // Массивы из базы заменяют умолчания целиком — дополняем расписания полями, которых не было в старых версиях.
-  merged.raids.schedules = merged.raids.schedules.map((schedule) => ({ ...schedule, pingRoleId: schedule.pingRoleId ?? null }));
+  const merged = merge(defaults(), migrateSchedules(saved));
+  // Массивы из базы заменяют умолчания целиком — дополняем элементы полями, которых не было в старых версиях.
+  merged.raidTemplates = merged.raidTemplates.map(({ pingRoleId, ...template }: RaidTemplate & { pingRoleId?: string | null }) => ({
+    ...template,
+    pingRoleIds: template.pingRoleIds ?? (pingRoleId ? [pingRoleId] : []),
+    slots: template.slots ?? [],
+  }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
   // Канала авторизации больше нет: из стандартных текстов прошлых версий убираем шаг «пройди {auth}».
   merged.welcome.text = merged.welcome.text.replace(' и пройди {auth}', '');
@@ -312,16 +344,29 @@ export function validateSettings(s: BotSettings): string[] {
     errors.push('Липкие сообщения: в одном канале может быть только одно.');
   }
 
+  const templateIds = new Set<string>();
   s.raidTemplates.forEach((t, index) => {
-    const name = `Шаблон ${index + 1}`;
+    const name = `Шаблон ${index + 1}${t.title.trim() ? ` («${t.title.trim()}»)` : ''}`;
+    if (templateIds.has(t.id)) errors.push(`${name}: повторяется внутренний id.`);
+    templateIds.add(t.id);
     if (!t.title.trim()) errors.push(`${name}: название не может быть пустым.`);
     else if (t.title.length > LIMITS.title) errors.push(`${name}: название не длиннее ${LIMITS.title} символов.`);
     if (t.description.length > LIMITS.templateDescription) errors.push(`${name}: описание не длиннее ${LIMITS.templateDescription} символов.`);
     if (!Number.isInteger(t.size) || t.size < 1 || t.size > LIMITS.size) errors.push(`${name}: мест в составе — от 1 до ${LIMITS.size}.`);
     if (!parseTime(t.time)) errors.push(`${name}: время в формате ЧЧ:ММ, например 20:00.`);
-    if (!t.channelId) errors.push(`${name}: выбери канал.`);
+    if (t.pingRoleIds.length > LIMITS.templateRoles) errors.push(`${name}: упомянуть можно не больше ${LIMITS.templateRoles} ролей.`);
+    if (t.slots.length > LIMITS.slots) errors.push(`${name}: в расписании не больше ${LIMITS.slots} строк.`);
+    const isDay = (day: number) => Number.isInteger(day) && day >= 1 && day <= 7;
+    t.slots.forEach((slot, i) => {
+      const row = `${name}, расписание, строка ${i + 1}`;
+      if (!isDay(slot.raidDay) || !isDay(slot.openDay)) errors.push(`${row}: выбери дни рейда и открытия реги.`);
+      if (!parseTime(slot.raidTime)) errors.push(`${row}: время рейда в формате ЧЧ:ММ.`);
+      if (!parseTime(slot.openTime)) errors.push(`${row}: время открытия реги в формате ЧЧ:ММ.`);
+    });
+    // По дню рейда бот понимает, что рега уже открыта, — два рейда одного шаблона в один день он бы не различил.
+    if (new Set(t.slots.map((slot) => slot.raidDay)).size !== t.slots.length) errors.push(`${name}: в один день — только один рейд этого шаблона.`);
   });
-  if (s.raidTemplates.length > LIMITS.templates) errors.push(`Шаблонов рег — не больше ${LIMITS.templates}.`);
+  if (s.raidTemplates.length > LIMITS.templates) errors.push(`Шаблонов рейдов — не больше ${LIMITS.templates}.`);
 
   s.autoClean.forEach((rule, index) => {
     const name = `Автоочистка ${index + 1}`;
@@ -337,20 +382,5 @@ export function validateSettings(s: BotSettings): string[] {
     if (!link.channelId || !link.roleId) errors.push(`Голосовая роль ${index + 1}: нужны и голосовой канал, и роль.`);
   });
 
-  const ids = new Set<string>();
-  s.raids.schedules.forEach((schedule, index) => {
-    const name = `Расписание ${index + 1}${schedule.title ? ` («${schedule.title}»)` : ''}`;
-    if (ids.has(schedule.id)) errors.push(`${name}: повторяется внутренний id.`);
-    ids.add(schedule.id);
-    if (!schedule.title.trim() || schedule.title.length > LIMITS.title) errors.push(`${name}: название от 1 до ${LIMITS.title} символов.`);
-    if (!schedule.days.length || schedule.days.some((d) => !Number.isInteger(d) || d < 1 || d > 7)) {
-      errors.push(`${name}: выбери хотя бы один день недели.`);
-    }
-    if (!parseTime(schedule.openAt)) errors.push(`${name}: время открытия в формате ЧЧ:ММ.`);
-    if (!parseTime(schedule.raidTime)) errors.push(`${name}: время рейда в формате ЧЧ:ММ.`);
-    if (!Number.isInteger(schedule.raidDayOffset) || schedule.raidDayOffset < 0 || schedule.raidDayOffset > LIMITS.dayOffset) {
-      errors.push(`${name}: сдвиг дня рейда от 0 до ${LIMITS.dayOffset}.`);
-    }
-  });
   return errors;
 }

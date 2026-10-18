@@ -1,5 +1,5 @@
 // Планировщик: раз в 30 секунд проверяет, не пора ли
-//  • открыть регу по расписанию (чт, пт, пн в 00:00) и упомянуть роль,
+//  • открыть регу по расписанию шаблона рейда (например, во вторник в 00:00 на среду 20:00) и упомянуть роли,
 //  • напомнить записавшимся в личку за сутки и за час,
 //  • позвать на сбор в канале реги за N минут до начала,
 //  • закрыть запись, когда рейд начался,
@@ -7,9 +7,9 @@
 //  • через N часов после начала снять временную роль рейда и убрать регу в архив.
 // Всё, что уже сделано, отмечено в базе — поэтому перезапуск бота ничего не задвоит.
 import { TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
-import { getSettings } from '../botSettings.ts';
-import { settings } from '../settings.ts';
-import { latestSlot, nowZoned, parseTime } from '../lib/time.ts';
+import { getSettings, type RaidTemplate } from '../botSettings.ts';
+import { nowZoned } from '../lib/time.ts';
+import { dueOpenings } from './slots.ts';
 import { archiveRaids } from './archive.ts';
 import { reportAttendance } from './attendance.ts';
 import { cleanupRaidRoles } from './tempRole.ts';
@@ -62,46 +62,30 @@ export function startRaidScheduler(client: Client<true>): void {
 const warned = new Set<string>();
 
 async function openScheduledRaids(client: Client<true>): Promise<void> {
-  const now = nowZoned();
-  // Расписание читается на каждом тике — изменения из админки подхватываются без перезапуска.
-  const { raids } = getSettings();
-  for (const schedule of raids.schedules) {
-    if (!schedule.channelId) continue;
-    const openAt = parseTime(schedule.openAt);
-    const raidTime = parseTime(schedule.raidTime);
-    if (!openAt || !raidTime) {
-      warnOnce(`time:${schedule.id}`, `Неверное время в расписании «${schedule.id}» (нужно ЧЧ:ММ).`);
-      continue;
-    }
-
-    const slot = latestSlot(now, schedule.days, openAt);
-    if (!slot || now.since(slot).total('hours') > settings.raids.catchUpHours) continue;
-
-    const key = `${schedule.id}:${slot.toPlainDate().toString()}`;
+  // Шаблоны читаются на каждом тике — изменения из админки подхватываются без перезапуска.
+  for (const { template, key, startsAt } of dueOpenings(nowZoned(), getSettings().raidTemplates)) {
     if (scheduleKeyExists(key)) continue;
-
-    const start = slot.toPlainDate().add({ days: schedule.raidDayOffset }).toZonedDateTime({
-      timeZone: settings.timeZone,
-      plainTime: raidTime,
-    });
-    if (start.epochMilliseconds <= Date.now()) continue;
-
-    const channel = await fetchRaidChannel(client, schedule.channelId);
+    const channel = await fetchRaidChannel(client, template.channelId ?? '');
     if (!channel) {
-      warnOnce(`channel:${schedule.id}`, `Канал ${schedule.channelId} для расписания «${schedule.id}» не найден или бот не может туда писать.`);
+      warnOnce(`channel:${template.id}`, `Канал ${template.channelId} шаблона «${template.title}» не найден или бот не может туда писать.`);
       continue;
     }
-
-    const raid = await publishRaid(channel, {
-      title: schedule.title,
-      startsAt: start.epochMilliseconds,
-      size: raids.defaultSize,
-      createdBy: 'schedule',
-      leaderName: channel.guild.name,
-      scheduleKey: key,
-    }, schedule.pingRoleId);
+    const raid = await publishRaid(channel, scheduledRaid(template, startsAt, key, channel.guild.name), template.pingRoleIds);
     console.log(`📅 Открыта рега #${raid.id} «${raid.title}» в #${channel.name}`);
   }
+}
+
+/** Рега по шаблону: название, описание и размер — из шаблона. */
+export function scheduledRaid(template: RaidTemplate, startsAt: number, scheduleKey: string, leaderName: string) {
+  return {
+    title: template.title,
+    description: template.description || null,
+    startsAt,
+    size: template.size,
+    createdBy: 'schedule',
+    leaderName,
+    scheduleKey,
+  };
 }
 
 export async function fetchRaidChannel(client: Client<true>, channelId: string): Promise<GuildTextBasedChannel | null> {

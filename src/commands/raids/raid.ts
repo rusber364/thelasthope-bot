@@ -12,9 +12,10 @@ import { getSettings } from '../../botSettings.ts';
 import { replyEphemeral } from '../../lib/reply.ts';
 import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
 import { uiEmoji } from '../../raids/emojis.ts';
-import { fetchRaidChannel } from '../../raids/scheduler.ts';
+import { fetchRaidChannel, scheduledRaid } from '../../raids/scheduler.ts';
+import { nextRaid, scheduleKey } from '../../raids/slots.ts';
 import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
-import { getRaid, listRaids, setRaidStart, setRaidStatus } from '../../raids/store.ts';
+import { getRaid, listRaids, scheduleKeyExists, setRaidStart, setRaidStatus } from '../../raids/store.ts';
 import { syncRaidEventLater } from '../../raids/events.ts';
 import { settings } from '../../settings.ts';
 import { startRaidWizard } from '../../raids/wizard.ts';
@@ -68,7 +69,7 @@ export const raid: Command = {
         .addStringOption((o) => o.setName('time').setDescription('Новое время, например 21:00 (по умолчанию — то же)')),
     )
     .addSubcommand((sub) =>
-      sub.setName('open-now').setDescription('Сразу открыть реги по расписанию — для проверки, не дожидаясь полуночи'),
+      sub.setName('open-now').setDescription('Сразу открыть реги по расписанию шаблонов на ближайшие рейды, не дожидаясь времени открытия'),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents)
     .setContexts(InteractionContextType.Guild),
@@ -155,7 +156,7 @@ async function quick(interaction: ChatInputCommandInteraction<'cached'>): Promis
     size: interaction.options.getInteger('size') ?? getSettings().raids.defaultSize,
     createdBy: interaction.user.id,
     leaderName: interaction.member.displayName,
-  }, interaction.options.getRole('ping')?.id ?? null);
+  }, [interaction.options.getRole('ping')?.id].filter((id) => id !== undefined));
   await interaction.editReply(`✅ Рега #${created.id} создана в ${channel}: ${raidUrl(created)}`);
 }
 
@@ -199,34 +200,33 @@ async function move(interaction: ChatInputCommandInteraction<'cached'>): Promise
   await interaction.editReply(`🕗 Рега #${target.id} «${target.title}» перенесена на ${raidWhen(moved)}, записавшимся отправлено сообщение.`);
 }
 
-/** Для проверки: создаёт реги из расписания прямо сейчас — на сегодня (или завтра, если время уже прошло). */
+/** Сразу открывает реги по расписанию шаблонов — на ближайший рейд по каждой строке, если рега на него ещё не открыта. */
 async function openNow(interaction: ChatInputCommandInteraction<'cached'>): Promise<void> {
-  const { raids } = getSettings();
-  const schedules = raids.schedules.filter((schedule) => schedule.channelId);
-  if (!schedules.length) {
-    return replyEphemeral(interaction, 'Каналы для автоматических рег не заданы: выбери их в админке на странице «Расписание рег».');
+  const templates = getSettings().raidTemplates.filter((template) => template.channelId && template.slots.length);
+  if (!templates.length) {
+    return replyEphemeral(interaction, 'Расписаний нет: в админке на странице «Рейды» выбери у шаблона канал и добавь дни рейдов.');
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const now = nowZoned();
   const lines: string[] = [];
-  for (const schedule of schedules) {
-    const raidTime = parseTime(schedule.raidTime);
-    const channel = await fetchRaidChannel(interaction.client, schedule.channelId ?? '');
-    if (!raidTime || !channel) {
-      lines.push(`⚠️ «${schedule.title}»: проверь время и канал в настройках.`);
+  for (const template of templates) {
+    const channel = await fetchRaidChannel(interaction.client, template.channelId ?? '');
+    if (!channel) {
+      lines.push(`⚠️ «${template.title}»: канал недоступен — проверь шаблон.`);
       continue;
     }
-    let date = nowZoned().toPlainDate();
-    if (toEpochMs(date, raidTime) <= Date.now()) date = date.add({ days: 1 });
-
-    const created = await publishRaid(channel, {
-      title: schedule.title,
-      startsAt: toEpochMs(date, raidTime),
-      size: raids.defaultSize,
-      createdBy: interaction.user.id,
-      leaderName: interaction.member.displayName,
-    }, schedule.pingRoleId);
-    lines.push(`✅ «${created.title}» → ${channel}: ${raidUrl(created)}`);
+    for (const slot of template.slots) {
+      const next = nextRaid(now, slot);
+      if (!next) continue;
+      const key = scheduleKey(template.id, next.date);
+      if (scheduleKeyExists(key)) {
+        lines.push(`• «${template.title}» на ${shortDate(next.startsAt)} уже открыта.`);
+        continue;
+      }
+      const created = await publishRaid(channel, scheduledRaid(template, next.startsAt, key, interaction.member.displayName), template.pingRoleIds);
+      lines.push(`✅ «${created.title}» на ${shortDate(created.startsAt)} → ${channel}: ${raidUrl(created)}`);
+    }
   }
-  await interaction.editReply(lines.join('\n'));
+  await interaction.editReply(lines.join('\n').slice(0, 2000) || 'Нечего открывать.');
 }

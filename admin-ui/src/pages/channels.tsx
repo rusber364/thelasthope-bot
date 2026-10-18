@@ -19,7 +19,7 @@ export function ChannelsPage() {
         <>
           <FormErrors errors={form.errors} />
           <SectionCard title="Новички" description="Куда бот пишет, когда кто-то заходит на сервер, и какие роли выдаёт.">
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+            <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="welcome">Канал приветствия</FieldLabel>
                 <ChannelPicker id="welcome" value={draft.channels.welcome} onChange={(welcome) => update(patch('channels', { welcome }))} />

@@ -16,7 +16,8 @@ test('без сохранённых настроек — умолчания и I
   assert.equal(s.channels.rules, null);
   assert.equal(s.logs.moderation.channelId, '222');
   assert.equal(s.logs.voice.enabled, true);
-  assert.equal(s.raids.schedules[0]?.channelId, '333');
+  assert.equal(s.raidTemplates[0]?.channelId, '333');
+  assert.deepEqual(s.raidTemplates[0]?.slots.map((slot) => slot.raidDay), [4, 5, 1], 'по умолчанию — чт, пт, пн');
   assert.deepEqual(validateSettings(s), []);
 });
 
@@ -24,14 +25,14 @@ test('сохранённое побеждает .env, массивы замен�
   const next = structuredClone(getSettings());
   next.channels.welcome = null;
   next.logs.voice = { channelId: '444', enabled: false };
-  next.raids.schedules = [next.raids.schedules[0]!];
+  next.raidTemplates = [next.raidTemplates[0]!];
   saveSettings(next);
 
   resetSettingsCache();
   const s = getSettings();
   assert.equal(s.channels.welcome, null);
   assert.deepEqual(s.logs.voice, { channelId: '444', enabled: false });
-  assert.equal(s.raids.schedules.length, 1);
+  assert.equal(s.raidTemplates.length, 1);
 });
 
 test('новые поля, которых нет в старой сохранённой версии, берутся из умолчаний', () => {
@@ -66,16 +67,54 @@ test('валидация ловит неверные значения', () => {
   s.welcome.text = ' ';
   s.raids.defaultSize = 0;
   s.raids.defaultTime = '25:00';
-  s.raids.schedules = [
-    { id: 'a', title: 'Рейд', channelId: null, days: [], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: null },
-    { id: 'a', title: 'Рейд 2', channelId: null, days: [8], openAt: '0:0', raidDayOffset: 30, raidTime: '20:00', pingRoleId: null },
+  const template = { id: 'a', title: 'Рейд', description: '', size: 40, time: '20:00', channelId: null, pingRoleIds: [], slots: [] };
+  s.raidTemplates = [
+    { ...template, slots: [{ raidDay: 3, raidTime: '20:00', openDay: 2, openTime: '00:00' }, { raidDay: 3, raidTime: '21:00', openDay: 8, openTime: '0:0' }] },
+    { ...template, title: 'Рейд 2', size: 0, slots: [{ raidDay: 1, raidTime: '25:00', openDay: 5, openTime: '23:00' }] },
   ];
   const errors = validateSettings(s).join('\n');
   assert.match(errors, /Текст приветствия: не может быть пустым/);
   assert.match(errors, /Размер состава/);
   assert.match(errors, /Время рейда по умолчанию/);
-  assert.match(errors, /Расписание 1.*хотя бы один день/);
-  assert.match(errors, /Расписание 2.*повторяется внутренний id/);
-  assert.match(errors, /Расписание 2.*время открытия/);
-  assert.match(errors, /Расписание 2.*сдвиг дня/);
+  assert.match(errors, /«Рейд»\), расписание, строка 2: выбери дни рейда и открытия/);
+  assert.match(errors, /«Рейд»\), расписание, строка 2: время открытия реги/);
+  assert.match(errors, /«Рейд»\): в один день — только один рейд/);
+  assert.match(errors, /«Рейд 2»\): повторяется внутренний id/);
+  assert.match(errors, /«Рейд 2»\): мест в составе/);
+  assert.match(errors, /«Рейд 2»\), расписание, строка 1: время рейда/);
+});
+
+test('старые расписания (дни открытия + сдвиг) становятся шаблонами со строками, старые шаблоны — с пустым расписанием', () => {
+  const old = {
+    raids: {
+      defaultSize: 25,
+      schedules: [
+        { id: 'group1', title: 'Группа 1', channelId: 'R1', days: [1, 4, 5], openAt: '00:00', raidDayOffset: 0, raidTime: '20:00', pingRoleId: 'P' },
+        { id: 'late', title: 'Через день', channelId: null, days: [6], openAt: '12:00', raidDayOffset: 2, raidTime: '19:30', pingRoleId: null },
+      ],
+    },
+    raidTemplates: [{ id: 't1', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'C', pingRoleId: 'P2' }],
+  };
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'bot'").run(JSON.stringify(old));
+  resetSettingsCache();
+  const s = getSettings();
+  assert.deepEqual(
+    s.raidTemplates.map((t) => t.id),
+    ['t1', 'group1', 'late'],
+  );
+  const [manual, group, late] = s.raidTemplates;
+  assert.deepEqual(manual, { id: 't1', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'C', pingRoleIds: ['P2'], slots: [] });
+  assert.deepEqual(group, {
+    id: 'group1',
+    title: 'Группа 1',
+    description: '',
+    size: 25,
+    time: '20:00',
+    channelId: 'R1',
+    pingRoleIds: ['P'],
+    slots: [1, 4, 5].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' })),
+  });
+  assert.deepEqual(late!.slots, [{ raidDay: 1, raidTime: '19:30', openDay: 6, openTime: '12:00' }], 'суббота + 2 дня = понедельник');
+  assert.ok(!('schedules' in s.raids));
+  assert.deepEqual(validateSettings(s), []);
 });

@@ -4,13 +4,13 @@ import {
   CalendarClock,
   ChartColumn,
   ClipboardList,
-  CopyPlus,
   Eraser,
   HandMetal,
   Hash,
   LayoutDashboard,
   Pin,
   ScrollText,
+  SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -48,12 +48,17 @@ export const NAV: NavGroup[] = [
     title: 'Рейды',
     items: [
       {
-        to: '/raids',
-        title: 'Расписание рег',
+        to: '/templates',
+        title: 'Рейды',
         icon: CalendarClock,
-        description: 'Автооткрытие рег, список рейдов, архив, события Discord.',
+        description: 'Шаблоны рейдов: расписание открытия рег, роли для упоминания, создание реги в пару кликов.',
       },
-      { to: '/templates', title: 'Шаблоны рег', icon: CopyPlus, description: 'Готовые реги, которые создаются в пару кликов.' },
+      {
+        to: '/raids',
+        title: 'Настройки рег',
+        icon: SlidersHorizontal,
+        description: 'Размер по умолчанию, временная роль, список рейдов, архив, события.',
+      },
       { to: '/attendance', title: 'Посещаемость', icon: ChartColumn, description: 'Кто приходил на рейды за выбранный период.' },
     ],
   },

@@ -389,7 +389,7 @@ async function publish(interaction: MessageComponentInteraction, draft: RaidDraf
     const raid = await publishRaid(
       channel,
       { title: draft.title!, description: draft.description, startsAt, size: draft.size, createdBy: draft.userId, leaderName: member?.displayName ?? draft.leaderName },
-      draft.pingRoleId,
+      draft.pingRoleId ? [draft.pingRoleId] : [],
       draft.image,
     );
     deleteDraft(draft.userId);

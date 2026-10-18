@@ -29,7 +29,7 @@ export function AlertsPage() {
         <>
           <FormErrors errors={form.errors} />
           <SectionCard title="Офицерам" description="Отчёт о посещаемости и поздние отписки от рег.">
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+            <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="alerts-channel">Канал оповещений</FieldLabel>
                 <ChannelPicker
@@ -79,7 +79,7 @@ export function AlertsPage() {
           </SectionCard>
 
           <SectionCard title="Рейды" description="«Сбор!» в канале реги и проверка, кто пришёл на рейд.">
-            <FieldGroup className="grid gap-5 md:grid-cols-2">
+            <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="gather">«Сбор!» в канале реги</FieldLabel>
                 <NumberField

@@ -44,6 +44,10 @@ const id = (value: unknown): string | null => text(value) || null;
 const num = (value: unknown): number => (typeof value === 'number' ? value : Number(text(value)));
 const bool = (value: unknown): boolean => value === true;
 
+/** Список ролей без повторов; каждая проверяется по серверу, несуществующие — в ошибки. */
+const roleList = (guild: Guild, value: unknown, name: string, errors: string[]): string[] =>
+  [...new Set(arr(value).map(id))].map((roleId) => checkRole(guild, roleId, name, errors)).filter((roleId): roleId is string => roleId !== null);
+
 const fail = (c: C, errors: string[], status: 400 | 401 | 403 | 404 = 400) => c.json({ errors: [...new Set(errors)] } satisfies Api.ApiError, status);
 const ok = (c: C, message: string) => c.json({ message } satisfies Api.ApiMessage);
 
@@ -224,7 +228,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       },
     },
     raids: {
-      label: 'Расписание рег',
+      label: 'Настройки рег',
       apply(next, body, guild, errors) {
         const raids = obj(body.raids);
         const archive = obj(raids.archive);
@@ -242,25 +246,12 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           },
           boardChannelId: checkChannel(guild, id(raids.boardChannelId), 'Канал со списком рейдов', errors),
           discordEvents: bool(raids.discordEvents),
-          schedules: arr(raids.schedules).map((raw, i) => {
-            const s = obj(raw);
-            return {
-              id: id(s.id) ?? `s${Date.now().toString(36)}${i}`,
-              title: text(s.title),
-              channelId: checkChannel(guild, id(s.channelId), `Расписание ${i + 1}: канал`, errors),
-              days: arr(s.days).map(Number).filter(Number.isInteger).sort((a, b) => a - b),
-              openAt: text(s.openAt),
-              raidDayOffset: num(s.raidDayOffset),
-              raidTime: text(s.raidTime),
-              pingRoleId: checkRole(guild, id(s.pingRoleId), `Расписание ${i + 1}: роль`, errors),
-            };
-          }),
         };
       },
       after: (guild) => refreshBoard(client, guild.id),
     },
     templates: {
-      label: 'Шаблоны рег',
+      label: 'Рейды',
       apply(next, body, guild, errors) {
         next.raidTemplates = arr(body.raidTemplates).map((raw, i) => {
           const t = obj(raw);
@@ -271,10 +262,15 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
             size: num(t.size),
             time: text(t.time),
             channelId: checkChannel(guild, id(t.channelId), `Шаблон ${i + 1}`, errors),
-            pingRoleId: checkRole(guild, id(t.pingRoleId), `Шаблон ${i + 1}`, errors),
+            pingRoleIds: roleList(guild, t.pingRoleIds, `Шаблон ${i + 1}: роль для упоминания`, errors),
+            slots: arr(t.slots)
+              .map(obj)
+              .map((slot) => ({ raidDay: num(slot.raidDay), raidTime: text(slot.raidTime), openDay: num(slot.openDay), openTime: text(slot.openTime) }))
+              .sort((a, b) => a.raidDay - b.raidDay),
           };
         });
       },
+      after: (guild) => refreshBoard(client, guild.id),
     },
     sticky: {
       label: 'Липкие сообщения',
@@ -284,11 +280,10 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           intervalSeconds: num(sticky.intervalSeconds),
           items: arr(sticky.items).map((raw, i) => {
             const item = obj(raw);
-            const roleIds = [...new Set(arr(item.roleIds).map(id))].map((roleId) => checkRole(guild, roleId, `Липкое сообщение ${i + 1}: роль`, errors));
             return {
               channelId: checkChannel(guild, id(item.channelId), `Липкое сообщение ${i + 1}`, errors) ?? '',
               text: text(item.text),
-              roleIds: roleIds.filter((roleId): roleId is string => roleId !== null),
+              roleIds: roleList(guild, item.roleIds, `Липкое сообщение ${i + 1}: роль`, errors),
             };
           }),
         };
@@ -511,7 +506,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       const raid = await publishRaid(
         channel,
         { title: template.title, description: template.description || null, startsAt, size: template.size, createdBy: c.get('session').userId, leaderName: c.get('member').displayName },
-        template.pingRoleId,
+        template.pingRoleIds,
       );
       await log(c, 'Рега создана через админку', `**Рега:** #${raid.id} «${raid.title}» по шаблону\n**Канал:** <#${raid.channelId}>`, LOG_COLORS.create);
       return c.json({ message: `Рега #${raid.id} «${raid.title}» создана в #${channel.name}.`, url: raidUrl(raid) } satisfies Api.TemplateCreateResponse);

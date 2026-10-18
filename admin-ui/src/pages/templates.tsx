@@ -1,9 +1,9 @@
 import { useMutation } from '@tanstack/react-query';
-import { CalendarPlus, CopyPlus, Plus, Trash2, Users } from 'lucide-react';
+import { CalendarClock, CalendarPlus, CopyPlus, Plus, Swords, Trash2, Users, NotebookPen } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import type { Option, RaidTemplate, TemplateCreateResponse } from '@api';
-import { ChannelPicker, MentionPicker } from '@/components/entity-picker';
+import type { Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
+import { ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput, TokenTextarea } from '@/components/settings-ui';
 import {
@@ -21,14 +21,71 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { api, errorText } from '@/lib/api';
 import { formatDay, todayInKyiv } from '@/lib/format';
 import { useOptions, useSettings } from '@/lib/queries';
 import { useSectionForm } from '@/lib/settings-form';
+import { cn } from '@/lib/utils';
+import { DAYS, leadText, weekChips } from '@/lib/week';
 
 const MAX_TEMPLATES = 25;
+const MAX_SLOTS = 14;
+const MAX_ROLES = 10;
 const nameOf = (list: Option[] | undefined, id: string | null) => (id ? (list?.find((o) => o.id === id)?.name ?? 'удалён') : null);
+const DAY_ITEMS = Object.fromEntries(DAYS.map((day, i) => [String(i + 1), day]));
+/** Цвета шаблонов в «Неделе» — по номеру шаблона. */
+const COLORS = [
+  'border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+  'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+  'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+  'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+  'border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300',
+  'border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
+];
+const color = (index: number) => COLORS[index % COLORS.length];
+
+/** Полоска пн…вс: в какие дни открываются реги и идут рейды (по черновику — видно до сохранения). */
+function WeekStrip({ templates }: { templates: RaidTemplate[] }) {
+  const week = weekChips(templates);
+  if (week.every((day) => !day.length)) {
+    return <ListEmpty>Расписаний пока нет: выбери у шаблона канал и добавь дни рейдов.</ListEmpty>;
+  }
+  // Колонки пн…вс — только когда хватает ширины самой карточки; уже — день строкой.
+  return (
+    <div className="@container">
+      <div className="grid gap-2 @2xl:grid-cols-7">
+        {week.map((chips, i) => (
+          <div key={DAYS[i]} className="flex min-w-0 gap-2 rounded-lg border p-2 @2xl:min-h-28 @2xl:flex-col">
+            <div className="w-7 shrink-0 pt-0.5 text-xs font-medium text-muted-foreground @2xl:w-auto @2xl:pt-0">{DAYS[i]}</div>
+            <div className="flex min-w-0 flex-1 flex-wrap gap-1 @2xl:flex-col @2xl:flex-nowrap">
+              {chips.map((chip, j) => (
+                <div
+                  key={j}
+                  title={`${chip.kind === 'open' ? 'Открывается рега' : 'Рейд'}: ${chip.title}`}
+                  className={cn('flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs', color(chip.template))}
+                >
+                  {chip.kind === 'open' ? <NotebookPen className="size-3 shrink-0" /> : <Swords className="size-3 shrink-0" />}
+                  <span className="font-medium tabular-nums">{chip.time}</span>
+                  <span className="truncate">{chip.title}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <NotebookPen className="size-3" /> открывается рега
+        </span>
+        <span className="flex items-center gap-1">
+          <Swords className="size-3" /> рейд
+        </span>
+      </div>
+    </div>
+  );
+}
 
 /** Карточка «создать регу по шаблону»: дата, время и подтверждение. */
 function CreateCard({ template }: { template: RaidTemplate }) {
@@ -38,7 +95,8 @@ function CreateCard({ template }: { template: RaidTemplate }) {
   const [time, setTime] = useState(template.time);
   const [confirm, setConfirm] = useState(false);
   const channel = nameOf(options?.textChannels, template.channelId);
-  const ping = nameOf(options?.mentionRoles, template.pingRoleId);
+  const pings = template.pingRoleIds.map((roleId) => nameOf(options?.mentionRoles, roleId));
+  const days = [...template.slots].sort((a, b) => a.raidDay - b.raidDay).map((slot) => DAYS[slot.raidDay - 1]);
 
   const mutation = useMutation({
     mutationFn: () => api.post<TemplateCreateResponse>(`/templates/${template.id}/create`, { date, time }),
@@ -56,7 +114,16 @@ function CreateCard({ template }: { template: RaidTemplate }) {
             <Users /> {template.size} мест
           </Badge>
           {channel && <Badge variant="outline">{channel}</Badge>}
-          {ping && <Badge variant="outline">@{ping}</Badge>}
+          {days.length > 0 && (
+            <Badge variant="outline">
+              <CalendarClock /> {days.join(' · ')}
+            </Badge>
+          )}
+          {pings.map((ping, i) => (
+            <Badge key={i} variant="outline">
+              @{ping}
+            </Badge>
+          ))}
         </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-[1fr_auto] gap-2">
@@ -74,7 +141,7 @@ function CreateCard({ template }: { template: RaidTemplate }) {
             <AlertDialogTitle>Опубликовать регу?</AlertDialogTitle>
             <AlertDialogDescription>
               «{template.title}» на {date ? formatDay(date) : '—'} в {time} — в {channel ?? 'канал шаблона'}
-              {ping ? ` с упоминанием @${ping}` : ''}. Рега сразу появится в Discord.
+              {pings.length ? ` с упоминанием ${pings.map((ping) => `@${ping}`).join(', ')}` : ''}. Рега сразу появится в Discord.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -94,6 +161,53 @@ function CreateCard({ template }: { template: RaidTemplate }) {
   );
 }
 
+function DaySelect({ value, onChange, label }: { value: number; onChange: (day: number) => void; label: string }) {
+  return (
+    <Select items={DAY_ITEMS} value={String(value)} onValueChange={(day: string | null) => day && onChange(Number(day))}>
+      <SelectTrigger aria-label={label} className="w-20">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {DAYS.map((day, i) => (
+          <SelectItem key={day} value={String(i + 1)}>
+            {day}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Строка расписания: «Рейд [день] [время] ← рега откроется [день] [время] · за 1 д 20 ч». */
+function SlotRow({ slot, set, remove }: { slot: RaidSlot; set: (change: Partial<RaidSlot>) => void; remove: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-muted/40 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Swords className="size-4 text-muted-foreground" />
+        <span className="text-sm">Рейд</span>
+        <DaySelect label="День рейда" value={slot.raidDay} onChange={(raidDay) => set({ raidDay })} />
+        <TimeInput aria-label="Время рейда" value={slot.raidTime} onChange={(e) => set({ raidTime: e.target.value })} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <NotebookPen className="size-4 text-muted-foreground" />
+        <span className="text-sm">рега откроется</span>
+        <DaySelect label="День открытия реги" value={slot.openDay} onChange={(openDay) => set({ openDay })} />
+        <TimeInput aria-label="Время открытия реги" value={slot.openTime} onChange={(e) => set({ openTime: e.target.value })} />
+      </div>
+      <span className="text-xs text-muted-foreground">{leadText(slot)}</span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="ml-auto text-muted-foreground hover:text-destructive"
+        aria-label="Удалить день"
+        onClick={remove}
+      >
+        <Trash2 />
+      </Button>
+    </div>
+  );
+}
+
 function TemplateEditor({
   template,
   index,
@@ -106,14 +220,21 @@ function TemplateEditor({
   remove: () => void;
 }) {
   const id = (name: string) => `t${index}-${name}`;
+  const setSlots = (slots: RaidSlot[]) => set({ slots });
+  const addSlot = () => {
+    const used = new Set(template.slots.map((slot) => slot.raidDay));
+    const day = [3, 4, 5, 1, 2, 6, 7].find((d) => !used.has(d)) ?? 1;
+    setSlots([...template.slots, { raidDay: day, raidTime: template.time, openDay: day, openTime: '00:00' }]);
+  };
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-4">
       <div className="flex items-center gap-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+        <div className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg border', color(index))}>
           <CopyPlus className="size-4" />
         </div>
         <div className="min-w-0 flex-1 truncate font-medium">{template.title || 'Новый шаблон'}</div>
         {!template.id && <Badge variant="secondary">не сохранён</Badge>}
+        {!template.channelId && template.slots.length > 0 && <Badge variant="secondary">без канала — реги не откроются</Badge>}
         <Button
           variant="ghost"
           size="icon"
@@ -124,14 +245,19 @@ function TemplateEditor({
           <Trash2 />
         </Button>
       </div>
-      <FieldGroup className="grid gap-4 md:grid-cols-2">
+      <FieldGroup className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={id('title')}>Название</FieldLabel>
           <Input id={id('title')} maxLength={100} value={template.title} onChange={(e) => set({ title: e.target.value })} />
         </Field>
         <Field>
-          <FieldLabel htmlFor={id('channel')}>Канал</FieldLabel>
-          <ChannelPicker id={id('channel')} required value={template.channelId} onChange={(channelId) => set({ channelId })} />
+          <FieldLabel htmlFor={id('channel')}>Канал рег</FieldLabel>
+          <ChannelPicker
+            id={id('channel')}
+            emptyLabel="Не выбран"
+            value={template.channelId}
+            onChange={(channelId) => set({ channelId })}
+          />
         </Field>
         <Field className="md:col-span-2">
           <FieldLabel htmlFor={id('description')}>Описание</FieldLabel>
@@ -149,12 +275,41 @@ function TemplateEditor({
           <NumberField id={id('size')} min={1} max={100} value={template.size} onChange={(size) => set({ size })} />
         </Field>
         <Field>
-          <FieldLabel htmlFor={id('time')}>Время начала</FieldLabel>
+          <FieldLabel htmlFor={id('time')}>Время для реги вручную</FieldLabel>
           <TimeInput id={id('time')} value={template.time} onChange={(e) => set({ time: e.target.value })} />
+          <FieldDescription>Подставляется в «Создать регу».</FieldDescription>
         </Field>
         <Field className="md:col-span-2">
-          <FieldLabel htmlFor={id('ping')}>Упомянуть роль</FieldLabel>
-          <MentionPicker id={id('ping')} emptyLabel="Никого" value={template.pingRoleId} onChange={(pingRoleId) => set({ pingRoleId })} />
+          <FieldLabel htmlFor={id('ping')}>Упомянуть при открытии</FieldLabel>
+          <MentionRolesPicker
+            id={id('ping')}
+            max={MAX_ROLES}
+            value={template.pingRoleIds}
+            onChange={(pingRoleIds) => set({ pingRoleIds })}
+          />
+        </Field>
+        <Field className="md:col-span-2">
+          <FieldLabel>Расписание</FieldLabel>
+          {template.slots.length === 0 ? (
+            <ListEmpty>Без расписания — рега создаётся только кнопкой «Создать регу».</ListEmpty>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {template.slots.map((slot, i) => (
+                <SlotRow
+                  key={i}
+                  slot={slot}
+                  set={(change) => setSlots(template.slots.map((s, j) => (j === i ? { ...s, ...change } : s)))}
+                  remove={() => setSlots(template.slots.filter((_, j) => j !== i))}
+                />
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" size="sm" disabled={template.slots.length >= MAX_SLOTS} onClick={addSlot}>
+              <Plus /> Добавить день
+            </Button>
+            <FieldDescription>Время по Киеву. Рега открывается в выбранный день перед рейдом — не раньше чем за неделю.</FieldDescription>
+          </div>
         </Field>
       </FieldGroup>
     </div>
@@ -171,15 +326,19 @@ export function TemplatesPage() {
   return (
     <>
       <PageHeader
-        title="Шаблоны рег"
-        description="Заготовки для типовых рейдов: выбери дату — и рега готова, без ввода названия и описания каждый раз."
+        title="Рейды"
+        description="Шаблоны рейдов: по расписанию бот сам открывает реги и упоминает роли, а кнопкой — создаёт регу на любую дату."
       />
       {!draft || !settings ? (
         <FormSkeleton />
       ) : (
         <>
+          <SectionCard title="Неделя" description="Когда открываются реги и когда идут рейды — с учётом несохранённых изменений.">
+            <WeekStrip templates={draft.raidTemplates} />
+          </SectionCard>
+
           <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-medium text-muted-foreground">Создать регу</h2>
+            <h2 className="text-sm font-medium text-muted-foreground">Создать регу сейчас</h2>
             {saved.length === 0 ? (
               <ListEmpty>Шаблонов пока нет — добавь первый ниже.</ListEmpty>
             ) : (
@@ -193,8 +352,8 @@ export function TemplatesPage() {
 
           <FormErrors errors={form.errors} />
           <SectionCard
-            title="Редактировать шаблоны"
-            description={`До ${MAX_TEMPLATES} шаблонов. Рега создаётся по сохранённому варианту.`}
+            title="Шаблоны"
+            description={`До ${MAX_TEMPLATES} шаблонов. Рега создаётся по сохранённому варианту; уже открытые реги правка шаблона не меняет.`}
             action={
               <Button
                 variant="outline"
@@ -210,7 +369,8 @@ export function TemplatesPage() {
                       size: settings.raids.defaultSize,
                       time: settings.raids.defaultTime,
                       channelId: null,
-                      pingRoleId: null,
+                      pingRoleIds: [],
+                      slots: [],
                     },
                   ])
                 }

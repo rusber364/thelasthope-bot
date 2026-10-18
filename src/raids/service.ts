@@ -30,19 +30,19 @@ export const RAID_PUBLISH_PERMISSIONS = [
 ];
 
 /**
- * Создаёт регу в базе и публикует сообщение в канале. pingRoleId — какую роль упомянуть при открытии,
+ * Создаёт регу в базе и публикует сообщение в канале. pingRoleIds — какие роли упомянуть при открытии,
  * image — своя картинка реги (сохраняется, чтобы прикреплять её при каждой перерисовке).
  */
 export async function publishRaid(
   channel: GuildTextBasedChannel,
   input: Omit<NewRaid, 'guildId' | 'channelId'>,
-  pingRoleId: string | null = null,
+  pingRoleIds: string[] = [],
   image: RaidImage | null = null,
 ): Promise<Raid> {
   const raid = createRaid({ ...input, guildId: channel.guild.id, channelId: channel.id });
   if (image) saveRaidImage(raid.id, image);
   try {
-    const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleId, image));
+    const message = await channel.send(buildRaidCreateMessage(raid, [], pingRoleIds, image));
     setRaidMessage(raid.id, message.id);
     requestBoardRefresh(channel.client, raid.guildId);
     syncRaidEventLater(channel.client, raid.id);
@@ -94,7 +94,7 @@ async function redraw(client: Client, raidId: number): Promise<void> {
     // нельзя превратить в embed. Публикуем регу заново и удаляем старое сообщение.
     const image = getRaidImage(raid.id);
     if (message.flags.has(MessageFlags.IsComponentsV2)) {
-      const fresh = await channel.send(buildRaidCreateMessage(raid, getSignups(raid.id), null, image));
+      const fresh = await channel.send(buildRaidCreateMessage(raid, getSignups(raid.id), [], image));
       setRaidMessage(raid.id, fresh.id);
       markDeletedByBot(message.id);
       await message.delete().catch(() => {});

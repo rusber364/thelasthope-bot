@@ -30,16 +30,12 @@ export const LOG_CATEGORY_IDS = ['members', 'server', 'messages', 'voice', 'mode
 export type LogCategory = (typeof LOG_CATEGORY_IDS)[number];
 export type ArchiveMode = 'off' | 'move' | 'delete';
 
-export interface RaidSchedule {
-  id: string;
-  title: string;
-  channelId: string | null;
-  /** 1 — понедельник … 7 — воскресенье. */
-  days: number[];
-  openAt: string;
-  raidDayOffset: number;
+/** Строка расписания: рейд в raidDay raidTime, рега открывается в openDay openTime. Дни: 1 — понедельник … 7 — воскресенье. */
+export interface RaidSlot {
+  raidDay: number;
   raidTime: string;
-  pingRoleId: string | null;
+  openDay: number;
+  openTime: string;
 }
 
 export interface RaidTemplate {
@@ -47,9 +43,11 @@ export interface RaidTemplate {
   title: string;
   description: string;
   size: number;
+  /** Время начала для реги, созданной вручную. */
   time: string;
   channelId: string | null;
-  pingRoleId: string | null;
+  pingRoleIds: string[];
+  slots: RaidSlot[];
 }
 
 export interface Settings {
@@ -67,7 +65,6 @@ export interface Settings {
     archive: { mode: ArchiveMode; channelId: string | null; hours: number };
     boardChannelId: string | null;
     discordEvents: boolean;
-    schedules: RaidSchedule[];
   };
   logs: Record<LogCategory, { channelId: string | null; enabled: boolean }>;
   voiceRoles: { channelId: string; roleId: string }[];

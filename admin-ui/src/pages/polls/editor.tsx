@@ -246,7 +246,7 @@ export function PollEditorPage() {
                 </AlertDescription>
               </Alert>
             )}
-            <div className="grid gap-5 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="poll-channel">Канал</FieldLabel>
                 <ChannelPicker id="poll-channel" required value={channelId} onChange={setChannelId} />
