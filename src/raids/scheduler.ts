@@ -212,6 +212,7 @@ async function checkAttendance(client: Client<true>): Promise<void> {
   if (!attendanceMinutes) return;
   for (const raid of raidsDueForAttendance(Date.now(), attendanceMinutes * 60_000)) {
     markAttendanceDone(raid.id);
+    if (raid.player) continue; // посещаемость — только у сборов офицеров
     const guild = client.guilds.cache.get(raid.guildId);
     if (guild) await reportAttendance(guild, raid);
   }

@@ -5,7 +5,7 @@
 import { readFile } from 'node:fs/promises';
 import { EmbedBuilder, PermissionFlagsBits, type Client, type Guild, type GuildMember } from 'discord.js';
 import { Hono, type Context } from 'hono';
-import { ARCHIVE_MODES, LOG_CATEGORIES, LOG_LABELS, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings } from '../botSettings.ts';
+import { ARCHIVE_MODES, LOG_CATEGORIES, PLAYER_GROUP_KINDS, LOG_LABELS, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings } from '../botSettings.ts';
 import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { runAutoClean } from '../lib/autoClean.ts';
 import { applyBranding, brandingError } from '../lib/branding.ts';
@@ -21,7 +21,7 @@ import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pol
 import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
-import type { ActivityKind, RoleLimits } from '../raids/kinds.ts';
+import { KINDS, type ActivityKind, type RoleLimits } from '../raids/kinds.ts';
 import { raidFromTemplate } from '../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { listRaids } from '../raids/store.ts';
@@ -298,6 +298,22 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         });
       },
       after: (guild) => refreshBoard(client, guild.id),
+    },
+    groups: {
+      label: 'Группы от игроков',
+      apply(next, body, guild, errors) {
+        const groups = obj(body.groups);
+        for (const kind of PLAYER_GROUP_KINDS) {
+          const group = obj(groups[kind]);
+          const name = `Группы игроков (${KINDS[kind].title})`;
+          next.groups[kind] = {
+            channelId: checkChannel(guild, id(group.channelId), `${name}: канал`, errors),
+            size: num(group.size),
+            limits: limitsOf(group.limits),
+            creatorRoleIds: roleList(guild, group.creatorRoleIds, `${name}: роль`, errors),
+          };
+        }
+      },
     },
     sticky: {
       label: 'Липкие сообщения',

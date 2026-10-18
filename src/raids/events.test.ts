@@ -97,3 +97,12 @@ test('нет права «Создавать события» — без оши�
     warn.mock.restore();
   }
 });
+
+test('группа, которую открыл игрок, события Discord не создаёт', async () => {
+  const before = created.length;
+  const raid = createRaid({ guildId: 'g', channelId: 'c', title: 'Мёртвые копи', startsAt: Date.now() + HOUR, size: 5, createdBy: 'p', kind: 'dungeon', player: true });
+  setRaidMessage(raid.id, 'mp');
+  await syncRaidEvent(client as never, raid.id);
+  assert.equal(created.length, before);
+  assert.equal(getRaidEventId(raid.id), null);
+});

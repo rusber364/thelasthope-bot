@@ -208,3 +208,25 @@ export function TokenTextarea({
 export function ListEmpty({ children }: { children: ReactNode }) {
   return <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{children}</p>;
 }
+
+/** Лимит по роли: число или пусто — «без лимита». */
+export function LimitInput({ id, value, onChange }: { id: string; value: number | null; onChange: (value: number | null) => void }) {
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={100}
+      placeholder="—"
+      className="w-20"
+      value={value ?? ''}
+      onChange={(event) => {
+        const text = event.target.value;
+        const n = Number(text);
+        if (text === '') onChange(null);
+        else if (Number.isInteger(n) && n >= 0) onChange(n);
+      }}
+    />
+  );
+}

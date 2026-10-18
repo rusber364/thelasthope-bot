@@ -6,7 +6,7 @@
 import { config } from './config.ts';
 import { db } from './db.ts';
 import { parseTime } from './lib/time.ts';
-import { LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
+import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];
@@ -68,6 +68,19 @@ export interface AutoCleanRule {
   channelId: string;
   hours: number;
   keepBot: boolean;
+}
+
+/** Какие сборы игроки открывают сами (/group). Рейды — только офицеры. */
+export type PlayerGroupKind = 'dungeon' | 'pvp';
+export const PLAYER_GROUP_KINDS: readonly PlayerGroupKind[] = ['dungeon', 'pvp'];
+
+export interface PlayerGroupSettings {
+  /** Куда публикуются группы этого вида (null — игроки открывать их не могут). */
+  channelId: string | null;
+  size: number;
+  limits: RoleLimits;
+  /** Кто может открывать группы (пусто — любой участник). */
+  creatorRoleIds: string[];
 }
 
 /** Шаблон рейда: реги по расписанию и создание в два клика из админки. */
@@ -133,6 +146,8 @@ export interface BotSettings {
   raidTemplates: RaidTemplate[];
   /** Автоочистка каналов. */
   autoClean: AutoCleanRule[];
+  /** Группы, которые открывают сами игроки командой /group: подземелья и PvP. */
+  groups: Record<PlayerGroupKind, PlayerGroupSettings>;
   /** Прощание при выходе участника. Подстановки: {user} {name} {server} {members}. */
   farewell: { channelId: string | null; text: string };
   /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {welcome} {role}. */
@@ -191,6 +206,10 @@ function defaults(): BotSettings {
     sticky: { intervalSeconds: 15, items: [] },
     raidTemplates: [defaultGroup('group1', 'Рейд — группа 1', env(config.raidChannel1Id)), defaultGroup('group2', 'Рейд — группа 2', env(config.raidChannel2Id))],
     autoClean: [],
+    groups: {
+      dungeon: { channelId: null, size: 5, limits: { tank: 1, healer: 1, dps: 3 }, creatorRoleIds: [] },
+      pvp: { channelId: null, size: 10, limits: NO_LIMITS, creatorRoleIds: [] },
+    },
     farewell: { channelId: null, text: '**{name}** покидает {server}. Удачи в Азероте! 👋 Нас теперь {members}.' },
     welcomeDm: {
       enabled: false,
@@ -407,6 +426,14 @@ export function validateSettings(s: BotSettings): string[] {
     if (new Set(t.slots.map((slot) => slot.raidDay)).size !== t.slots.length) errors.push(`${name}: в один день — только один рейд этого шаблона.`);
   });
   if (s.raidTemplates.length > LIMITS.templates) errors.push(`Шаблонов рейдов — не больше ${LIMITS.templates}.`);
+
+  for (const kind of PLAYER_GROUP_KINDS) {
+    const group = s.groups[kind];
+    const name = `Группы игроков (${KINDS[kind].title})`;
+    if (!Number.isInteger(group.size) || group.size < 1 || group.size > LIMITS.size) errors.push(`${name}: мест — от 1 до ${LIMITS.size}.`);
+    errors.push(...limitErrors(name, group.limits, group.size));
+    if (group.creatorRoleIds.length > LIMITS.templateRoles) errors.push(`${name}: ролей — не больше ${LIMITS.templateRoles}.`);
+  }
 
   s.autoClean.forEach((rule, index) => {
     const name = `Автоочистка ${index + 1}`;

@@ -41,6 +41,8 @@ export async function syncRaidEvent(client: Client, raidId: number): Promise<voi
   const raid = getRaid(raidId);
   const guild = raid ? client.guilds.cache.get(raid.guildId) : undefined;
   if (!raid || !guild) return;
+  // Групп от игроков может быть много — событий Discord для них не создаём, чтобы не засорять вкладку «События».
+  if (raid.player) return;
   const eventId = getRaidEventId(raid.id);
   if (raid.status === 'open' && !eventId && !getSettings().raids.discordEvents) return;
 

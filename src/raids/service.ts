@@ -5,7 +5,9 @@ import { classById, specById } from './classes.ts';
 import { requestBoardRefresh } from './board.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 import { syncRaidEventLater } from './events.ts';
-import { specEmoji } from './emojis.ts';
+import { specEmoji, uiEmoji } from './emojis.ts';
+import { KINDS } from './kinds.ts';
+import { parseDate, parseTime, toEpochMs } from '../lib/time.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
 import {
   createRaid,
@@ -15,6 +17,8 @@ import {
   getSignups,
   saveRaidImage,
   setRaidMessage,
+  setRaidStart,
+  setRaidStatus,
   type NewRaid,
   type Raid,
   type RaidImage,
@@ -143,4 +147,40 @@ export async function messageSignups(client: Client, raid: Raid, makeText: (sign
 export function raidWhen(raid: Raid): string {
   const start = new Date(raid.startsAt);
   return `${time(start, TimestampStyles.RelativeTime)} (${time(start, TimestampStyles.FullDateShortTime)})`;
+}
+
+/** Отменить регу: статус, перерисовка, событие Discord и сообщение записавшимся. */
+export async function cancelRaid(client: Client, raid: Raid): Promise<void> {
+  setRaidStatus(raid.id, 'cancelled');
+  await refreshRaidMessage(client, raid.id);
+  syncRaidEventLater(client, raid.id);
+  await messageSignups(client, raid, () => `${uiEmoji('leave')} ${KINDS[raid.kind].title} **${raid.title}** (${raidWhen(raid)}) отменили.`);
+}
+
+/** Перенести: новое начало на реге и в событии Discord, напоминания — заново, записавшимся — сообщение. */
+export async function moveRaid(client: Client, raid: Raid, startsAt: number): Promise<Raid> {
+  setRaidStart(raid.id, startsAt);
+  const moved = { ...raid, startsAt };
+  await refreshRaidMessage(client, raid.id);
+  syncRaidEventLater(client, raid.id);
+  await messageSignups(
+    client,
+    moved,
+    () => `${uiEmoji('time')} ${KINDS[raid.kind].title} **${raid.title}** перенесли: теперь начало ${raidWhen(moved)}. [Открыть регу](${raidUrl(moved)})`,
+  );
+  return moved;
+}
+
+/** Новое начало из параметров date и time команды (что не указано — как было). Ошибка — готовым текстом для ответа. */
+export function newStart(raid: Raid, dateText: string | null, timeText: string | null): { startsAt: number } | { error: string } {
+  if (!dateText && !timeText) return { error: 'Укажи новую дату (`date`) или время (`time`).' };
+  const current = Temporal.Instant.fromEpochMilliseconds(raid.startsAt).toZonedDateTimeISO(settings.timeZone);
+  const date = dateText ? parseDate(dateText) : current.toPlainDate();
+  const startTime = timeText ? parseTime(timeText) : current.toPlainTime();
+  if (!date) return { error: `Не понял дату «${dateText}». Примеры: сегодня, завтра, 17.10, 17.10.2026.` };
+  if (!startTime) return { error: `Не понял время «${timeText}». Пример: 20:00.` };
+  const startsAt = toEpochMs(date, startTime);
+  if (startsAt <= Date.now()) return { error: 'Это время уже прошло — укажи будущее.' };
+  if (startsAt === raid.startsAt) return { error: 'Начало и так в это время.' };
+  return { startsAt };
 }

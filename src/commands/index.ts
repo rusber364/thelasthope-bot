@@ -12,12 +12,13 @@ import { clear } from './moderation/clear.ts';
 import { rolepanel } from './roles/rolepanel.ts';
 import { raid } from './raids/raid.ts';
 import { history } from './raids/history.ts';
+import { group } from './raids/group.ts';
 import { poll } from './polls/poll.ts';
 
 /**
  * Все команды бота. Чтобы добавить новую: создай файл по образцу ping.ts,
  * допиши её в этот список и выполни `pnpm deploy`.
  */
-export const commands: Command[] = [ping, server, user, tempchannel, kick, ban, unban, mute, unmute, clear, rolepanel, raid, history, poll];
+export const commands: Command[] = [ping, server, user, tempchannel, kick, ban, unban, mute, unmute, clear, rolepanel, raid, group, history, poll];
 
 export const commandsByName = new Map(commands.map((command) => [command.data.name, command]));

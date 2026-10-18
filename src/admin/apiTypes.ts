@@ -45,6 +45,17 @@ export interface RaidSlot {
   openTime: string;
 }
 
+export type PlayerGroupKind = 'dungeon' | 'pvp';
+
+export interface PlayerGroupSettings {
+  /** Куда публикуются группы (null — игроки этот вид не открывают). */
+  channelId: string | null;
+  size: number;
+  limits: RoleLimits;
+  /** Кто может открывать (пусто — любой участник). */
+  creatorRoleIds: string[];
+}
+
 export interface RaidTemplate {
   id: string;
   title: string;
@@ -85,6 +96,8 @@ export interface Settings {
   sticky: { intervalSeconds: number; items: { channelId: string; text: string; roleIds: string[] }[] };
   raidTemplates: RaidTemplate[];
   autoClean: { channelId: string; hours: number; keepBot: boolean }[];
+  /** Группы, которые игроки открывают сами (/group). */
+  groups: Record<PlayerGroupKind, PlayerGroupSettings>;
   farewell: { channelId: string | null; text: string };
   welcomeDm: { enabled: boolean; text: string };
   /** Анкета новичков: опрос в приветствии, роль и карточка офицерам после заполнения. */
@@ -103,6 +116,7 @@ export interface SettingsSections {
   onboarding: Pick<Settings, 'onboarding'>;
   raids: { raids: Omit<Settings['raids'], 'gatherMinutes' | 'attendanceMinutes' | 'attendanceVoiceChannelId'> };
   templates: Pick<Settings, 'raidTemplates'>;
+  groups: Pick<Settings, 'groups'>;
   sticky: Pick<Settings, 'sticky'>;
   autoclean: Pick<Settings, 'autoClean'>;
 }

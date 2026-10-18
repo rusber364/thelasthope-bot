@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { ActivityKind, Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
 import { AccessRolesPicker, ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
-import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput } from '@/components/settings-ui';
+import { FormErrors, FormSkeleton, LimitInput, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput } from '@/components/settings-ui';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -162,28 +162,6 @@ function CreateCard({ template }: { template: RaidTemplate }) {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
-  );
-}
-
-/** Лимит по роли: число или пусто — «без лимита». */
-function LimitInput({ id, value, onChange }: { id: string; value: number | null; onChange: (value: number | null) => void }) {
-  return (
-    <Input
-      id={id}
-      type="number"
-      inputMode="numeric"
-      min={0}
-      max={100}
-      placeholder="—"
-      className="w-20"
-      value={value ?? ''}
-      onChange={(event) => {
-        const text = event.target.value;
-        const n = Number(text);
-        if (text === '') onChange(null);
-        else if (Number.isInteger(n) && n >= 0) onChange(n);
-      }}
-    />
   );
 }
 

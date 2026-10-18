@@ -11,14 +11,11 @@ import type { Command } from '../../types.ts';
 import { getSettings } from '../../botSettings.ts';
 import { replyEphemeral } from '../../lib/reply.ts';
 import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
-import { uiEmoji } from '../../raids/emojis.ts';
 import { fetchRaidChannel, raidFromTemplate } from '../../raids/scheduler.ts';
 import { nextRaid, scheduleKey } from '../../raids/slots.ts';
 import { ACTIVITY_KINDS, KINDS, isKind } from '../../raids/kinds.ts';
-import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
-import { getRaid, listRaids, scheduleKeyExists, setRaidStart, setRaidStatus } from '../../raids/store.ts';
-import { syncRaidEventLater } from '../../raids/events.ts';
-import { settings } from '../../settings.ts';
+import { RAID_PUBLISH_PERMISSIONS, cancelRaid, moveRaid, newStart, publishRaid, raidUrl, raidWhen, shortDate } from '../../raids/service.ts';
+import { getRaid, listRaids, scheduleKeyExists } from '../../raids/store.ts';
 import { startRaidWizard } from '../../raids/wizard.ts';
 
 export const raid: Command = {
@@ -177,37 +174,20 @@ async function cancel(interaction: ChatInputCommandInteraction<'cached'>): Promi
   if (target.status !== 'open') return replyEphemeral(interaction, 'Эта рега уже закрыта или отменена.');
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  setRaidStatus(target.id, 'cancelled');
-  await refreshRaidMessage(interaction.client, target.id);
-  syncRaidEventLater(interaction.client, target.id);
-  await messageSignups(interaction.client, target, () => `${uiEmoji('leave')} ${KINDS[target.kind].title} **${target.title}** (${raidWhen(target)}) отменили.`);
+  await cancelRaid(interaction.client, target);
   await interaction.editReply(`🚫 Рега #${target.id} «${target.title}» отменена, записавшимся отправлено сообщение.`);
 }
 
-/** Перенос рейда: новое время на реге и в событии Discord, напоминания — заново, записавшимся — сообщение. */
+/** Перенос: новое время на реге и в событии Discord, напоминания — заново, записавшимся — сообщение. */
 async function move(interaction: ChatInputCommandInteraction<'cached'>): Promise<void> {
   const target = getRaid(Number(interaction.options.getString('raid', true)));
   if (!target || target.guildId !== interaction.guild.id) return replyEphemeral(interaction, 'Такая рега не найдена.');
   if (target.status !== 'open') return replyEphemeral(interaction, 'Эта рега уже закрыта или отменена.');
-  const dateText = interaction.options.getString('date');
-  const timeText = interaction.options.getString('time');
-  if (!dateText && !timeText) return replyEphemeral(interaction, 'Укажи новую дату (`date`) или время (`time`).');
-
-  const current = Temporal.Instant.fromEpochMilliseconds(target.startsAt).toZonedDateTimeISO(settings.timeZone);
-  const date = dateText ? parseDate(dateText) : current.toPlainDate();
-  const startTime = timeText ? parseTime(timeText) : current.toPlainTime();
-  if (!date) return replyEphemeral(interaction, `Не понял дату «${dateText}». Примеры: сегодня, завтра, 17.10, 17.10.2026.`);
-  if (!startTime) return replyEphemeral(interaction, `Не понял время «${timeText}». Пример: 20:00.`);
-  const startsAt = toEpochMs(date, startTime);
-  if (startsAt <= Date.now()) return replyEphemeral(interaction, 'Это время уже прошло — укажи будущее.');
-  if (startsAt === target.startsAt) return replyEphemeral(interaction, 'Начало и так в это время.');
+  const start = newStart(target, interaction.options.getString('date'), interaction.options.getString('time'));
+  if ('error' in start) return replyEphemeral(interaction, start.error);
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  setRaidStart(target.id, startsAt);
-  const moved = { ...target, startsAt };
-  await refreshRaidMessage(interaction.client, target.id);
-  syncRaidEventLater(interaction.client, target.id);
-  await messageSignups(interaction.client, moved, () => `${uiEmoji('time')} ${KINDS[target.kind].title} **${target.title}** перенесли: теперь начало ${raidWhen(moved)}. [Открыть регу](${raidUrl(moved)})`);
+  const moved = await moveRaid(interaction.client, target, start.startsAt);
   await interaction.editReply(`🕗 Рега #${target.id} «${target.title}» перенесена на ${raidWhen(moved)}, записавшимся отправлено сообщение.`);
 }
 

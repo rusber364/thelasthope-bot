@@ -132,7 +132,8 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   await interaction.update({ content: lines.join('\n'), components: [], allowedMentions: { parse: [] } });
   await refreshRaidMessage(interaction.client, raid.id);
   await logRaidAction(interaction.guild, interaction.member, raid, before, signup ?? null);
-  if (!before) await grantRaidRole(interaction.guild, interaction.user.id);
+  // Временная роль — для сборов офицеров; у групп, которые открыли игроки, её нет.
+  if (!before && !raid.player) await grantRaidRole(interaction.guild, interaction.user.id);
 }
 
 async function toggleMaybe(interaction: ComponentInteraction, raid: Raid): Promise<void> {
@@ -164,6 +165,7 @@ async function leave(interaction: ComponentInteraction, raid: Raid): Promise<voi
 
 /** Отписка или «под вопросом» незадолго до рейда — оповещение офицерам, чтобы успели найти замену. */
 async function alertIfLate(interaction: ComponentInteraction, raid: Raid, signup: Signup, title: string): Promise<void> {
+  if (raid.player) return; // группы игроков офицеров не касаются
   const hours = getSettings().alerts.lateCancelHours;
   const left = raid.startsAt - Date.now();
   if (!hours || left <= 0 || left > hours * 60 * 60 * 1000) return;
