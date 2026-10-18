@@ -63,11 +63,12 @@ function WeekStrip({ templates }: { templates: RaidTemplate[] }) {
               {chips.map((chip, j) => (
                 <div
                   key={j}
-                  title={`${chip.kind === 'open' ? 'Открывается рега' : 'Рейд'}: ${chip.title}`}
+                  title={`${chip.kind === 'open' ? `Открывается рег: ${chip.count}` : 'Рейд'} — ${chip.title}`}
                   className={cn('flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs', color(chip.template))}
                 >
                   {chip.kind === 'open' ? <NotebookPen className="size-3 shrink-0" /> : <Swords className="size-3 shrink-0" />}
                   <span className="font-medium tabular-nums">{chip.time}</span>
+                  {chip.count > 1 && <span className="font-medium">×{chip.count}</span>}
                   <span className="truncate">{chip.title}</span>
                 </div>
               ))}

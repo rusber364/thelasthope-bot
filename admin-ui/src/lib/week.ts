@@ -39,18 +39,26 @@ export interface WeekChip {
   title: string;
   /** Номер шаблона — по нему цвет. */
   template: number;
+  /** Сколько рег шаблона открывается в это время (вторник 00:00 → среда, четверг, пятница — 3). */
+  count: number;
 }
 
 /** Семь дней (пн…вс): что в какой день происходит, по времени. Шаблоны без канала не открывают реги — их нет. */
 export function weekChips(templates: RaidTemplate[]): WeekChip[][] {
   const week: WeekChip[][] = DAYS.map(() => []);
+  const add = (day: number, chip: Omit<WeekChip, 'count'>) => {
+    const list = week[day - 1];
+    const same = list?.find((c) => c.kind === chip.kind && c.time === chip.time && c.template === chip.template);
+    if (same) same.count += 1;
+    else list?.push({ ...chip, count: 1 });
+  };
   templates.forEach((template, index) => {
     if (!template.channelId) return;
     const title = template.title.trim() || 'Без названия';
     for (const slot of template.slots) {
       if (leadMinutes(slot) === null) continue;
-      week[slot.openDay - 1]?.push({ kind: 'open', time: slot.openTime, title, template: index });
-      week[slot.raidDay - 1]?.push({ kind: 'raid', time: slot.raidTime, title, template: index });
+      add(slot.openDay, { kind: 'open', time: slot.openTime, title, template: index });
+      add(slot.raidDay, { kind: 'raid', time: slot.raidTime, title, template: index });
     }
   });
   for (const day of week) day.sort((a, b) => (minutes(a.time) ?? 0) - (minutes(b.time) ?? 0) || a.kind.localeCompare(b.kind));
