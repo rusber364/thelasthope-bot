@@ -60,6 +60,12 @@ sudo chown -R tlh:tlh /opt/thelasthope-bot
 cd /opt/thelasthope-bot && sudo -u tlh pnpm install --frozen-lockfile
 ```
 
+Собери админку — без этого бот работает, но вместо админки показывает подсказку «выполни `pnpm build`»:
+
+```bash
+cd /opt/thelasthope-bot && sudo -u tlh pnpm build
+```
+
 Если репозиторий на GitHub приватный, для `git clone` понадобится [токен доступа](https://github.com/settings/tokens) (вводится вместо пароля) или SSH-ключ сервера, добавленный в GitHub.
 
 Создай `.env`: скопируй его с домашнего компьютера или заполни по `.env.example`. Для сервера поменяй адрес админки на свой домен:
@@ -180,7 +186,7 @@ sudo systemctl start thelasthope-bot
 Когда в репозитории появилось новое:
 
 ```bash
-cd /opt/thelasthope-bot && sudo -u tlh git pull && sudo -u tlh pnpm install --frozen-lockfile
+cd /opt/thelasthope-bot && sudo -u tlh git pull && sudo -u tlh pnpm install --frozen-lockfile && sudo -u tlh pnpm build
 ```
 
 ```bash

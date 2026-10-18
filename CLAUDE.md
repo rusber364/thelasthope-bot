@@ -7,12 +7,15 @@ Discord bot for the WoW Forever guild **The Last Hope** (Alliance). The owner co
 ## Commands
 
 ```bash
-pnpm install          # pnpm only (packageManager is pinned in package.json)
+pnpm install          # pnpm only (packageManager is pinned); workspace = bot (root) + admin-ui
+pnpm build            # build the admin UI into admin-ui/dist (vp build) — the bot itself has no build
 pnpm dev              # node --watch, restarts on src changes; reads .env only at startup
 pnpm start
 pnpm deploy           # register slash commands in Discord (this script shadows pnpm's built-in `deploy`)
 pnpm test             # node --test "src/**/*.test.ts"
-pnpm typecheck        # tsc, type-check only (noEmit)
+pnpm typecheck        # tsc, type-check only (noEmit) — bot code in src/
+pnpm dev:admin        # admin UI dev server on :5173 (vp dev), proxies /api /login /auth /logout to the bot on :3000
+pnpm check:admin      # vp check in admin-ui: oxfmt + oxlint + type check
 ```
 
 Single test file / single test:
@@ -24,7 +27,7 @@ node --test --test-name-pattern="ловит" src/lib/profanity.test.ts
 
 Tasks are tracked with Backlog.md, installed as a dev dependency — run it as `pnpm backlog …` (plain `backlog` is not on PATH). In Git Bash set `MSYS_NO_PATHCONV=1` when an argument starts with `/` (e.g. `--ac '/raid …'`), otherwise MSYS rewrites it into a Windows path. Task text is in Russian.
 
-There is no build step and no linter. `pnpm deploy` must be re-run whenever a command's `data` (name, options, permissions) changes. With `GUILD_ID` set it registers guild commands and clears global ones; it needs the bot already invited to that guild (otherwise `Missing Access`).
+The bot has no build step and no linter. Only `admin-ui/` is built (Vite+, `vp` CLI from the `vite-plus` dev dependency; `vite`/`vitest` are pnpm overrides to Vite+ core in `pnpm-workspace.yaml`). `pnpm deploy` must be re-run whenever a command's `data` (name, options, permissions) changes. With `GUILD_ID` set it registers guild commands and clears global ones; it needs the bot already invited to that guild (otherwise `Missing Access`).
 
 ## Runtime constraints
 
@@ -32,7 +35,7 @@ There is no build step and no linter. `pnpm deploy` must be re-run whenever a co
 - Uses Node built-ins instead of deps: `node:sqlite` (`DatabaseSync`) and the global `Temporal` (typed via `lib: esnext.temporal`). Runtime deps: discord.js 14, `hono` + `@hono/node-server` (admin panel).
 - `src/config.ts` reads `.env` (token, guild, admin OAuth secrets). `config.token` is a lazy getter so tests can import modules without a `.env`.
 - Settings are split: **`src/botSettings.ts`** holds everything editable from the admin panel (channels, roles, welcome texts, raid schedules, 5 log channels) as one JSON row in the `settings` table, merged as defaults ← `.env` IDs ← DB. Always read via `getSettings()` at call time (never cache at module load) so admin changes apply without restart. **`src/settings.ts`** holds non-editable constants (timezone `Europe/Kyiv`, profanity filter).
-- `BOT_DB_PATH` overrides the DB path; tests set it to `:memory:` (and other env vars) *before* dynamically importing modules — see `src/botSettings.test.ts`, `src/admin/server.test.ts`.
+- `BOT_DB_PATH` overrides the DB path; tests set it to `:memory:` (and other env vars) *before* dynamically importing modules — see `src/botSettings.test.ts`, `src/admin/api.test.ts`.
 
 ## Architecture
 
@@ -70,9 +73,9 @@ There is no build step and no linter. `pnpm deploy` must be re-run whenever a co
 
 **Timed roles.** `/rolepanel … hours:N` encodes the duration in the button customId (`role:<roleId>:<hours>`); grants are stored in `temp_roles` and `lib/tempRoles.ts` removes expired ones on ready and every minute.
 
-**Raid templates.** `settings.raidTemplates` (admin page «Шаблоны рег»); `POST /templates/:id/create` validates date/time and bot permissions, then calls `publishRaid` with the logged-in admin as leader.
+**Raid templates.** `settings.raidTemplates` (admin page «Шаблоны рег»); `POST /api/templates/:id/create` validates date/time and bot permissions, then calls `publishRaid` with the logged-in admin as leader.
 
-**Admin panel (`src/admin/`).** Hono app in the bot process, bound to `127.0.0.1:ADMIN_PORT`, started from `ready` only if `CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SESSION_SECRET` are set. Discord OAuth2 (`identify`) → bot checks `ManageGuild` on the `GUILD_ID` guild on every request → signed session cookie carrying a CSRF token checked on every POST. Forms are parsed once in the auth middleware (`parseBody({ all: true })`, stored as `c.get('body')`) because Hono caches the first parse. Pages in `views.ts` are pure `hono/html` templates (no JSX — Node type stripping can't compile it). Saves go through `validateSettings` + guild checks, then `saveSettings` and a `server` log entry.
+**Admin panel.** Two parts. **Server (`src/admin/`)**: Hono app in the bot process, bound to `127.0.0.1:ADMIN_PORT`, started from `ready` only if `CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SESSION_SECRET` are set. `server.ts` handles Discord OAuth2 (`/login`, `/auth/callback` → failure redirects to `/?login-failed`, `/logout`), mounts the JSON API at `/api` (`api.ts`) and serves `admin-ui/dist` (`ADMIN_UI_DIST` overrides; hashed `/assets/*` immutable, every other GET → `index.html` for client routing; without a build — a «выполни `pnpm build`» page). `api.ts` checks the signed session cookie and `ManageGuild` on the `GUILD_ID` guild on every request (401/403 JSON) and the `X-CSRF-Token` header (= `session.csrf`, served by `GET /api/me`) on non-GET; settings are saved per section via `PUT /api/settings/:section` (guild checks from `forms.ts` + `validateSettings`, then `saveSettings`, a `server` log entry and side effects like `refreshBoard`/`refreshStickies`); errors are `400 {errors: string[]}` in Russian, shown as-is. `apiTypes.ts` is import-free and shared with the UI (alias `@api`); `settingsJson(s: BotSettings): Api.Settings` makes tsc check it against the real types. **UI (`admin-ui/`)**: React 19 + shadcn/ui on **Base UI** (`render` prop, not `asChild`; add components with `npx shadcn@latest add <name>` inside `admin-ui`), Tailwind v4, Lucide icons, TanStack Query, react-router (declarative `BrowserRouter`; pages lazy-loaded in `App.tsx`, polls have nested routes in `pages/polls/index.tsx`). Own theme provider (`lib/theme.tsx`, `localStorage` key `tlh-theme`, dark default, pre-paint script in `index.html`). Settings pages use `lib/settings-form.ts::useSectionForm` (draft, dirty, save bar, «Уйти без сохранения?» via `lib/unsaved.ts`) and `components/entity-picker.tsx` (Combobox with search for channels/roles). Code style in `admin-ui` is enforced by `vp check` (single quotes, width 140); UI text is Russian like the bot.
 
 **Other features.** Welcome message and the public poll message use Components V2 (`MessageFlags.IsComponentsV2`; such messages can't contain embeds or `content`). The profanity filter (`src/lib/profanity.ts`) normalizes text (lookalike letters, separators, repeated letters, spaced letters) then matches roots with a whitelist; when changing it, add cases to `profanity.test.ts` (both caught and must-not-trigger words).
 

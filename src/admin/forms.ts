@@ -1,8 +1,7 @@
 // Общие помощники админки: варианты для выпадающих списков и проверка того, что выбранные каналы и роли
-// действительно есть на сервере. Ими пользуются и JSON API (api.ts), и старые HTML-страницы (server.ts).
+// действительно есть на сервере. Ими пользуется JSON API админки (api.ts).
 import { ChannelType, type Guild } from 'discord.js';
 import { getPoll, type StoredPoll } from '../polls/store.ts';
-import { settings } from '../settings.ts';
 import type { Option } from './apiTypes.ts';
 
 const TEXT_TYPES = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
@@ -84,12 +83,4 @@ export function channelName(guild: Guild, channelId: string): string {
 
 export function messageUrl(poll: StoredPoll): string | null {
   return poll.messageId ? `https://discord.com/channels/${poll.guildId}/${poll.channelId}/${poll.messageId}` : null;
-}
-
-export function formatDateTime(ms: number): string {
-  return new Date(ms).toLocaleString('ru-RU', { timeZone: settings.timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
-
-export function todayInKyiv(): string {
-  return Temporal.Now.plainDateISO(settings.timeZone).toString();
 }

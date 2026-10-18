@@ -185,7 +185,7 @@ test('логи, оповещения, приветствие, личка и пр
   assert.match(farewellTest.json!.errors[0], /нельзя писать/);
 });
 
-test('расписание рег, липкие сообщения, автоочистка — проверки как в старой админке', async () => {
+test('расписание рег, липкие сообщения, автоочистка: сохранение и проверки', async () => {
   const raids = structuredClone(getSettings().raids);
   raids.schedules[0]!.channelId = 'c1';
   raids.schedules[0]!.days = [4, 5];
