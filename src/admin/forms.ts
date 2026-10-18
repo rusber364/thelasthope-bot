@@ -30,13 +30,14 @@ export function roleOptions(guild: Guild): Option[] {
     .map((role) => ({
       id: role.id,
       name: role.name,
+      ...(role.color ? { color: role.hexColor } : {}),
       ...(role.editable ? {} : { warning: 'Роль стоит выше роли бота — бот не сможет её выдать. Подними роль бота в настройках сервера.' }),
     }));
 }
 
 /** Роли для упоминания: высота роли не важна, поэтому без предупреждений «выше роли бота». */
 export function mentionRoles(guild: Guild): Option[] {
-  return roleOptions(guild).map(({ id, name }) => ({ id, name }));
+  return roleOptions(guild).map(({ warning: _, ...option }) => option);
 }
 
 /** Текстовый канал этого сервера или null (пусто — не выбран, чужой — ошибка в errors). */

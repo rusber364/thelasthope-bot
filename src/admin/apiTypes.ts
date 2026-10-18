@@ -10,6 +10,8 @@ export interface Option {
   group?: string;
   /** Предупреждение рядом с выбором (например, роль выше роли бота). */
   warning?: string;
+  /** Цвет роли (#rrggbb), если он задан. */
+  color?: string;
 }
 
 export interface ApiError {
