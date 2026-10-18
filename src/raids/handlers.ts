@@ -34,6 +34,18 @@ export const raidHandler: ComponentHandler = {
   },
 };
 
+const HOUR = 60 * 60 * 1000;
+
+/**
+ * Какие общие напоминания в личку ещё впереди. Напоминание «за сутки» и «за час» отмечается, как только наступает его время,
+ * — кто записался позже, его уже не получит (например, рега открылась за 53 минуты до рейда).
+ */
+export function reminderNote(msLeft: number): string {
+  if (msLeft > 24 * HOUR) return 'Напомню в личные сообщения за сутки и за час до начала.';
+  if (msLeft > HOUR) return 'Напомню в личные сообщения за час до начала.';
+  return 'До начала меньше часа — общего напоминания в личку уже не будет. Своё можно поставить кнопкой «Напомнить».';
+}
+
 /** Куда этому участнику можно записаться — по его ролям и ролям реги из шаблона. */
 const accessOf = (interaction: ComponentInteraction, raid: Raid) => signupAccess(new Set(interaction.member.roles.cache.keys()), raid);
 const noAccess = (raid: Raid) => `Эта рега для ролей: ${roleMentions([...raid.mainRoleIds, ...raid.reserveRoleIds])}. Если роль нужна — спроси офицеров.`;
@@ -96,7 +108,7 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   } else if (onBench) {
     lines.push(`${uiEmoji('bench')} Основной состав уже заполнен, поэтому ты в запасе. Освободится место — поднимешься автоматически.`);
   }
-  lines.push('-# Напомню в личные сообщения за сутки и за час до начала.');
+  lines.push(`-# ${reminderNote(raid.startsAt - Date.now())}`);
 
   // Сначала отвечаем (на это есть 3 секунды), потом спокойно перерисовываем регу.
   await interaction.update({ content: lines.join('\n'), components: [], allowedMentions: { parse: [] } });

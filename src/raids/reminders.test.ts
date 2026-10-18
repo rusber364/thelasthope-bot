@@ -44,3 +44,20 @@ test('обычный случай: за сутки и за час — по од�
     mock.timers.reset();
   }
 });
+
+test('реги по расписанию проверяются в начале каждой минуты, а не раз в 30 секунд от запуска', async () => {
+  const { msToNextMinute } = await import('./scheduler.ts');
+  const at = (iso: string) => Date.parse(iso);
+  assert.equal(msToNextMinute(at('2026-10-18T16:06:59.900Z')), 600, 'за 0,1 с до 19:07 — проверка в 19:07:00,5');
+  assert.equal(msToNextMinute(at('2026-10-18T16:07:00.500Z')), MINUTE, 'сразу после проверки — следующая через минуту');
+  assert.equal(msToNextMinute(at('2026-10-18T16:07:26.000Z')), 34_500);
+});
+
+test('при записи бот обещает только те напоминания, которые ещё впереди', async () => {
+  const { reminderNote } = await import('./handlers.ts');
+  const HOUR = 60 * MINUTE;
+  assert.match(reminderNote(3 * 24 * HOUR), /за сутки и за час/);
+  assert.match(reminderNote(5 * HOUR), /за час до начала/);
+  assert.doesNotMatch(reminderNote(5 * HOUR), /сутки/);
+  assert.match(reminderNote(53 * MINUTE), /меньше часа — общего напоминания в личку уже не будет.*«Напомнить»/);
+});

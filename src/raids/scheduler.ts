@@ -1,5 +1,5 @@
-// Планировщик: раз в 30 секунд проверяет, не пора ли
-//  • открыть регу по расписанию шаблона рейда (например, во вторник в 00:00 на среду 20:00) и упомянуть роли,
+// Планировщик: в начале каждой минуты открывает реги по расписанию шаблонов рейдов (например, во вторник в 00:00
+// на среду 20:00) и упоминает роли, а раз в 30 секунд проверяет, не пора ли
 //  • напомнить записавшимся в личку за сутки и за час,
 //  • позвать на сбор в канале реги за N минут до начала,
 //  • закрыть запись, когда рейд начался,
@@ -37,28 +37,52 @@ const REMINDERS: { kind: ReminderKind; lead: number }[] = [
   { kind: 'hour', lead: HOUR },
 ];
 
+const MINUTE = 60_000;
+
+/** Через сколько мс начало следующей минуты (+0,5 с запаса): реги по расписанию открываются ровно в ЧЧ:ММ:00. */
+export function msToNextMinute(now: number): number {
+  return MINUTE - (now % MINUTE) + 500;
+}
+
 export function startRaidScheduler(client: Client<true>): void {
+  // Открытие рег — отдельно и в начале каждой минуты: рега появляется в первые секунды, а не через 0–30 с,
+  // и долгая рассылка напоминаний его не задерживает. После запуска — сразу, чтобы догнать пропущенное.
+  const open = withoutOverlap(() => openScheduledRaids(client), 'Ошибка открытия рег по расписанию:');
+  void open();
+  const atNextMinute = () =>
+    setTimeout(() => {
+      void open();
+      atNextMinute();
+    }, msToNextMinute(Date.now()));
+  atNextMinute();
+
+  const tick = withoutOverlap(async () => {
+    await sendReminders(client);
+    await sendPersonalReminders(client);
+    await sendGatherCalls(client);
+    await closeStartedRaids(client);
+    await checkAttendance(client);
+    await cleanupRaidRoles(client);
+    await archiveRaids(client);
+  }, 'Ошибка планировщика рейдов:');
+  void tick();
+  setInterval(tick, 30_000);
+}
+
+/** Запуск без наложений: пока прошлый проход не закончился, новый пропускается. */
+function withoutOverlap(run: () => Promise<void>, errorText: string): () => Promise<void> {
   let running = false;
-  const tick = async () => {
+  return async () => {
     if (running) return;
     running = true;
     try {
-      await openScheduledRaids(client);
-      await sendReminders(client);
-      await sendPersonalReminders(client);
-      await sendGatherCalls(client);
-      await closeStartedRaids(client);
-      await checkAttendance(client);
-      await cleanupRaidRoles(client);
-      await archiveRaids(client);
+      await run();
     } catch (error) {
-      console.error('Ошибка планировщика рейдов:', error);
+      console.error(errorText, error);
     } finally {
       running = false;
     }
   };
-  void tick();
-  setInterval(tick, 30_000);
 }
 
 const warned = new Set<string>();
