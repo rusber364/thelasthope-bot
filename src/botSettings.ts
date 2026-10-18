@@ -6,6 +6,7 @@
 import { config } from './config.ts';
 import { db } from './db.ts';
 import { parseTime } from './lib/time.ts';
+import { LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];
@@ -86,6 +87,10 @@ export interface RaidTemplate {
   mainRoleIds: string[];
   /** С какими ролями записываются только в запас (имеет смысл, только если основа ограничена). */
   reserveRoleIds: string[];
+  /** Вид сбора: рейд, подземелье, PvP. */
+  kind: ActivityKind;
+  /** Мест по ролям в основе: танки, лекари, бойцы (null — без лимита). */
+  limits: RoleLimits;
   /** Расписание (пусто — шаблон только для ручного создания). */
   slots: RaidSlot[];
 }
@@ -208,7 +213,7 @@ function defaults(): BotSettings {
 /** Группа по умолчанию: рейды в чт, пт и пн в 20:00, рега открывается в тот же день в 00:00. */
 function defaultGroup(id: string, title: string, channelId: string | null): RaidTemplate {
   const slots = [4, 5, 1].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' }));
-  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], slots };
+  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], kind: 'raid', limits: NO_LIMITS, slots };
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -271,6 +276,8 @@ export function getSettings(): BotSettings {
     pingRoleIds: template.pingRoleIds ?? (pingRoleId ? [pingRoleId] : []),
     mainRoleIds: template.mainRoleIds ?? [],
     reserveRoleIds: template.reserveRoleIds ?? [],
+    kind: isKind(template.kind) ? template.kind : 'raid',
+    limits: parseLimits(template.limits),
     slots: template.slots ?? [],
   }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
@@ -293,6 +300,18 @@ export function saveSettings(next: BotSettings): void {
 /** Сбросить кэш (для тестов). */
 export function resetSettingsCache(): void {
   cache = null;
+}
+
+/** Лимиты по ролям: целые от 0 до LIMITS.size, в сумме не больше мест в составе. */
+export function limitErrors(name: string, limits: RoleLimits, size: number): string[] {
+  const errors: string[] = [];
+  for (const { group, title } of LIMIT_GROUPS) {
+    const n = limits[group];
+    if (n !== null && (!Number.isInteger(n) || n < 0 || n > LIMITS.size)) errors.push(`${name}: «${title}» — целое число от 0 до ${LIMITS.size} или пусто.`);
+  }
+  const sum = LIMIT_GROUPS.reduce((total, { group }) => total + (limits[group] ?? 0), 0);
+  if (sum > size) errors.push(`${name}: лимиты по ролям в сумме (${sum}) больше мест в составе (${size}).`);
+  return errors;
 }
 
 /**
@@ -374,6 +393,8 @@ export function validateSettings(s: BotSettings): string[] {
       errors.push(`${name}: «только в запас» работает, когда выбрано, кто записывается в основу, — сначала выбери роли основы.`);
     }
     if (t.reserveRoleIds.some((id) => t.mainRoleIds.includes(id))) errors.push(`${name}: одна и та же роль и в основе, и только в запасе.`);
+    if (!isKind(t.kind)) errors.push(`${name}: неизвестный вид сбора.`);
+    errors.push(...limitErrors(name, t.limits, t.size));
     if (t.slots.length > LIMITS.slots) errors.push(`${name}: в расписании не больше ${LIMITS.slots} строк.`);
     const isDay = (day: number) => Number.isInteger(day) && day >= 1 && day <= 7;
     t.slots.forEach((slot, i) => {

@@ -88,6 +88,10 @@ addColumn('raids', 'event_id', 'TEXT'); // событие Discord для рег�
 addColumn('raids', 'main_role_ids', 'TEXT');
 addColumn('raids', 'reserve_role_ids', 'TEXT');
 addColumn('raid_signups', 'reserve', 'INTEGER NOT NULL DEFAULT 0');
+// Вид сбора (raid | dungeon | pvp), лимиты по ролям (JSON, снимок из шаблона) и группа, которую открыл игрок (/group).
+addColumn('raids', 'kind', "TEXT NOT NULL DEFAULT 'raid'");
+addColumn('raids', 'limits', 'TEXT');
+addColumn('raids', 'player', 'INTEGER NOT NULL DEFAULT 0');
 // Получил ли записавшийся общее напоминание в личку. Кто записался после него, получит своё за 15 минут до начала.
 // В старой базе те, кому напоминание «за час» уже ушло, отмечаются сразу — иначе им пришло бы второе.
 if (addColumn('raid_signups', 'reminded', 'INTEGER NOT NULL DEFAULT 0')) {

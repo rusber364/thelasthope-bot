@@ -122,6 +122,8 @@ export function raidFromTemplate(
     size: template.size,
     mainRoleIds: template.mainRoleIds,
     reserveRoleIds: template.reserveRoleIds,
+    kind: template.kind,
+    limits: template.limits,
     ...when,
   };
 }
@@ -182,7 +184,7 @@ async function sendGatherCalls(client: Client<true>): Promise<void> {
   if (!gatherMinutes) return;
   for (const raid of raidsDueForReminder('gather', Date.now(), gatherMinutes * 60_000)) {
     markReminded(raid.id, 'gather');
-    const { main, tentative } = lineup(getSignups(raid.id), raid.size);
+    const { main, tentative } = lineup(getSignups(raid.id), raid.size, raid.limits);
     const ids = [...main, ...tentative].map((s) => s.userId).slice(0, 100);
     if (!ids.length) continue;
 

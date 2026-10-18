@@ -30,6 +30,13 @@ export const LOG_CATEGORY_IDS = ['members', 'server', 'messages', 'voice', 'mode
 export type LogCategory = (typeof LOG_CATEGORY_IDS)[number];
 export type ArchiveMode = 'off' | 'move' | 'delete';
 
+export type ActivityKind = 'raid' | 'dungeon' | 'pvp';
+export interface RoleLimits {
+  tank: number | null;
+  healer: number | null;
+  dps: number | null;
+}
+
 /** Строка расписания: рейд в raidDay raidTime, рега открывается в openDay openTime. Дни: 1 — понедельник … 7 — воскресенье. */
 export interface RaidSlot {
   raidDay: number;
@@ -50,6 +57,9 @@ export interface RaidTemplate {
   /** Кто записывается в основу (пусто — все) и кто только в запас. */
   mainRoleIds: string[];
   reserveRoleIds: string[];
+  kind: ActivityKind;
+  /** Мест по ролям в основе (null — без лимита); бойцы — ближний и дальний бой вместе. */
+  limits: RoleLimits;
   slots: RaidSlot[];
 }
 

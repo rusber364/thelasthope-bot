@@ -16,6 +16,8 @@ const template = (slots: RaidSlot[], extra: Partial<RaidTemplate> = {}): RaidTem
   pingRoleIds: [],
   mainRoleIds: [],
   reserveRoleIds: [],
+  kind: 'raid',
+  limits: { tank: null, healer: null, dps: null },
   slots,
   ...extra,
 });

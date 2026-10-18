@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { CalendarClock, CalendarPlus, CopyPlus, Plus, Swords, Trash2, Users, NotebookPen } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import type { Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
+import type { ActivityKind, Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
 import { AccessRolesPicker, ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput } from '@/components/settings-ui';
@@ -29,6 +29,7 @@ import { formatDay, todayInKyiv } from '@/lib/format';
 import { useOptions, useSettings } from '@/lib/queries';
 import { useSectionForm } from '@/lib/settings-form';
 import { cn } from '@/lib/utils';
+import { KINDS, KIND_ITEMS, LIMIT_FIELDS, NO_LIMITS } from '@/lib/kinds';
 import { DAYS, leadText, weekChips } from '@/lib/week';
 
 const MAX_TEMPLATES = 25;
@@ -112,6 +113,7 @@ function CreateCard({ template }: { template: RaidTemplate }) {
       <CardHeader>
         <CardTitle>{template.title}</CardTitle>
         <CardDescription className="flex flex-wrap items-center gap-1.5">
+          {template.kind !== 'raid' && <Badge>{KINDS[template.kind].title}</Badge>}
           <Badge variant="secondary">
             <Users /> {template.size} мест
           </Badge>
@@ -160,6 +162,28 @@ function CreateCard({ template }: { template: RaidTemplate }) {
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  );
+}
+
+/** Лимит по роли: число или пусто — «без лимита». */
+function LimitInput({ id, value, onChange }: { id: string; value: number | null; onChange: (value: number | null) => void }) {
+  return (
+    <Input
+      id={id}
+      type="number"
+      inputMode="numeric"
+      min={0}
+      max={100}
+      placeholder="—"
+      className="w-20"
+      value={value ?? ''}
+      onChange={(event) => {
+        const text = event.target.value;
+        const n = Number(text);
+        if (text === '') onChange(null);
+        else if (Number.isInteger(n) && n >= 0) onChange(n);
+      }}
+    />
   );
 }
 
@@ -215,11 +239,14 @@ function TemplateEditor({
   index,
   set,
   remove,
+  raidSize,
 }: {
   template: RaidTemplate;
   index: number;
   set: (change: Partial<RaidTemplate>) => void;
   remove: () => void;
+  /** Размер рейда по умолчанию из «Настроек рег» — подставляется, когда выбирают вид «Рейд». */
+  raidSize: number;
 }) {
   const id = (name: string) => `t${index}-${name}`;
   const setSlots = (slots: RaidSlot[]) => set({ slots });
@@ -248,13 +275,36 @@ function TemplateEditor({
         </Button>
       </div>
 
-      {/* Основное — одной строкой на широком экране. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,3fr)_auto_auto]">
+      {/* Основное — вид, название, канал; ниже — места и состав по ролям. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor={id('kind')} title="Подставляет размер и лимиты по ролям — их можно поменять">
+            Вид
+          </FieldLabel>
+          <Select
+            items={KIND_ITEMS}
+            value={template.kind}
+            onValueChange={(kind: ActivityKind | null) =>
+              kind && set({ kind, size: kind === 'raid' ? raidSize : KINDS[kind].size, limits: KINDS[kind].limits })
+            }
+          >
+            <SelectTrigger id={id('kind')} className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(KIND_ITEMS) as ActivityKind[]).map((kind) => (
+                <SelectItem key={kind} value={kind}>
+                  {KIND_ITEMS[kind]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
         <Field className="gap-1.5">
           <FieldLabel htmlFor={id('title')}>Название</FieldLabel>
           <Input id={id('title')} maxLength={100} value={template.title} onChange={(e) => set({ title: e.target.value })} />
         </Field>
-        <Field className="gap-1.5">
+        <Field className="gap-1.5 sm:col-span-2 lg:col-span-1">
           <FieldLabel htmlFor={id('channel')}>Канал рег</FieldLabel>
           <ChannelPicker
             id={id('channel')}
@@ -263,11 +313,25 @@ function TemplateEditor({
             onChange={(channelId) => set({ channelId })}
           />
         </Field>
-        <Field className="gap-1.5">
+      </div>
+      <div className="flex flex-wrap items-start gap-3">
+        <Field className="w-auto gap-1.5">
           <FieldLabel htmlFor={id('size')}>Мест</FieldLabel>
           <NumberField id={id('size')} min={1} max={100} value={template.size} onChange={(size) => set({ size })} />
         </Field>
-        <Field className="gap-1.5">
+        {LIMIT_FIELDS.map(({ group, title }) => (
+          <Field key={group} className="w-auto gap-1.5">
+            <FieldLabel htmlFor={id(group)} title="Сколько мест в основе для этой роли; пусто — без лимита. Лишние — в запас">
+              {title}
+            </FieldLabel>
+            <LimitInput
+              id={id(group)}
+              value={template.limits[group]}
+              onChange={(n) => set({ limits: { ...template.limits, [group]: n } })}
+            />
+          </Field>
+        ))}
+        <Field className="w-auto gap-1.5">
           <FieldLabel htmlFor={id('time')} title="Подставляется в «Создать регу сейчас»">
             Время вручную
           </FieldLabel>
@@ -411,6 +475,8 @@ export function TemplatesPage() {
                       pingRoleIds: [],
                       mainRoleIds: [],
                       reserveRoleIds: [],
+                      kind: 'raid',
+                      limits: NO_LIMITS,
                       slots: [],
                     },
                   ])
@@ -430,6 +496,7 @@ export function TemplatesPage() {
                   template={template}
                   set={(change) => setList(draft.raidTemplates.map((t, j) => (j === i ? { ...t, ...change } : t)))}
                   remove={() => setList(draft.raidTemplates.filter((_, j) => j !== i))}
+                  raidSize={settings.raids.defaultSize}
                 />
               ))
             )}

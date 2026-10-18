@@ -13,7 +13,7 @@ const HOUR = 60 * 60 * 1000;
 
 /** Краткий итог реги: дата, статус, состав по ролям, посещаемость. */
 export function raidSummary(raid: Raid, signups: Signup[], attendance: Partial<Record<AttendanceStatus, number>>): EmbedBuilder {
-  const { main, bench: benchList, tentative: tentativeList } = lineup(signups, raid.size);
+  const { main, bench: benchList, tentative: tentativeList } = lineup(signups, raid.size, raid.limits);
   const bench = benchList.length;
   const tentative = tentativeList.length;
 

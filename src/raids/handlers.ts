@@ -6,11 +6,12 @@ import { replyEphemeral } from '../lib/reply.ts';
 import { formatDuration } from '../lib/time.ts';
 import { sendAlert } from '../logs/alerts.ts';
 import { LOG_COLORS } from '../logs/send.ts';
-import { ROLES, classById, specById, specsOf } from './classes.ts';
+import { ROLES, classById, specById, specsOf, type RaidRole } from './classes.ts';
 import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
 import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
-import { lineup, roleMentions, signupAccess } from './lineup.ts';
+import { LIMIT_GROUPS, limitGroup } from './kinds.ts';
+import { fullGroups, lineup, roleMentions, signupAccess, takenByGroup } from './lineup.ts';
 import { chooseReminder, showReminderMenu } from './personalReminders.ts';
 import { LATE_REMINDER_MS } from './scheduler.ts';
 import { describeSignup, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
@@ -48,6 +49,18 @@ export function reminderNote(msLeft: number): string {
   return 'До начала меньше 15 минут — напоминания в личку уже не будет.';
 }
 
+/** Почему запись в запасе: набрана роль по лимиту («Танки уже набраны (1/1)») или заполнена вся основа. */
+export function benchReason(main: Signup[], raid: Pick<Raid, 'size' | 'limits'>, role: RaidRole): string {
+  const group = limitGroup(role);
+  const limit = raid.limits[group];
+  const taken = takenByGroup(main)[group];
+  if (limit !== null && taken >= limit) {
+    const title = LIMIT_GROUPS.find((g) => g.group === group)!.title;
+    return `${title} уже набраны (${taken}/${limit}), поэтому ты в запасе.`;
+  }
+  return 'Основной состав уже заполнен, поэтому ты в запасе.';
+}
+
 /** Куда этому участнику можно записаться — по его ролям и ролям реги из шаблона. */
 const accessOf = (interaction: ComponentInteraction, raid: Raid) => signupAccess(new Set(interaction.member.roles.cache.keys()), raid);
 const noAccess = (raid: Raid) => `Эта рега для ролей: ${roleMentions([...raid.mainRoleIds, ...raid.reserveRoleIds])}. Если роль нужна — спроси офицеров.`;
@@ -65,6 +78,8 @@ async function chooseClass(interaction: ComponentInteraction, raid: Raid): Promi
   if (current) lines.push(`-# Сейчас в списке: ${describeSignup(current)}. Новый выбор её заменит.`);
   if (access === 'reserve') lines.push('-# С твоими ролями в эту регу записывают только в запас.');
 
+  // Роль, для которой места в основе по лимиту закончились, — с подписью: запись будет в запас.
+  const full = fullGroups(getSignups(raid.id), raid.size, raid.limits, interaction.user.id);
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`raid:spec:${raid.id}`)
     .setPlaceholder('Специализация')
@@ -73,7 +88,7 @@ async function chooseClass(interaction: ComponentInteraction, raid: Raid): Promi
         label: spec.name,
         value: spec.id,
         emoji: specComponentEmoji(spec),
-        description: ROLES[spec.role].one,
+        description: full.has(limitGroup(spec.role)) ? `${ROLES[spec.role].one} · мест нет — в запас` : ROLES[spec.role].one,
       })),
     );
 
@@ -101,14 +116,15 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   const signups = getSignups(raid.id);
   const signup = signups.find((s) => s.userId === interaction.user.id);
   const number = signups.findIndex((s) => s.userId === interaction.user.id) + 1;
-  const onBench = lineup(signups, raid.size).bench.some((s) => s.userId === interaction.user.id);
+  const { main, bench } = lineup(signups, raid.size, raid.limits);
+  const onBench = bench.some((s) => s.userId === interaction.user.id);
 
   const lines = [`Записано: **${signup ? describeSignup(signup) : spec.name}**, твой номер в реге — \`${number}\`.`];
   if (signup?.tentative) lines.push('Сейчас стоит отметка «под вопросом» — сними её кнопкой на реге, если точно идёшь.');
   if (signup?.reserve) {
     lines.push(`${uiEmoji('bench')} Ты в запасе: в основной состав этой реги записываются ${roleMentions(raid.mainRoleIds)}.`);
   } else if (onBench) {
-    lines.push(`${uiEmoji('bench')} Основной состав уже заполнен, поэтому ты в запасе. Освободится место — поднимешься автоматически.`);
+    lines.push(`${uiEmoji('bench')} ${benchReason(main, raid, spec.role)} Освободится место — поднимешься автоматически.`);
   }
   lines.push(`-# ${reminderNote(raid.startsAt - Date.now())}`);
 

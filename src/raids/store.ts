@@ -1,5 +1,6 @@
 // Чтение и запись рег в базу данных.
 import { db } from '../db.ts';
+import { NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './kinds.ts';
 
 export type RaidStatus = 'open' | 'closed' | 'cancelled';
 
@@ -19,6 +20,11 @@ export interface Raid {
   /** Роли, с которыми записываются в основу (пусто — все), и роли, с которыми — только в запас. */
   mainRoleIds: string[];
   reserveRoleIds: string[];
+  /** Вид сбора и лимиты по ролям в основе. */
+  kind: ActivityKind;
+  limits: RoleLimits;
+  /** Группу открыл игрок командой /group (а не офицер или расписание). */
+  player: boolean;
 }
 
 export interface Signup {
@@ -60,6 +66,9 @@ function toRaid(row: Row): Raid {
     status: String(row.status) as RaidStatus,
     mainRoleIds: roleIds(row.main_role_ids),
     reserveRoleIds: roleIds(row.reserve_role_ids),
+    kind: isKind(row.kind) ? row.kind : 'raid',
+    limits: parseLimits(row.limits),
+    player: Boolean(row.player),
   };
 }
 
@@ -87,13 +96,17 @@ export interface NewRaid {
   scheduleKey?: string | null;
   mainRoleIds?: string[];
   reserveRoleIds?: string[];
+  kind?: ActivityKind;
+  limits?: RoleLimits;
+  player?: boolean;
 }
 
 export function createRaid(raid: NewRaid): Raid {
   const row = db
     .prepare(
-      `INSERT INTO raids (guild_id, channel_id, title, description, starts_at, size, created_by, leader_name, schedule_key, main_role_ids, reserve_role_ids)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO raids (guild_id, channel_id, title, description, starts_at, size, created_by, leader_name, schedule_key, main_role_ids, reserve_role_ids,
+         kind, limits, player)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
     )
     .get(
       raid.guildId,
@@ -107,8 +120,16 @@ export function createRaid(raid: NewRaid): Raid {
       raid.scheduleKey ?? null,
       JSON.stringify(raid.mainRoleIds ?? []),
       JSON.stringify(raid.reserveRoleIds ?? []),
+      raid.kind ?? 'raid',
+      JSON.stringify(raid.limits ?? NO_LIMITS),
+      raid.player ? 1 : 0,
     );
   return toRaid(row as Row);
+}
+
+/** Поменять размер и лимиты по ролям открытой реги — состав пересчитается при перерисовке. */
+export function setRaidLimits(id: number, size: number, limits: RoleLimits): void {
+  db.prepare('UPDATE raids SET size = ?, limits = ? WHERE id = ?').run(size, JSON.stringify(limits), id);
 }
 
 export function deleteRaid(id: number): void {

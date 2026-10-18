@@ -14,6 +14,7 @@ import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
 import { uiEmoji } from '../../raids/emojis.ts';
 import { fetchRaidChannel, raidFromTemplate } from '../../raids/scheduler.ts';
 import { nextRaid, scheduleKey } from '../../raids/slots.ts';
+import { ACTIVITY_KINDS, KINDS, isKind } from '../../raids/kinds.ts';
 import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
 import { getRaid, listRaids, scheduleKeyExists, setRaidStart, setRaidStatus } from '../../raids/store.ts';
 import { syncRaidEventLater } from '../../raids/events.ts';
@@ -44,13 +45,19 @@ export const raid: Command = {
         .addStringOption((o) => o.setName('title').setDescription('Название, например «Огненные Недра»').setRequired(true).setMaxLength(100))
         .addStringOption((o) => o.setName('date').setDescription('Дата: сегодня, завтра, 17.10 или 17.10.2026 (по умолчанию — сегодня)'))
         .addStringOption((o) => o.setName('time').setDescription('Время начала, например 20:00 (по умолчанию — из настроек бота)'))
+        .addStringOption((o) =>
+          o
+            .setName('kind')
+            .setDescription('Вид: рейд (по умолчанию), подземелье (5 мест: 1 танк, 1 лекарь, 3 бойца) или PvP (10 мест)')
+            .addChoices(...ACTIVITY_KINDS.map((kind) => ({ name: KINDS[kind].title, value: kind }))),
+        )
         .addChannelOption((o) =>
           o
             .setName('channel')
             .setDescription('Куда опубликовать (по умолчанию — сюда)')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement),
         )
-        .addIntegerOption((o) => o.setName('size').setDescription('Мест в основном составе (по умолчанию — из настроек бота)').setMinValue(1).setMaxValue(100))
+        .addIntegerOption((o) => o.setName('size').setDescription('Мест в основном составе (по умолчанию — по виду сбора)').setMinValue(1).setMaxValue(100))
         .addStringOption((o) => o.setName('description').setDescription('Подробности: сбор, требования и т.п.').setMaxLength(500))
         .addRoleOption((o) => o.setName('ping').setDescription('Какую роль упомянуть при публикации (например, @Рейдер)')),
     )
@@ -149,13 +156,17 @@ async function quick(interaction: ChatInputCommandInteraction<'cached'>): Promis
 
   // Публикация с картинкой может занять больше 3 секунд — сначала «бот думает…».
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const kindOption = interaction.options.getString('kind');
+  const kind = isKind(kindOption) ? kindOption : 'raid';
   const created = await publishRaid(channel, {
     title,
     description: interaction.options.getString('description'),
     startsAt,
-    size: interaction.options.getInteger('size') ?? getSettings().raids.defaultSize,
+    size: interaction.options.getInteger('size') ?? (kind === 'raid' ? getSettings().raids.defaultSize : KINDS[kind].size),
     createdBy: interaction.user.id,
     leaderName: interaction.member.displayName,
+    kind,
+    limits: KINDS[kind].limits,
   }, [interaction.options.getRole('ping')?.id].filter((id) => id !== undefined));
   await interaction.editReply(`✅ Рега #${created.id} создана в ${channel}: ${raidUrl(created)}`);
 }

@@ -3,6 +3,7 @@ import { EmbedBuilder, type Guild } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { sendAlert } from '../logs/alerts.ts';
 import { LOG_COLORS } from '../logs/send.ts';
+import { NO_LIMITS, type RoleLimits } from './kinds.ts';
 import { lineup } from './lineup.ts';
 import { raidUrl } from './service.ts';
 import { getSignups, saveAttendance, type AttendanceStatus, type Raid, type Signup } from './store.ts';
@@ -19,8 +20,14 @@ export interface AttendanceResult {
 }
 
 /** Чистый подсчёт (без Discord): записи + кто сейчас в голосовом. */
-export function computeAttendance(signups: Signup[], size: number, inVoice: Set<string>, countWalkins: boolean): AttendanceResult {
-  const { main, bench, tentative } = lineup(signups, size);
+export function computeAttendance(
+  signups: Signup[],
+  size: number,
+  inVoice: Set<string>,
+  countWalkins: boolean,
+  limits: RoleLimits = NO_LIMITS,
+): AttendanceResult {
+  const { main, bench, tentative } = lineup(signups, size, limits);
   const signed = new Set(signups.map((s) => s.userId));
 
   return {
@@ -46,7 +53,7 @@ export async function reportAttendance(guild: Guild, raid: Raid): Promise<void> 
       .filter((state) => state.channelId && (!voiceId || state.channelId === voiceId) && !state.member?.user.bot)
       .map((state) => state.id),
   );
-  const result = computeAttendance(getSignups(raid.id), raid.size, inVoice, Boolean(voiceId));
+  const result = computeAttendance(getSignups(raid.id), raid.size, inVoice, Boolean(voiceId), raid.limits);
 
   const rows: { userId: string; status: AttendanceStatus }[] = [
     ...result.present.map((s) => ({ userId: s.userId, status: 'present' as const })),

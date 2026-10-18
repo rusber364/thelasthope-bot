@@ -21,6 +21,7 @@ import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pol
 import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
+import type { ActivityKind, RoleLimits } from '../raids/kinds.ts';
 import { raidFromTemplate } from '../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { listRaids } from '../raids/store.ts';
@@ -45,6 +46,13 @@ const text = (value: unknown): string => (typeof value === 'string' ? value.repl
 const id = (value: unknown): string | null => text(value) || null;
 const num = (value: unknown): number => (typeof value === 'number' ? value : Number(text(value)));
 const bool = (value: unknown): boolean => value === true;
+
+/** Лимиты по ролям из JSON: пусто — без лимита, остальное проверит validateSettings. */
+const limitsOf = (value: unknown): RoleLimits => {
+  const source = obj(value);
+  const one = (v: unknown) => (v === null || v === undefined || v === '' ? null : num(v));
+  return { tank: one(source.tank), healer: one(source.healer), dps: one(source.dps) };
+};
 
 /** Список ролей без повторов; каждая проверяется по серверу, несуществующие — в ошибки. */
 const roleList = (guild: Guild, value: unknown, name: string, errors: string[]): string[] =>
@@ -280,6 +288,8 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
             pingRoleIds: roleList(guild, t.pingRoleIds, `Шаблон ${i + 1}: роль для упоминания`, errors),
             mainRoleIds: roleList(guild, t.mainRoleIds, `Шаблон ${i + 1}: роль основы`, errors),
             reserveRoleIds: roleList(guild, t.reserveRoleIds, `Шаблон ${i + 1}: роль запаса`, errors),
+            kind: (text(t.kind) || 'raid') as ActivityKind,
+            limits: limitsOf(t.limits),
             slots: arr(t.slots)
               .map(obj)
               .map((slot) => ({ raidDay: num(slot.raidDay), raidTime: text(slot.raidTime), openDay: num(slot.openDay), openTime: text(slot.openTime) }))

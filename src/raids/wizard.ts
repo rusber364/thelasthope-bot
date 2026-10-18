@@ -24,6 +24,7 @@ import { settings } from '../settings.ts';
 import { deleteDraft, getDraft, isExpired, purgeExpiredDrafts, saveDraft, type DraftStep, type RaidDraft } from './drafts.ts';
 import { buildRaidMessage, hasDefaultBanner } from './render.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from './service.ts';
+import { NO_LIMITS } from './kinds.ts';
 import type { Raid, RaidImage } from './store.ts';
 
 export const WIZARD_PREFIX = 'rwiz';
@@ -204,6 +205,9 @@ function previewRaid(draft: RaidDraft): Raid {
     status: 'open',
     mainRoleIds: [],
     reserveRoleIds: [],
+    kind: 'raid',
+    limits: NO_LIMITS,
+    player: false,
   };
 }
 

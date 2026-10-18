@@ -28,7 +28,9 @@ import {
 } from 'discord.js';
 import { CLASSES, ROLES, ROLE_ORDER, specById, specsOf, type RaidRole } from './classes.ts';
 import { classComponentEmoji, specEmoji, uiComponentEmoji, uiEmoji } from './emojis.ts';
+import { KINDS, LIMIT_GROUPS, hasLimits } from './kinds.ts';
 import { lineup, roleMentions } from './lineup.ts';
+import { plural } from '../lib/plural.ts';
 import type { Raid, RaidImage, Signup } from './store.ts';
 
 const ACCENT = 0xc69b3a; // золото
@@ -86,6 +88,18 @@ export function buildRaidCreateMessage(raid: Raid, signups: Signup[], pingRoleId
   return { ...message, content: `${mentions} открыта запись на рейд!`, allowedMentions: { roles: pingRoleIds } };
 }
 
+/** «**Подземелье** · 5 мест · 1 танк, 1 лекарь, 3 бойца» — для подземелий, PvP и любых рег с лимитами по ролям. */
+export function kindNote(raid: Pick<Raid, 'kind' | 'size' | 'limits'>): string | null {
+  if (raid.kind === 'raid' && !hasLimits(raid.limits)) return null;
+  const parts = [`**${KINDS[raid.kind].title}**`, `${raid.size} ${plural(raid.size, ['место', 'места', 'мест'])}`];
+  const limits = LIMIT_GROUPS.filter(({ group }) => raid.limits[group] !== null).map(({ group, forms }) => {
+    const n = raid.limits[group]!;
+    return `${n} ${plural(n, forms)}`;
+  });
+  if (limits.length) parts.push(limits.join(', '));
+  return parts.join(' · ');
+}
+
 /** «Записываются: @Рейдер, @РЛ · только в запас: @Гость» — если рега не для всех. */
 export function accessNote(raid: Pick<Raid, 'mainRoleIds' | 'reserveRoleIds'>): string | null {
   if (!raid.mainRoleIds.length) return null;
@@ -96,7 +110,7 @@ export function accessNote(raid: Pick<Raid, 'mainRoleIds' | 'reserveRoleIds'>): 
 function buildRosterEmbed(raid: Raid, signups: Signup[]): EmbedBuilder {
   // Номер — порядок записи, как в Raid-Helper: 1 — тот, кто записался первым.
   const number = new Map(signups.map((signup, index) => [signup.userId, index + 1]));
-  const { main, bench, tentative } = lineup(signups, raid.size);
+  const { main, bench, tentative } = lineup(signups, raid.size, raid.limits);
 
   const line = (signup: Signup) => {
     const spec = specById.get(signup.specId);
@@ -110,7 +124,7 @@ function buildRosterEmbed(raid: Raid, signups: Signup[]): EmbedBuilder {
     .setTitle(raid.title)
     .setFooter({ text: `Рега #${raid.id}` });
 
-  const description = [raid.description, accessNote(raid), STATUS_NOTE[raid.status]].filter(Boolean).join('\n\n');
+  const description = [kindNote(raid), raid.description, accessNote(raid), STATUS_NOTE[raid.status]].filter(Boolean).join('\n\n');
   if (description) embed.setDescription(description);
 
   // Шапка: три колонки — автор и дата, число записавшихся и время, обратный отсчёт.
@@ -126,7 +140,10 @@ function buildRosterEmbed(raid: Raid, signups: Signup[]): EmbedBuilder {
   for (const signup of main) byRole.get(specById.get(signup.specId)?.role ?? 'melee')?.push(signup);
   for (const role of ROLE_ORDER) {
     const list = byRole.get(role) ?? [];
-    embed.addFields(...splitField(`${uiEmoji(role)} __${ROLES[role].title}__ (${list.length})`, list.map(line), '\n', true));
+    // У танков и лекарей с лимитом — «(1/1)»; лимит бойцов общий на две колонки, он в строке состава.
+    const limit = role === 'tank' || role === 'healer' ? raid.limits[role] : null;
+    const count = limit === null ? `${list.length}` : `${list.length}/${limit}`;
+    embed.addFields(...splitField(`${uiEmoji(role)} __${ROLES[role].title}__ (${count})`, list.map(line), '\n', true));
   }
 
   // Запас и «под вопросом» — во всю ширину, в одну строку.
