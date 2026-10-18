@@ -1,6 +1,7 @@
 // Статистика посещаемости: сводка по отметкам, которые бот ставит через N минут после начала рейда
 // (raid_attendance). Отметка «под вопросом» берётся из записи на регу.
 import { db } from '../db.ts';
+import type { ActivityKind } from './kinds.ts';
 import type { AttendanceStatus } from './store.ts';
 
 /** Как человек отметился на одном рейде. */
@@ -56,17 +57,18 @@ export function summarize(records: AttendanceRecord[]): PlayerSummary[] {
 }
 
 /** Отметки за период [from, to) — по времени начала рейда. userId — только один игрок. */
-export function attendanceRecords(guildId: string, from: number, to: number, userId?: string): AttendanceRecord[] {
+/** kind — только сборы этого вида (без него — все). */
+export function attendanceRecords(guildId: string, from: number, to: number, userId?: string, kind?: ActivityKind): AttendanceRecord[] {
   const rows = db
     .prepare(
       `SELECT r.id AS raid_id, r.title, r.starts_at, a.user_id, a.status, COALESCE(s.tentative, 0) AS tentative
        FROM raid_attendance a
        JOIN raids r ON r.id = a.raid_id
        LEFT JOIN raid_signups s ON s.raid_id = a.raid_id AND s.user_id = a.user_id
-       WHERE r.guild_id = ? AND r.starts_at >= ? AND r.starts_at < ? ${userId ? 'AND a.user_id = ?' : ''}
+       WHERE r.guild_id = ? AND r.starts_at >= ? AND r.starts_at < ? ${userId ? 'AND a.user_id = ?' : ''} ${kind ? 'AND r.kind = ?' : ''}
        ORDER BY r.starts_at DESC`,
     )
-    .all(...[guildId, from, to, ...(userId ? [userId] : [])]) as { raid_id: number; title: string; starts_at: number; user_id: string; status: AttendanceStatus; tentative: number }[];
+    .all(...[guildId, from, to, ...(userId ? [userId] : []), ...(kind ? [kind] : [])]) as { raid_id: number; title: string; starts_at: number; user_id: string; status: AttendanceStatus; tentative: number }[];
   return rows.map((row) => ({
     raidId: Number(row.raid_id),
     title: String(row.title),
@@ -77,9 +79,9 @@ export function attendanceRecords(guildId: string, from: number, to: number, use
 }
 
 /** Сколько рейдов за период проверено на посещаемость. */
-export function checkedRaids(guildId: string, from: number, to: number): number {
+export function checkedRaids(guildId: string, from: number, to: number, kind?: ActivityKind): number {
   const row = db
-    .prepare('SELECT COUNT(*) AS n FROM raids WHERE guild_id = ? AND attendance_done = 1 AND starts_at >= ? AND starts_at < ?')
-    .get(guildId, from, to) as { n: number };
+    .prepare(`SELECT COUNT(*) AS n FROM raids WHERE guild_id = ? AND attendance_done = 1 AND player = 0 AND starts_at >= ? AND starts_at < ? ${kind ? 'AND kind = ?' : ''}`)
+    .get(...[guildId, from, to, ...(kind ? [kind] : [])]) as { n: number };
   return Number(row.n);
 }

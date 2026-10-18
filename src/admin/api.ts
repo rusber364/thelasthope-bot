@@ -21,7 +21,7 @@ import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pol
 import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
-import { KINDS, type ActivityKind, type RoleLimits } from '../raids/kinds.ts';
+import { KINDS, isKind, type ActivityKind, type RoleLimits } from '../raids/kinds.ts';
 import { raidFromTemplate } from '../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { listRaids } from '../raids/store.ts';
@@ -516,12 +516,14 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
     const to = parseDate(c.req.query('to') ?? '', today) ?? today;
     const start = toEpochMs(from, Temporal.PlainTime.from('00:00'));
     const end = toEpochMs(to.add({ days: 1 }), Temporal.PlainTime.from('00:00')); // «по» — включительно
-    const summary = summarize(attendanceRecords(guild.id, start, end));
+    const kindQuery = c.req.query('kind');
+    const kind = isKind(kindQuery) ? kindQuery : undefined;
+    const summary = summarize(attendanceRecords(guild.id, start, end, undefined, kind));
     const names = summary.length ? await memberNames(guild, summary.map((row) => row.userId)) : new Map<string, string>();
     return c.json({
       from: from.toString(),
       to: to.toString(),
-      checked: checkedRaids(guild.id, start, end),
+      checked: checkedRaids(guild.id, start, end, kind),
       rows: summary.map((row) => ({ ...row, name: names.get(row.userId) ?? `ушёл с сервера (ID ${row.userId})` })),
     } satisfies Api.AttendanceResponse);
   });

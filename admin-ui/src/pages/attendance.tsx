@@ -1,13 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, CalendarCheck, Percent, Search, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import type { AttendanceResponse, AttendanceRow } from '@api';
+import type { ActivityKind, AttendanceResponse, AttendanceRow } from '@api';
 import { PageHeader } from '@/components/page';
 import { ListEmpty } from '@/components/settings-ui';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -26,6 +27,9 @@ const COLUMNS: { key: Exclude<SortKey, 'name' | 'rate'>; icon: string; label: st
 ];
 
 const PRESETS = [7, 30, 90];
+
+type KindFilter = 'all' | ActivityKind;
+const KIND_FILTER: Record<KindFilter, string> = { all: 'Все сборы', raid: 'Рейды', dungeon: 'Подземелья', pvp: 'PvP' };
 
 function rateColor(rate: number) {
   if (rate >= 80) return 'bg-success';
@@ -57,11 +61,12 @@ export function AttendancePage() {
   const [range, setRange] = useState({ from: shiftDate(today, -30), to: today });
   const [form, setForm] = useState(range);
   const [search, setSearch] = useState('');
+  const [kind, setKind] = useState<KindFilter>('all');
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean } | null>(null);
 
   const { data, isFetching } = useQuery({
-    queryKey: ['attendance', range.from, range.to],
-    queryFn: () => api.get<AttendanceResponse>(`/attendance?${new URLSearchParams(range)}`),
+    queryKey: ['attendance', range.from, range.to, kind],
+    queryFn: () => api.get<AttendanceResponse>(`/attendance?${new URLSearchParams({ ...range, ...(kind === 'all' ? {} : { kind }) })}`),
   });
 
   const preset = (days: number) => {
@@ -125,6 +130,21 @@ export function AttendancePage() {
                 value={form.to}
                 onChange={(e) => setForm({ ...form, to: e.target.value })}
               />
+            </Field>
+            <Field className="w-auto">
+              <FieldLabel htmlFor="kind">Вид</FieldLabel>
+              <Select items={KIND_FILTER} value={kind} onValueChange={(value: KindFilter | null) => value && setKind(value)}>
+                <SelectTrigger id="kind" className="w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(KIND_FILTER) as KindFilter[]).map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {KIND_FILTER[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </Field>
             <Button type="submit">Показать</Button>
             <div className="flex gap-1 sm:ml-auto">

@@ -69,3 +69,18 @@ test('/history: сводка игрока и последние рейды', asy
   assert.match(last[0]!, /^✅ .* · Рейд 1$/, 'свежие сверху');
   assert.match(last[2]!, /^☑️ .* · Рейд 3$/, '«под вопросом», но на рейде');
 });
+
+test('посещаемость по виду сбора: подземелья отдельно от рейдов, группы игроков не считаются проверенными', () => {
+  const dungeon = createRaid({ guildId: 'g', channelId: 'c', title: 'Мёртвые копи', startsAt: now - DAY / 2, size: 5, createdBy: 'o', kind: 'dungeon' });
+  markAttendanceDone(dungeon.id);
+  upsertSignup(dungeon.id, 'u9', 'mage_fire', 'u9');
+  saveAttendance(dungeon.id, [{ userId: 'u9', status: 'present' }]);
+  const player = createRaid({ guildId: 'g', channelId: 'c', title: 'Своя пятёрка', startsAt: now - DAY / 2, size: 5, createdBy: 'p', kind: 'dungeon', player: true });
+  markAttendanceDone(player.id);
+
+  const from = now - 30 * DAY;
+  assert.deepEqual([...new Set(attendanceRecords('g', from, now, undefined, 'dungeon').map((r) => r.userId))], ['u9']);
+  assert.ok(!attendanceRecords('g', from, now, undefined, 'raid').some((r) => r.userId === 'u9'), 'в рейдах подземелья нет');
+  assert.equal(checkedRaids('g', from, now, 'dungeon'), 1, 'группа игрока не проверялась');
+  assert.equal(checkedRaids('g', from, now, 'raid'), 3);
+});
