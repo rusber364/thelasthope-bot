@@ -81,7 +81,9 @@ export function buildProgressCard(poll: StoredPoll, state: PollState) {
     );
 
   if (finished) {
-    card.addTextDisplayComponents((text) => text.setContent('✅ **Готово! Спасибо — ответы сохранены.**'));
+    // Свой текст из строк «Финал:» — после отметки, что ответы сохранены.
+    const done = def.finish ? `✅ **Готово!** Ответы сохранены.\n\n${def.finish}` : '✅ **Готово! Спасибо — ответы сохранены.**';
+    card.addTextDisplayComponents((text) => text.setContent(done));
   } else {
     card.addTextDisplayComponents((text) =>
       text.setContent(`⏳ Пройдено ${done} из ${total} ${progressBar(done, total)} — дальше блок «${def.blocks[next]!.title}».`),

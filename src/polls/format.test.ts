@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { emptyState, estimatedMinutes, parsePollFile, progressOf, questionCount } from './format.ts';
+import { buildProgressCard } from './render.ts';
 
 const example = readFileSync(new URL('../../examples/poll-example.txt', import.meta.url), 'utf8');
 
@@ -70,4 +71,32 @@ test('больше 5 вопросов в блоке — ошибка', () => {
   const result = parsePollFile(`# Тест\n## Блок\n${questions}`);
   assert.equal(result.ok, false);
   assert.match(result.ok ? '' : result.errors.join('\n'), /не больше 5 элементов/);
+});
+
+test('анкета новичка из examples/ разбирается, «Финал:» — текст после опроса', () => {
+  const result = parsePollFile(readFileSync(new URL('../../examples/newbie-poll.txt', import.meta.url), 'utf8'));
+  assert.ok(result.ok, result.ok ? '' : result.errors.join('\n'));
+  const { poll } = result;
+  assert.equal(poll.button, 'Пройти анкету');
+  assert.equal(poll.blocks.length, 3);
+  assert.equal(questionCount(poll), 11);
+  assert.equal(poll.finish, 'Спасибо за ответы, друг! ⚡️\nДо встречи в совместных рейдах и других мероприятиях! ⚔️\nЗа Альянс и Азерот! ⚔️');
+
+  const state = emptyState();
+  state.done.push(0, 1, 2);
+  const card = JSON.stringify(buildProgressCard({ id: 1, definition: poll } as never, state));
+  assert.match(card, /Готово!\*\* Ответы сохранены\.\\n\\nСпасибо за ответы, друг!/);
+});
+
+test('без «Финал:» — обычное «Готово», слишком длинный финал — ошибка', () => {
+  const plain = parsePollFile('# Т\n## Б\n### В\nОтвет: короткий');
+  assert.ok(plain.ok);
+  assert.equal(plain.poll.finish, undefined);
+  const state = emptyState();
+  state.done.push(0);
+  assert.match(JSON.stringify(buildProgressCard({ id: 1, definition: plain.poll } as never, state)), /Готово! Спасибо — ответы сохранены/);
+
+  const long = parsePollFile(`# Т\nФинал: ${'а'.repeat(1001)}\n## Б\n### В\nОтвет: короткий`);
+  assert.equal(long.ok, false);
+  assert.match(long.ok ? '' : long.errors.join('\n'), /«Финал:» длиннее 1000 символов/);
 });

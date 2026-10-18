@@ -1,5 +1,5 @@
 // Как бот понял опрос: страницы, условия показа, вопросы и варианты.
-import { Clock, EyeOff, FileText, GitBranch, ListChecks, MousePointerClick, UserRound } from 'lucide-react';
+import { CircleCheck, Clock, EyeOff, FileText, GitBranch, ListChecks, MousePointerClick, UserRound } from 'lucide-react';
 import type { PollDefinition, QuestionKind } from '@api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -105,6 +105,17 @@ export function PollPreview({ poll, minutes, questions }: { poll: PollDefinition
           </CardContent>
         </Card>
       ))}
+
+      {poll.finish && (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" /> После опроса
+            </CardTitle>
+            <CardDescription className="whitespace-pre-wrap">{poll.finish}</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@
 //   Картинка: https://…          (необязательно)
 //   Анонимный: да | нет          (по умолчанию нет)
 //   Кнопка: Пройти опрос         (необязательно)
+//   Финал: Спасибо!              (текст после опроса; каждая строка «Финал:» — новая строка)
 //
 //   ## Название блока             ← одна страница = одна форма Discord (до 5 вопросов)
 //   Если: Активность != Не буду играть   ← показывать блок только при таком ответе
@@ -53,6 +54,8 @@ export interface PollDefinition {
   anonymous: boolean;
   button: string;
   minutes?: number;
+  /** Свой текст, который человек видит, когда прошёл опрос до конца. */
+  finish?: string;
   mentionRoleId?: string;
   blocks: PollBlock[];
 }
@@ -79,6 +82,7 @@ export const LIMITS = {
   checkboxOptions: 10,
   selectOptions: 25,
   button: 80,
+  finish: 1000,
 };
 
 export type ParseResult = { ok: true; poll: PollDefinition } | { ok: false; errors: string[] };
@@ -115,6 +119,7 @@ export function parsePollFile(source: string): ParseResult {
   let anonymous = false;
   let button = 'Пройти опрос';
   let minutes: number | undefined;
+  const finishLines: string[] = [];
 
   const blocks: DraftBlock[] = [];
   let block: DraftBlock | undefined;
@@ -198,7 +203,7 @@ export function parsePollFile(source: string): ParseResult {
     }
 
     if (!block) {
-      const setting = /^(картинка|изображение|анонимный|анонимно|кнопка|время)\s*:\s*(.*)$/i.exec(line);
+      const setting = /^(картинка|изображение|анонимный|анонимно|кнопка|время|финал)\s*:\s*(.*)$/i.exec(line);
       if (!setting) return void descriptionLines.push(line);
       const key = normalize(setting[1]!);
       const value = setting[2]!.trim();
@@ -208,6 +213,8 @@ export function parsePollFile(source: string): ParseResult {
       } else if (key === 'кнопка') {
         if (!value || value.length > LIMITS.button) return error(n, `текст кнопки должен быть от 1 до ${LIMITS.button} символов.`);
         button = value;
+      } else if (key === 'финал') {
+        finishLines.push(value);
       } else if (key === 'время') {
         const parsed = Number.parseInt(value, 10);
         if (!(parsed > 0)) return error(n, 'время укажи числом минут, например «Время: 5».');
@@ -237,6 +244,8 @@ export function parsePollFile(source: string): ParseResult {
   else if (title.length > LIMITS.title) errors.push(`Заголовок длиннее ${LIMITS.title} символов.`);
   const description = descriptionLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (description.length > LIMITS.description) errors.push(`Текст под заголовком длиннее ${LIMITS.description} символов.`);
+  const finish = finishLines.join('\n').trim();
+  if (finish.length > LIMITS.finish) errors.push(`Текст «Финал:» длиннее ${LIMITS.finish} символов.`);
   if (!blocks.length) errors.push('В опросе нет ни одного блока: добавь строку «## Название блока» и вопросы под ней.');
   if (blocks.length > LIMITS.blocks) errors.push(`Блоков больше ${LIMITS.blocks}.`);
 
@@ -301,7 +310,7 @@ export function parsePollFile(source: string): ParseResult {
   if (errors.length) return { ok: false, errors };
   return {
     ok: true,
-    poll: { title: title!, description, ...(image ? { image } : {}), anonymous, button, ...(minutes ? { minutes } : {}), blocks: result },
+    poll: { title: title!, description, ...(image ? { image } : {}), anonymous, button, ...(minutes ? { minutes } : {}), ...(finish ? { finish } : {}), blocks: result },
   };
 }
 

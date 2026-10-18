@@ -176,6 +176,7 @@ export interface PollDefinition {
   anonymous: boolean;
   button: string;
   minutes?: number;
+  finish?: string;
   mentionRoleId?: string;
   blocks: {
     title: string;
