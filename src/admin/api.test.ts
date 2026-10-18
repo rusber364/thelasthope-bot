@@ -284,6 +284,31 @@ test('опросы: шаблон, проверка, публикация с ка
   assert.equal((await call('GET', '/polls')).json!.length, 2);
 });
 
+test('анкета новичков: открытый опрос сервера и роли сохраняются, метка в списке опросов; закрытый, чужой опрос и чужая роль — ошибка', async () => {
+  const [open, closed] = (await call('GET', '/polls')).json! as { id: number; closed: boolean }[];
+  assert.ok(open && closed && !open.closed && closed.closed);
+  const onboarding = { ...getSettings().onboarding, pollId: open.id, roleId: 'r1', removeRoleId: null, notify: true };
+  const ok = await put('onboarding', { onboarding });
+  assert.equal(ok.status, 200);
+  assert.deepEqual(getSettings().onboarding, onboarding);
+  const rows = (await call('GET', '/polls')).json! as { id: number; onboarding: boolean }[];
+  assert.deepEqual(
+    rows.map((row) => row.onboarding),
+    rows.map((row) => row.id === open.id),
+  );
+  assert.equal((await call('GET', `/polls/${open.id}`)).json!.info.onboarding, true);
+
+  const foreign = createPoll('чужой', 'x', getPoll(open.id)!.definition, 'u');
+  const bad = await put('onboarding', { onboarding: { ...onboarding, pollId: closed.id, roleId: 'r9' } });
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.json!.errors, ['Анкета: опрос закрыт — выбери открытый или «Не предлагать».', 'Анкета: роль после заполнения: такой роли нет на сервере.']);
+  assert.match((await put('onboarding', { onboarding: { ...onboarding, pollId: foreign.id } })).json!.errors[0], /такого опроса нет/);
+  assert.equal(getSettings().onboarding.pollId, open.id, 'при ошибке ничего не сохранено');
+
+  assert.equal((await put('onboarding', { onboarding: { ...onboarding, pollId: null } })).status, 200);
+  assert.equal(getSettings().onboarding.pollId, null);
+});
+
 test('посещаемость за период', async () => {
   const raid = createRaid({ guildId: 'g1', channelId: 'c4', title: 'Проверка посещаемости', startsAt: Date.now() - 86_400_000, size: 40, createdBy: ADMIN });
   upsertSignup(raid.id, '20', 'mage_fire', 'Тестер');

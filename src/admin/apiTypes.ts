@@ -77,6 +77,8 @@ export interface Settings {
   autoClean: { channelId: string; hours: number; keepBot: boolean }[];
   farewell: { channelId: string | null; text: string };
   welcomeDm: { enabled: boolean; text: string };
+  /** Анкета новичков: опрос в приветствии, роль и карточка офицерам после заполнения. */
+  onboarding: { pollId: number | null; offer: string; button: string; roleId: string | null; removeRoleId: string | null; notify: boolean };
   alerts: { channelId: string | null; roleId: string | null; lateCancelHours: number; incidentChannelId: string | null };
 }
 
@@ -88,6 +90,7 @@ export interface SettingsSections {
   welcome: Pick<Settings, 'welcome'>;
   welcomeDm: Pick<Settings, 'welcomeDm'>;
   farewell: Pick<Settings, 'farewell'>;
+  onboarding: Pick<Settings, 'onboarding'>;
   raids: { raids: Omit<Settings['raids'], 'gatherMinutes' | 'attendanceMinutes' | 'attendanceVoiceChannelId'> };
   templates: Pick<Settings, 'raidTemplates'>;
   sticky: Pick<Settings, 'sticky'>;
@@ -167,6 +170,8 @@ export interface PollRow {
   completed: number;
   createdAt: number;
   url: string | null;
+  /** Этот опрос сейчас — анкета новичков. */
+  onboarding: boolean;
 }
 
 export interface PollCheckResponse {
@@ -192,7 +197,7 @@ export interface PollRespondent {
 }
 
 export interface PollResultsResponse {
-  info: { id: number; title: string; channel: string; url: string | null; closed: boolean; anonymous: boolean; canCopy: boolean };
+  info: { id: number; title: string; channel: string; url: string | null; closed: boolean; anonymous: boolean; canCopy: boolean; onboarding: boolean };
   stats: PollStats;
   /** Имена авторов текстовых ответов и ответивших (в анонимном опросе — пусто). */
   names: Record<string, string>;

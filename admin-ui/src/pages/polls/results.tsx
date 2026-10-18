@@ -1,5 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, BarChart3, CheckCheck, ChevronRight, Copy, Download, ExternalLink, Hourglass, Lock, Search, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  BarChart3,
+  CheckCheck,
+  ChevronRight,
+  ClipboardList,
+  Copy,
+  Download,
+  ExternalLink,
+  Hourglass,
+  Lock,
+  Search,
+  Settings2,
+  Users,
+} from 'lucide-react';
+import type { Settings } from '@api';
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -26,6 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, errorText } from '@/lib/api';
+import { useSettings } from '@/lib/queries';
 import { formatDateTime } from '@/lib/format';
 import { NotFoundPage } from '@/pages/not-found';
 
@@ -121,6 +137,18 @@ function Respondent({ person, open }: { person: PollRespondent; open: boolean })
 export function PollResultsPage() {
   const { id = '' } = useParams();
   const queryClient = useQueryClient();
+  const { data: settings } = useSettings();
+  // «Сделать анкетой новичков»: этот опрос — в приветствие, остальные настройки анкеты не меняются.
+  const makeOnboarding = useMutation({
+    mutationFn: () => api.put<Settings>('/settings/onboarding', { onboarding: { ...settings!.onboarding, pollId: Number(id) } }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      toast.success('Теперь новичкам в приветствии предлагается эта анкета.');
+      void queryClient.invalidateQueries({ queryKey: ['poll', id] });
+      void queryClient.invalidateQueries({ queryKey: ['polls'] });
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
   const [search, setSearch] = useState('');
   const { data, error } = useQuery({ queryKey: ['poll', id], queryFn: () => api.get<PollResultsResponse>(`/polls/${id}`) });
 
@@ -154,6 +182,11 @@ export function PollResultsPage() {
             Опрос #{info.id} · {info.channel}
             {info.closed ? <Badge variant="secondary">закрыт</Badge> : <Badge className="bg-success/15 text-success">открыт</Badge>}
             <Badge variant="outline">{info.anonymous ? 'анонимный' : 'с именами'}</Badge>
+            {info.onboarding && (
+              <Badge variant="outline" className="border-primary/40 text-primary">
+                анкета новичков
+              </Badge>
+            )}
             {info.url && (
               <a href={info.url} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-primary hover:underline">
                 открыть в Discord <ExternalLink className="size-3" />
@@ -166,6 +199,17 @@ export function PollResultsPage() {
             <Button variant="outline" render={<a href={`/api/polls/${info.id}/csv`} download />} nativeButton={false}>
               <Download /> Таблица для Excel
             </Button>
+            {info.onboarding ? (
+              <Button variant="outline" render={<Link to="/welcome?tab=onboarding" />} nativeButton={false}>
+                <Settings2 /> Настроить анкету
+              </Button>
+            ) : (
+              !info.closed && (
+                <Button variant="outline" disabled={!settings || makeOnboarding.isPending} onClick={() => makeOnboarding.mutate()}>
+                  {makeOnboarding.isPending ? <Spinner /> : <ClipboardList />} Сделать анкетой новичков
+                </Button>
+              )
+            )}
             {info.canCopy && (
               <Button variant="outline" render={<Link to={`/polls/new?from=${info.id}`} />} nativeButton={false}>
                 <Copy /> Создать копию

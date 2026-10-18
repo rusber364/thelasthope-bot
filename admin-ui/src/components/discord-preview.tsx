@@ -41,8 +41,8 @@ function renderText(text: string, values: Record<string, PreviewValue>): ReactNo
 export interface PreviewButton {
   label: string;
   emoji: string;
-  /** success — зелёная кнопка, link — серая кнопка-ссылка. */
-  style: 'success' | 'link';
+  /** success — зелёная кнопка, primary — синяя, link — серая кнопка-ссылка. */
+  style: 'success' | 'primary' | 'link';
 }
 
 /** Одно сообщение бота. card — сообщение-карточка с цветной полосой слева (как приветствие в канале). */
@@ -94,7 +94,9 @@ export function DiscordPreview({
                     className={
                       button.style === 'success'
                         ? 'rounded-lg bg-[#248046] px-3 py-1.5 text-sm font-medium text-white'
-                        : 'rounded-lg bg-[#6d6f78] px-3 py-1.5 text-sm font-medium text-white dark:bg-[#4e5058]'
+                        : button.style === 'primary'
+                          ? 'rounded-lg bg-[#5865f2] px-3 py-1.5 text-sm font-medium text-white'
+                          : 'rounded-lg bg-[#6d6f78] px-3 py-1.5 text-sm font-medium text-white dark:bg-[#4e5058]'
                     }
                   >
                     {button.emoji} {renderText(button.label, values)}

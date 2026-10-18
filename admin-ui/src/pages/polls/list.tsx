@@ -71,6 +71,11 @@ export function PollListPage() {
                       <Link to={`/polls/${poll.id}`} className="hover:text-primary" onClick={(e) => e.stopPropagation()}>
                         {poll.title}
                       </Link>
+                      {poll.onboarding && (
+                        <Badge variant="outline" className="ml-2 border-primary/40 text-primary">
+                          анкета новичков
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       {poll.url ? (

@@ -7,17 +7,18 @@ import {
   type MessageCreateOptions,
 } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
+import { getPoll } from '../polls/store.ts';
 import type { ComponentHandler } from '../types.ts';
 import { replyEphemeral } from '../lib/reply.ts';
 
 /**
  * Приветствие собрано из «компонентов» Discord (Components V2): карточка с текстом и аватаркой,
- * под ней кнопки «Получить роль Гость» и «Правила».
+ * под ней кнопки «Получить роль Гость», «Пройти анкету» (если выбрана анкета новичков) и «Правила».
  * Функция строит сообщение заново по данным участника — так его легко обновить после нажатия кнопки.
  */
 export function buildWelcome(member: GuildMember, guestTaken = false): Pick<MessageCreateOptions, 'components' | 'allowedMentions'> {
   const { guild } = member;
-  const { channels, roles, welcome } = getSettings();
+  const { channels, roles, welcome, onboarding } = getSettings();
   const guestRole = roles.guest ? guild.roles.cache.get(roles.guest) : undefined;
 
   const fill = (text: string) =>
@@ -47,6 +48,12 @@ export function buildWelcome(member: GuildMember, guestTaken = false): Pick<Mess
         .setLabel(guestTaken ? `Роль «${guestRole.name}» получена` : fill(welcome.guestButton))
         .setDisabled(guestTaken),
     );
+  }
+  // Анкета новичков — обычный опрос бота: кнопка открывает тот же личный проход, что и «Пройти опрос» под самим опросом.
+  const survey = onboarding.pollId === null ? null : getPoll(onboarding.pollId);
+  if (survey && !survey.closed && survey.guildId === guild.id) {
+    card.addTextDisplayComponents((text) => text.setContent(fill(onboarding.offer)));
+    buttons.push(new ButtonBuilder().setCustomId(`poll:start:${survey.id}`).setStyle(ButtonStyle.Primary).setEmoji('📝').setLabel(onboarding.button));
   }
   if (channels.rules) {
     // Кнопка-ссылка: открывает канал правил, боту при этом ничего не приходит.

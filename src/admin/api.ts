@@ -203,6 +203,27 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         next.farewell = { channelId: checkChannel(guild, id(farewell.channelId), 'Канал прощаний', errors), text: text(farewell.text) };
       },
     },
+    onboarding: {
+      label: 'Анкета новичков',
+      apply(next, body, guild, errors) {
+        const onboarding = obj(body.onboarding);
+        let pollId: number | null = null;
+        if (onboarding.pollId !== null && onboarding.pollId !== undefined && onboarding.pollId !== '') {
+          const poll = guildPoll(guild, String(onboarding.pollId));
+          if (!poll) errors.push('Анкета: такого опроса нет на сервере.');
+          else if (poll.closed) errors.push('Анкета: опрос закрыт — выбери открытый или «Не предлагать».');
+          else pollId = poll.id;
+        }
+        next.onboarding = {
+          pollId,
+          offer: text(onboarding.offer),
+          button: text(onboarding.button),
+          roleId: checkRole(guild, id(onboarding.roleId), 'Анкета: роль после заполнения', errors),
+          removeRoleId: checkRole(guild, id(onboarding.removeRoleId), 'Анкета: роль, которую снять', errors),
+          notify: bool(onboarding.notify),
+        };
+      },
+    },
     raids: {
       label: 'Расписание рег',
       apply(next, body, guild, errors) {
@@ -336,6 +357,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       ...countResponses(poll.id),
       createdAt: poll.createdAt,
       url: messageUrl(poll),
+      onboarding: getSettings().onboarding.pollId === poll.id,
     }));
     return c.json(rows satisfies Api.PollRow[]);
   });
@@ -410,6 +432,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         closed: poll.closed,
         anonymous,
         canCopy: poll.source !== null,
+        onboarding: getSettings().onboarding.pollId === poll.id,
       },
       stats,
       names: Object.fromEntries(names),

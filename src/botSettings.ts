@@ -20,6 +20,21 @@ export const LOG_LABELS: Record<LogCategory, { title: string; hint: string }> = 
   raids: { title: 'лог-рейдов', hint: 'запись на реги, смена спека, «под вопросом», отписки' },
 };
 
+export interface Onboarding {
+  /** Опрос-анкета (открытый опрос этого сервера); null — анкету не предлагать. */
+  pollId: number | null;
+  /** Строка в приветствии над кнопкой. Подстановки как у приветствия: {user} {server} {rules} {auth} {role}. */
+  offer: string;
+  /** Подпись кнопки. */
+  button: string;
+  /** Роль, которую выдать после заполнения анкеты. */
+  roleId: string | null;
+  /** Роль, которую снять после заполнения (например, «Незнакомец»). */
+  removeRoleId: string | null;
+  /** Присылать офицерам карточку с ответами в канал оповещений. */
+  notify: boolean;
+}
+
 /** Липкое сообщение в канале. roleIds — кого упомянуть в начале сообщения. */
 export interface StickyItem {
   channelId: string;
@@ -114,6 +129,8 @@ export interface BotSettings {
   farewell: { channelId: string | null; text: string };
   /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {auth} {welcome} {role}. */
   welcomeDm: { enabled: boolean; text: string };
+  /** Анкета новичков: опрос, который предлагается в приветствии, и что сделать, когда его заполнили. */
+  onboarding: Onboarding;
   /** Оповещения офицерам: посещаемость, поздние отписки. */
   alerts: {
     channelId: string | null;
@@ -178,6 +195,14 @@ function defaults(): BotSettings {
         'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Пройди {auth}.\n3. Возьми роль «{role}» кнопкой в {welcome}.\n\n' +
         'Есть вопросы — пиши офицерам. До встречи в Азероте! ⚔️',
     },
+    onboarding: {
+      pollId: null,
+      offer: 'Расскажи о себе — займёт пару минут: кем хочешь играть и когда бываешь онлайн. Так офицеры быстрее позовут тебя в рейд.',
+      button: 'Пройти анкету',
+      roleId: null,
+      removeRoleId: null,
+      notify: true,
+    },
   };
 }
 
@@ -240,6 +265,8 @@ export function validateSettings(s: BotSettings): string[] {
     ['Текст кнопки правил', s.welcome.rulesButton, LIMITS.button],
     ['Текст прощания', s.farewell.text, LIMITS.text],
     ['Приветствие в личку', s.welcomeDm.text, LIMITS.text],
+    ['Анкета: строка в приветствии', s.onboarding.offer, LIMITS.text],
+    ['Анкета: подпись кнопки', s.onboarding.button, LIMITS.button],
   ];
   for (const [name, value, max] of texts) {
     if (!value.trim()) errors.push(`${name}: не может быть пустым.`);

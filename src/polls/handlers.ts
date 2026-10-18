@@ -6,6 +6,7 @@ import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
 import type { ComponentHandler, ComponentInteraction } from '../types.ts';
 import { replyEphemeral } from '../lib/reply.ts';
 import { LIMITS, emptyState, progressOf, type PollQuestion, type PollState } from './format.ts';
+import { isOnboardingPoll, onOnboardingCompleted } from './onboarding.ts';
 import { buildBlockModal, buildProgressCard } from './render.ts';
 import { getPoll, getResponse, resetResponse, saveResponse, type StoredPoll } from './store.ts';
 
@@ -48,7 +49,8 @@ async function submitBlock(interaction: ModalSubmitInteraction<'cached'>, poll: 
   const block = poll.definition.blocks[blockIndex];
   if (!block) return;
 
-  const state: PollState = getResponse(poll.id, interaction.user.id)?.state ?? emptyState();
+  const previous = getResponse(poll.id, interaction.user.id);
+  const state: PollState = previous?.state ?? emptyState();
   for (const question of block.questions) {
     state.answers[question.id] = readAnswer(interaction, question);
   }
@@ -60,6 +62,11 @@ async function submitBlock(interaction: ModalSubmitInteraction<'cached'>, poll: 
   const card = buildProgressCard(poll, state);
   if (interaction.isFromMessage()) await interaction.update(card);
   else await interaction.reply({ ...card, flags: EPHEMERAL_CARD });
+
+  // Анкета новичков только что заполнена: роль и карточка офицерам — уже после ответа игроку.
+  if (finished && !previous?.completedAt && isOnboardingPoll(poll)) {
+    void onOnboardingCompleted(interaction.member, poll, state).catch((error) => console.error('Анкета новичка:', error));
+  }
 }
 
 async function restart(interaction: ComponentInteraction, poll: StoredPoll): Promise<void> {
