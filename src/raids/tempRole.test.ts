@@ -21,7 +21,7 @@ const memberOf = (id: string) => {
     id,
     displayName: id,
     toString: () => `<@${id}>`,
-    roles: { cache: { has: (r: string) => set.has(r) }, add: async (r: { id: string }) => void set.add(r.id), remove: async (r: { id: string }) => void set.delete(r.id) },
+    roles: { cache: { has: (r: string) => set.has(r), keys: () => set.values() }, add: async (r: { id: string }) => void set.add(r.id), remove: async (r: { id: string }) => void set.delete(r.id) },
   };
 };
 const guild = {

@@ -67,7 +67,7 @@ test('валидация ловит неверные значения', () => {
   s.welcome.text = ' ';
   s.raids.defaultSize = 0;
   s.raids.defaultTime = '25:00';
-  const template = { id: 'a', title: 'Рейд', description: '', size: 40, time: '20:00', channelId: null, pingRoleIds: [], slots: [] };
+  const template = { id: 'a', title: 'Рейд', description: '', size: 40, time: '20:00', channelId: null, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], slots: [] };
   s.raidTemplates = [
     { ...template, slots: [{ raidDay: 3, raidTime: '20:00', openDay: 2, openTime: '00:00' }, { raidDay: 3, raidTime: '21:00', openDay: 8, openTime: '0:0' }] },
     { ...template, title: 'Рейд 2', size: 0, slots: [{ raidDay: 1, raidTime: '25:00', openDay: 5, openTime: '23:00' }] },
@@ -103,7 +103,8 @@ test('старые расписания (дни открытия + сдвиг) �
     ['t1', 'group1', 'late'],
   );
   const [manual, group, late] = s.raidTemplates;
-  assert.deepEqual(manual, { id: 't1', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'C', pingRoleIds: ['P2'], slots: [] });
+  const everyone = { mainRoleIds: [], reserveRoleIds: [] };
+  assert.deepEqual(manual, { id: 't1', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'C', pingRoleIds: ['P2'], ...everyone, slots: [] });
   assert.deepEqual(group, {
     id: 'group1',
     title: 'Группа 1',
@@ -112,6 +113,7 @@ test('старые расписания (дни открытия + сдвиг) �
     time: '20:00',
     channelId: 'R1',
     pingRoleIds: ['P'],
+    ...everyone,
     slots: [1, 4, 5].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' })),
   });
   assert.deepEqual(late!.slots, [{ raidDay: 1, raidTime: '19:30', openDay: 6, openTime: '12:00' }], 'суббота + 2 дня = понедельник');

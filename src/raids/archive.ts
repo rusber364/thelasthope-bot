@@ -5,6 +5,7 @@ import { getSettings } from '../botSettings.ts';
 import { LOG_COLORS } from '../logs/send.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 import { ROLES, ROLE_ORDER, specById, type RaidRole } from './classes.ts';
+import { lineup } from './lineup.ts';
 import { buildRaidMessage } from './render.ts';
 import { attendanceCounts, getSignups, markArchived, raidsDueForArchive, type AttendanceStatus, type Raid, type Signup } from './store.ts';
 
@@ -12,10 +13,9 @@ const HOUR = 60 * 60 * 1000;
 
 /** Краткий итог реги: дата, статус, состав по ролям, посещаемость. */
 export function raidSummary(raid: Raid, signups: Signup[], attendance: Partial<Record<AttendanceStatus, number>>): EmbedBuilder {
-  const confirmed = signups.filter((s) => !s.tentative);
-  const main = confirmed.slice(0, raid.size);
-  const bench = confirmed.length - main.length;
-  const tentative = signups.length - confirmed.length;
+  const { main, bench: benchList, tentative: tentativeList } = lineup(signups, raid.size);
+  const bench = benchList.length;
+  const tentative = tentativeList.length;
 
   const byRole = new Map<RaidRole, number>(ROLE_ORDER.map((role) => [role, 0]));
   for (const signup of main) {

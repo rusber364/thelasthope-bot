@@ -4,12 +4,13 @@ import { test } from 'node:test';
 process.env.BOT_DB_PATH = ':memory:';
 const { computeAttendance } = await import('./attendance.ts');
 
-const signup = (userId: string, order: number, tentative = false) => ({
+const signup = (userId: string, order: number, tentative = false, reserve = false) => ({
   raidId: 1,
   userId,
   specId: 'mage_fire',
   displayName: userId,
   tentative,
+  reserve,
   createdAt: order,
 });
 
@@ -37,4 +38,13 @@ test('«под вопросом», но пришёл — в списке при�
   assert.ok(ids(result.present).includes('e'));
   assert.deepEqual(result.tentativeAbsent, []);
   assert.deepEqual(result.absent, []);
+});
+
+test('записанный только в запас (гость) не занимает место в основе и не считается отсутствующим', () => {
+  // g записался первым, но только в запас: основа — a, b, c, а d уже в запасе по переполнению.
+  const withGuest = [signup('g', 0, false, true), ...signups];
+  const result = computeAttendance(withGuest, 3, new Set(['a', 'b', 'c', 'g']), false);
+  assert.deepEqual(ids(result.absent), []);
+  assert.equal(result.mainCount, 3);
+  assert.ok(ids(result.present).includes('g'), 'пришёл из запаса — в списке пришедших');
 });

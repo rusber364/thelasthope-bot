@@ -202,6 +202,8 @@ function previewRaid(draft: RaidDraft): Raid {
     createdBy: draft.userId,
     leaderName: draft.leaderName,
     status: 'open',
+    mainRoleIds: [],
+    reserveRoleIds: [],
   };
 }
 

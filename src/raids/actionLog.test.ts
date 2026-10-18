@@ -4,7 +4,7 @@ import { test } from 'node:test';
 process.env.BOT_DB_PATH = ':memory:';
 const { raidActionEntry } = await import('./actionLog.ts');
 
-const signup = (specId: string, tentative = false) => ({ raidId: 1, userId: 'u1', specId, displayName: 'Тест', tentative, createdAt: 1 });
+const signup = (specId: string, tentative = false) => ({ raidId: 1, userId: 'u1', specId, displayName: 'Тест', tentative, reserve: false, createdAt: 1 });
 
 test('новая запись и отписка', () => {
   assert.match(raidActionEntry(null, signup('mage_fire'))?.title ?? '', /Запись на рейд/);

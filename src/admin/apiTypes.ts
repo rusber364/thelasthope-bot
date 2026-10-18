@@ -47,6 +47,9 @@ export interface RaidTemplate {
   time: string;
   channelId: string | null;
   pingRoleIds: string[];
+  /** Кто записывается в основу (пусто — все) и кто только в запас. */
+  mainRoleIds: string[];
+  reserveRoleIds: string[];
   slots: RaidSlot[];
 }
 

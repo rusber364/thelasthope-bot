@@ -16,6 +16,9 @@ export interface Raid {
   /** Кто ведёт рейд — показывается в шапке реги. */
   leaderName: string | null;
   status: RaidStatus;
+  /** Роли, с которыми записываются в основу (пусто — все), и роли, с которыми — только в запас. */
+  mainRoleIds: string[];
+  reserveRoleIds: string[];
 }
 
 export interface Signup {
@@ -25,10 +28,22 @@ export interface Signup {
   /** Ник на сервере в момент записи. */
   displayName: string | null;
   tentative: boolean;
+  /** Записан только в запас (роль из «только в запас» у реги). */
+  reserve: boolean;
   createdAt: number;
 }
 
 type Row = Record<string, unknown>;
+
+const roleIds = (value: unknown): string[] => {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+};
 
 function toRaid(row: Row): Raid {
   return {
@@ -43,6 +58,8 @@ function toRaid(row: Row): Raid {
     createdBy: String(row.created_by),
     leaderName: row.leader_name == null ? null : String(row.leader_name),
     status: String(row.status) as RaidStatus,
+    mainRoleIds: roleIds(row.main_role_ids),
+    reserveRoleIds: roleIds(row.reserve_role_ids),
   };
 }
 
@@ -53,6 +70,7 @@ function toSignup(row: Row): Signup {
     specId: String(row.spec_id),
     displayName: row.display_name == null ? null : String(row.display_name),
     tentative: Boolean(row.tentative),
+    reserve: Boolean(row.reserve),
     createdAt: Number(row.created_at),
   };
 }
@@ -67,13 +85,15 @@ export interface NewRaid {
   createdBy: string;
   leaderName?: string | null;
   scheduleKey?: string | null;
+  mainRoleIds?: string[];
+  reserveRoleIds?: string[];
 }
 
 export function createRaid(raid: NewRaid): Raid {
   const row = db
     .prepare(
-      `INSERT INTO raids (guild_id, channel_id, title, description, starts_at, size, created_by, leader_name, schedule_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      `INSERT INTO raids (guild_id, channel_id, title, description, starts_at, size, created_by, leader_name, schedule_key, main_role_ids, reserve_role_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
     )
     .get(
       raid.guildId,
@@ -85,6 +105,8 @@ export function createRaid(raid: NewRaid): Raid {
       raid.createdBy,
       raid.leaderName ?? null,
       raid.scheduleKey ?? null,
+      JSON.stringify(raid.mainRoleIds ?? []),
+      JSON.stringify(raid.reserveRoleIds ?? []),
     );
   return toRaid(row as Row);
 }
@@ -286,11 +308,12 @@ export function getSignup(raidId: number, userId: string): Signup | null {
 }
 
 /** Записать или сменить спек. При смене спека место в очереди (и номер) сохраняется. */
-export function upsertSignup(raidId: number, userId: string, specId: string, displayName: string): void {
+/** reserve пересчитывается при каждой смене спека — например, гость стал рейдером и переходит в основу. */
+export function upsertSignup(raidId: number, userId: string, specId: string, displayName: string, reserve = false): void {
   db.prepare(
-    `INSERT INTO raid_signups (raid_id, user_id, spec_id, display_name, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (raid_id, user_id) DO UPDATE SET spec_id = excluded.spec_id, display_name = excluded.display_name`,
-  ).run(raidId, userId, specId, displayName, Date.now());
+    `INSERT INTO raid_signups (raid_id, user_id, spec_id, display_name, reserve, created_at) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (raid_id, user_id) DO UPDATE SET spec_id = excluded.spec_id, display_name = excluded.display_name, reserve = excluded.reserve`,
+  ).run(raidId, userId, specId, displayName, reserve ? 1 : 0, Date.now());
 }
 
 export function setTentative(raidId: number, userId: string, tentative: boolean): void {

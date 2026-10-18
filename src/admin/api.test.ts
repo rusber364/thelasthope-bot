@@ -222,20 +222,30 @@ test('шаблоны рейдов: расписание и роли, прове�
   const slot = (raidDay: number, raidTime: string, openDay: number, openTime: string) => ({ raidDay, raidTime, openDay, openTime });
   const base = { title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'c4' };
   const saved = await put('templates', {
-    raidTemplates: [{ ...base, pingRoleIds: ['r1', 'r1', 'r2'], slots: [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')] }],
+    raidTemplates: [
+      {
+        ...base,
+        pingRoleIds: ['r1', 'r1', 'r2'],
+        mainRoleIds: ['r1'],
+        reserveRoleIds: ['r2'],
+        slots: [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')],
+      },
+    ],
   });
   assert.equal(saved.status, 200);
   const template = getSettings().raidTemplates[0]!;
   assert.ok(template.id);
   assert.deepEqual(template.pingRoleIds, ['r1', 'r2'], 'повтор роли убран');
+  assert.deepEqual([template.mainRoleIds, template.reserveRoleIds], [['r1'], ['r2']]);
   assert.deepEqual(template.slots, [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')]);
 
   const bad = await put('templates', {
-    raidTemplates: [{ ...base, pingRoleIds: ['r9'], slots: [slot(3, '20:00', 2, '00:00'), slot(3, '21:00', 2, '24:00')] }],
+    raidTemplates: [{ ...base, pingRoleIds: ['r9'], reserveRoleIds: ['r2'], slots: [slot(3, '20:00', 2, '00:00'), slot(3, '21:00', 2, '24:00')] }],
   });
   assert.equal(bad.status, 400);
   assert.deepEqual(bad.json!.errors, [
     'Шаблон 1: роль для упоминания: такой роли нет на сервере.',
+    'Шаблон 1 («Огненные Недра»): «только в запас» работает, когда выбрано, кто записывается в основу, — сначала выбери роли основы.',
     'Шаблон 1 («Огненные Недра»), расписание, строка 2: время открытия реги в формате ЧЧ:ММ.',
     'Шаблон 1 («Огненные Недра»): в один день — только один рейд этого шаблона.',
   ]);
@@ -246,7 +256,9 @@ test('шаблоны рейдов: расписание и роли, прове�
   assert.match(created.json!.message, /Рега #\d+ «Огненные Недра» создана в #опросы/);
   assert.match(created.json!.url, /^https:\/\/discord\.com\/channels\/g1\/c4\//);
   assert.match(String(posts.at(-1)?.content), /<@&r1>/);
-  assert.equal(listRaids('g1', 'open')[0]!.leaderName, 'Тестер');
+  const createdRaid = listRaids('g1', 'open')[0]!;
+  assert.equal(createdRaid.leaderName, 'Тестер');
+  assert.deepEqual([createdRaid.mainRoleIds, createdRaid.reserveRoleIds], [['r1'], ['r2']], 'кто может записаться — снимок из шаблона');
 
   assert.match((await call('POST', `/templates/${template.id}/create`, { date: '2020-01-01' })).json!.errors[0], /уже прошло/);
   assert.equal((await call('POST', '/templates/nope/create', { date: tomorrow })).status, 404);

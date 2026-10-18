@@ -10,6 +10,7 @@ import { ROLES, classById, specById, specsOf } from './classes.ts';
 import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
 import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
+import { lineup, roleMentions, signupAccess } from './lineup.ts';
 import { chooseReminder, showReminderMenu } from './personalReminders.ts';
 import { describeSignup, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignup, type Raid, type Signup } from './store.ts';
@@ -33,15 +34,22 @@ export const raidHandler: ComponentHandler = {
   },
 };
 
+/** Куда этому участнику можно записаться — по его ролям и ролям реги из шаблона. */
+const accessOf = (interaction: ComponentInteraction, raid: Raid) => signupAccess(new Set(interaction.member.roles.cache.keys()), raid);
+const noAccess = (raid: Raid) => `Эта рега для ролей: ${roleMentions([...raid.mainRoleIds, ...raid.reserveRoleIds])}. Если роль нужна — спроси офицеров.`;
+
 /** Шаг 1: выбрали класс в общем меню → показываем (только этому человеку) меню спеков. */
 async function chooseClass(interaction: ComponentInteraction, raid: Raid): Promise<void> {
   if (!interaction.isStringSelectMenu()) return;
   const wowClass = classById.get(interaction.values[0] ?? '');
   if (!wowClass) return;
+  const access = accessOf(interaction, raid);
+  if (!access) return replyEphemeral(interaction, noAccess(raid));
 
   const current = getSignup(raid.id, interaction.user.id);
   const lines = [`${classEmoji(wowClass)} **${wowClass.name}** — выбери специализацию:`.trim()];
   if (current) lines.push(`-# Сейчас в списке: ${describeSignup(current)}. Новый выбор её заменит.`);
+  if (access === 'reserve') lines.push('-# С твоими ролями в эту регу записывают только в запас.');
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`raid:spec:${raid.id}`)
@@ -68,23 +76,30 @@ async function chooseSpec(interaction: ComponentInteraction, raid: Raid): Promis
   const spec = specById.get(interaction.values[0] ?? '');
   if (!spec) return;
 
+  // Роли могли поменяться, пока было открыто меню спеков, — проверяем ещё раз.
+  const access = accessOf(interaction, raid);
+  if (!access) {
+    await interaction.update({ content: noAccess(raid), components: [], allowedMentions: { parse: [] } });
+    return;
+  }
   const before = getSignup(raid.id, interaction.user.id);
-  upsertSignup(raid.id, interaction.user.id, spec.id, interaction.member.displayName);
+  upsertSignup(raid.id, interaction.user.id, spec.id, interaction.member.displayName, access === 'reserve');
   const signups = getSignups(raid.id);
   const signup = signups.find((s) => s.userId === interaction.user.id);
   const number = signups.findIndex((s) => s.userId === interaction.user.id) + 1;
-  const confirmed = signups.filter((s) => !s.tentative);
-  const onBench = confirmed.findIndex((s) => s.userId === interaction.user.id) >= raid.size;
+  const onBench = lineup(signups, raid.size).bench.some((s) => s.userId === interaction.user.id);
 
   const lines = [`Записано: **${signup ? describeSignup(signup) : spec.name}**, твой номер в реге — \`${number}\`.`];
   if (signup?.tentative) lines.push('Сейчас стоит отметка «под вопросом» — сними её кнопкой на реге, если точно идёшь.');
-  if (onBench) {
+  if (signup?.reserve) {
+    lines.push(`${uiEmoji('bench')} Ты в запасе: в основной состав этой реги записываются ${roleMentions(raid.mainRoleIds)}.`);
+  } else if (onBench) {
     lines.push(`${uiEmoji('bench')} Основной состав уже заполнен, поэтому ты в запасе. Освободится место — поднимешься автоматически.`);
   }
   lines.push('-# Напомню в личные сообщения за сутки и за час до начала.');
 
   // Сначала отвечаем (на это есть 3 секунды), потом спокойно перерисовываем регу.
-  await interaction.update({ content: lines.join('\n'), components: [] });
+  await interaction.update({ content: lines.join('\n'), components: [], allowedMentions: { parse: [] } });
   await refreshRaidMessage(interaction.client, raid.id);
   await logRaidAction(interaction.guild, interaction.member, raid, before, signup ?? null);
   if (!before) await grantRaidRole(interaction.guild, interaction.user.id);

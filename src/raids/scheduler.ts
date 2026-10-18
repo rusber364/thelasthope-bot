@@ -9,6 +9,7 @@
 import { TimestampStyles, time, type Client, type GuildTextBasedChannel } from 'discord.js';
 import { getSettings, type RaidTemplate } from '../botSettings.ts';
 import { nowZoned } from '../lib/time.ts';
+import { lineup } from './lineup.ts';
 import { dueOpenings } from './slots.ts';
 import { archiveRaids } from './archive.ts';
 import { reportAttendance } from './attendance.ts';
@@ -26,6 +27,7 @@ import {
   raidsToClose,
   scheduleKeyExists,
   setRaidStatus,
+  type NewRaid,
   type ReminderKind,
 } from './store.ts';
 
@@ -70,21 +72,27 @@ async function openScheduledRaids(client: Client<true>): Promise<void> {
       warnOnce(`channel:${template.id}`, `Канал ${template.channelId} шаблона «${template.title}» не найден или бот не может туда писать.`);
       continue;
     }
-    const raid = await publishRaid(channel, scheduledRaid(template, startsAt, key, channel.guild.name), template.pingRoleIds);
+    const raid = await publishRaid(
+      channel,
+      raidFromTemplate(template, { startsAt, createdBy: 'schedule', leaderName: channel.guild.name, scheduleKey: key }),
+      template.pingRoleIds,
+    );
     console.log(`📅 Открыта рега #${raid.id} «${raid.title}» в #${channel.name}`);
   }
 }
 
-/** Рега по шаблону: название, описание и размер — из шаблона. */
-export function scheduledRaid(template: RaidTemplate, startsAt: number, scheduleKey: string, leaderName: string) {
+/** Рега по шаблону: название, описание, размер и кто может записаться — из шаблона (снимок: правка шаблона регу не меняет). */
+export function raidFromTemplate(
+  template: RaidTemplate,
+  when: { startsAt: number; createdBy: string; leaderName: string; scheduleKey?: string },
+): Omit<NewRaid, 'guildId' | 'channelId'> {
   return {
     title: template.title,
     description: template.description || null,
-    startsAt,
     size: template.size,
-    createdBy: 'schedule',
-    leaderName,
-    scheduleKey,
+    mainRoleIds: template.mainRoleIds,
+    reserveRoleIds: template.reserveRoleIds,
+    ...when,
   };
 }
 
@@ -122,10 +130,8 @@ async function sendGatherCalls(client: Client<true>): Promise<void> {
   if (!gatherMinutes) return;
   for (const raid of raidsDueForReminder('gather', Date.now(), gatherMinutes * 60_000)) {
     markReminded(raid.id, 'gather');
-    const signups = getSignups(raid.id);
-    const confirmed = signups.filter((s) => !s.tentative).slice(0, raid.size);
-    const tentative = signups.filter((s) => s.tentative);
-    const ids = [...confirmed, ...tentative].map((s) => s.userId).slice(0, 100);
+    const { main, tentative } = lineup(getSignups(raid.id), raid.size);
+    const ids = [...main, ...tentative].map((s) => s.userId).slice(0, 100);
     if (!ids.length) continue;
 
     const channel = await fetchRaidChannel(client, raid.channelId);

@@ -15,7 +15,7 @@ const raid = (title: string, inHours: number) => {
 
 test('список: пусто — так и пишем; иначе название-ссылка, время, записавшиеся и «под вопросом»', () => {
   assert.match(buildBoard([]).data.description!, /Открытых рег пока нет/);
-  const r = { id: 7, guildId: 'g', channelId: 'A', messageId: 'm7', title: 'Огненные Недра', description: null, startsAt: 0, size: 40, createdBy: 'o', leaderName: null, status: 'open' as const };
+  const r = { id: 7, guildId: 'g', channelId: 'A', messageId: 'm7', title: 'Огненные Недра', description: null, startsAt: 0, size: 40, createdBy: 'o', leaderName: null, status: 'open' as const, mainRoleIds: [], reserveRoleIds: [] };
   const text = buildBoard([{ raid: r, signed: 12, tentative: 2 }]).data.description!;
   assert.match(text, /\[Огненные Недра\]\(https:\/\/discord\.com\/channels\/g\/A\/m7\)/);
   assert.match(text, /12\/40/);

@@ -82,6 +82,10 @@ addColumn('raids', 'attendance_done', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'role_cleaned', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'archived', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('raids', 'event_id', 'TEXT'); // событие Discord для реги
+// Кто может записаться (JSON-списки ролей из шаблона на момент создания; пусто — все) и кто записан только в запас.
+addColumn('raids', 'main_role_ids', 'TEXT');
+addColumn('raids', 'reserve_role_ids', 'TEXT');
+addColumn('raid_signups', 'reserve', 'INTEGER NOT NULL DEFAULT 0');
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 

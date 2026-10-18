@@ -82,6 +82,10 @@ export interface RaidTemplate {
   channelId: string | null;
   /** Роли, которые бот упоминает, когда открывает регу. */
   pingRoleIds: string[];
+  /** С какими ролями записываются в основу (пусто — все). */
+  mainRoleIds: string[];
+  /** С какими ролями записываются только в запас (имеет смысл, только если основа ограничена). */
+  reserveRoleIds: string[];
   /** Расписание (пусто — шаблон только для ручного создания). */
   slots: RaidSlot[];
 }
@@ -204,7 +208,7 @@ function defaults(): BotSettings {
 /** Группа по умолчанию: рейды в чт, пт и пн в 20:00, рега открывается в тот же день в 00:00. */
 function defaultGroup(id: string, title: string, channelId: string | null): RaidTemplate {
   const slots = [4, 5, 1].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' }));
-  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], slots };
+  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], slots };
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -231,6 +235,8 @@ function migrateSchedules(saved: unknown): unknown {
       time: s.raidTime,
       channelId: s.channelId ?? null,
       pingRoleIds: s.pingRoleId ? [s.pingRoleId] : [],
+      mainRoleIds: [],
+      reserveRoleIds: [],
       slots: days.map((day) => ({ raidDay: ((day - 1 + offset) % 7) + 1, raidTime: s.raidTime, openDay: day, openTime: s.openAt })),
     };
   });
@@ -263,6 +269,8 @@ export function getSettings(): BotSettings {
   merged.raidTemplates = merged.raidTemplates.map(({ pingRoleId, ...template }: RaidTemplate & { pingRoleId?: string | null }) => ({
     ...template,
     pingRoleIds: template.pingRoleIds ?? (pingRoleId ? [pingRoleId] : []),
+    mainRoleIds: template.mainRoleIds ?? [],
+    reserveRoleIds: template.reserveRoleIds ?? [],
     slots: template.slots ?? [],
   }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
@@ -354,7 +362,18 @@ export function validateSettings(s: BotSettings): string[] {
     if (t.description.length > LIMITS.templateDescription) errors.push(`${name}: описание не длиннее ${LIMITS.templateDescription} символов.`);
     if (!Number.isInteger(t.size) || t.size < 1 || t.size > LIMITS.size) errors.push(`${name}: мест в составе — от 1 до ${LIMITS.size}.`);
     if (!parseTime(t.time)) errors.push(`${name}: время в формате ЧЧ:ММ, например 20:00.`);
-    if (t.pingRoleIds.length > LIMITS.templateRoles) errors.push(`${name}: упомянуть можно не больше ${LIMITS.templateRoles} ролей.`);
+    const roleLists: [string, string[]][] = [
+      ['упомянуть', t.pingRoleIds],
+      ['в основу', t.mainRoleIds],
+      ['только в запас', t.reserveRoleIds],
+    ];
+    for (const [list, ids] of roleLists) {
+      if (ids.length > LIMITS.templateRoles) errors.push(`${name}: «${list}» — не больше ${LIMITS.templateRoles} ролей.`);
+    }
+    if (t.reserveRoleIds.length && !t.mainRoleIds.length) {
+      errors.push(`${name}: «только в запас» работает, когда выбрано, кто записывается в основу, — сначала выбери роли основы.`);
+    }
+    if (t.reserveRoleIds.some((id) => t.mainRoleIds.includes(id))) errors.push(`${name}: одна и та же роль и в основе, и только в запасе.`);
     if (t.slots.length > LIMITS.slots) errors.push(`${name}: в расписании не больше ${LIMITS.slots} строк.`);
     const isDay = (day: number) => Number.isInteger(day) && day >= 1 && day <= 7;
     t.slots.forEach((slot, i) => {

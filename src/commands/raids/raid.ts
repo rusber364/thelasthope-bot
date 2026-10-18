@@ -12,7 +12,7 @@ import { getSettings } from '../../botSettings.ts';
 import { replyEphemeral } from '../../lib/reply.ts';
 import { nowZoned, parseDate, parseTime, toEpochMs } from '../../lib/time.ts';
 import { uiEmoji } from '../../raids/emojis.ts';
-import { fetchRaidChannel, scheduledRaid } from '../../raids/scheduler.ts';
+import { fetchRaidChannel, raidFromTemplate } from '../../raids/scheduler.ts';
 import { nextRaid, scheduleKey } from '../../raids/slots.ts';
 import { RAID_PUBLISH_PERMISSIONS, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage, shortDate } from '../../raids/service.ts';
 import { getRaid, listRaids, scheduleKeyExists, setRaidStart, setRaidStatus } from '../../raids/store.ts';
@@ -224,7 +224,11 @@ async function openNow(interaction: ChatInputCommandInteraction<'cached'>): Prom
         lines.push(`• «${template.title}» на ${shortDate(next.startsAt)} уже открыта.`);
         continue;
       }
-      const created = await publishRaid(channel, scheduledRaid(template, next.startsAt, key, interaction.member.displayName), template.pingRoleIds);
+      const created = await publishRaid(
+        channel,
+        raidFromTemplate(template, { startsAt: next.startsAt, createdBy: 'schedule', leaderName: interaction.member.displayName, scheduleKey: key }),
+        template.pingRoleIds,
+      );
       lines.push(`✅ «${created.title}» на ${shortDate(created.startsAt)} → ${channel}: ${raidUrl(created)}`);
     }
   }

@@ -14,6 +14,8 @@ const template = (slots: RaidSlot[], extra: Partial<RaidTemplate> = {}): RaidTem
   time: '20:00',
   channelId: 'R1',
   pingRoleIds: [],
+  mainRoleIds: [],
+  reserveRoleIds: [],
   slots,
   ...extra,
 });

@@ -3,7 +3,7 @@ import { CalendarClock, CalendarPlus, CopyPlus, Plus, Swords, Trash2, Users, Not
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
-import { ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
+import { AccessRolesPicker, ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput, TokenTextarea } from '@/components/settings-ui';
 import {
@@ -288,6 +288,32 @@ function TemplateEditor({
             onChange={(pingRoleIds) => set({ pingRoleIds })}
           />
         </Field>
+        <Field>
+          <FieldLabel htmlFor={id('main')}>Записываются в основу</FieldLabel>
+          <AccessRolesPicker
+            id={id('main')}
+            max={MAX_ROLES}
+            placeholder="Все участники"
+            value={template.mainRoleIds}
+            onChange={(mainRoleIds) => set({ mainRoleIds, ...(mainRoleIds.length ? {} : { reserveRoleIds: [] }) })}
+          />
+          <FieldDescription>Пусто — записаться может любой. Остальным бот скрыто ответит, для кого рега.</FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor={id('reserve')}>Только в запас</FieldLabel>
+          <AccessRolesPicker
+            id={id('reserve')}
+            max={MAX_ROLES}
+            disabled={!template.mainRoleIds.length}
+            value={template.reserveRoleIds}
+            onChange={(reserveRoleIds) => set({ reserveRoleIds })}
+          />
+          <FieldDescription>
+            {template.mainRoleIds.length
+              ? 'Например, «Гость»: записывается, но сразу в запас, даже если в основе есть места.'
+              : 'Сначала выбери, кто записывается в основу.'}
+          </FieldDescription>
+        </Field>
         <Field className="md:col-span-2">
           <FieldLabel>Расписание</FieldLabel>
           {template.slots.length === 0 ? (
@@ -370,6 +396,8 @@ export function TemplatesPage() {
                       time: settings.raids.defaultTime,
                       channelId: null,
                       pingRoleIds: [],
+                      mainRoleIds: [],
+                      reserveRoleIds: [],
                       slots: [],
                     },
                   ])

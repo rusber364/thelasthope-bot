@@ -3,6 +3,7 @@ import { EmbedBuilder, type Guild } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { sendAlert } from '../logs/alerts.ts';
 import { LOG_COLORS } from '../logs/send.ts';
+import { lineup } from './lineup.ts';
 import { raidUrl } from './service.ts';
 import { getSignups, saveAttendance, type AttendanceStatus, type Raid, type Signup } from './store.ts';
 
@@ -19,10 +20,7 @@ export interface AttendanceResult {
 
 /** Чистый подсчёт (без Discord): записи + кто сейчас в голосовом. */
 export function computeAttendance(signups: Signup[], size: number, inVoice: Set<string>, countWalkins: boolean): AttendanceResult {
-  const confirmed = signups.filter((s) => !s.tentative);
-  const main = confirmed.slice(0, size);
-  const bench = confirmed.slice(size);
-  const tentative = signups.filter((s) => s.tentative);
+  const { main, bench, tentative } = lineup(signups, size);
   const signed = new Set(signups.map((s) => s.userId));
 
   return {

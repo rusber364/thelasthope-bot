@@ -20,6 +20,7 @@ import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pol
 import { countResponses, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
+import { raidFromTemplate } from '../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
 import { listRaids } from '../raids/store.ts';
 import { settings as constants } from '../settings.ts';
@@ -263,6 +264,8 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
             time: text(t.time),
             channelId: checkChannel(guild, id(t.channelId), `Шаблон ${i + 1}`, errors),
             pingRoleIds: roleList(guild, t.pingRoleIds, `Шаблон ${i + 1}: роль для упоминания`, errors),
+            mainRoleIds: roleList(guild, t.mainRoleIds, `Шаблон ${i + 1}: роль основы`, errors),
+            reserveRoleIds: roleList(guild, t.reserveRoleIds, `Шаблон ${i + 1}: роль запаса`, errors),
             slots: arr(t.slots)
               .map(obj)
               .map((slot) => ({ raidDay: num(slot.raidDay), raidTime: text(slot.raidTime), openDay: num(slot.openDay), openTime: text(slot.openTime) }))
@@ -505,7 +508,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
     try {
       const raid = await publishRaid(
         channel,
-        { title: template.title, description: template.description || null, startsAt, size: template.size, createdBy: c.get('session').userId, leaderName: c.get('member').displayName },
+        raidFromTemplate(template, { startsAt, createdBy: c.get('session').userId, leaderName: c.get('member').displayName }),
         template.pingRoleIds,
       );
       await log(c, 'Рега создана через админку', `**Рега:** #${raid.id} «${raid.title}» по шаблону\n**Канал:** <#${raid.channelId}>`, LOG_COLORS.create);

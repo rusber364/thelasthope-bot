@@ -155,22 +155,40 @@ export const RolePicker = makePicker((o) => o.roles, 'role');
 /** Роль для упоминания: высота роли неважна. */
 export const MentionPicker = makePicker((o) => o.mentionRoles, 'mention');
 
-/** Несколько ролей для упоминания: метки с цветом роли и список с поиском. max — сколько ролей можно выбрать. */
-export function MentionRolesPicker({
+interface RolesPickerProps {
+  value: string[];
+  onChange: (value: string[]) => void;
+  /** Сколько ролей можно выбрать. */
+  max: number;
+  id?: string;
+  /** Подсказка, когда ничего не выбрано. */
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+/** Несколько ролей для упоминания: метки с цветом роли, список с поиском и предупреждение, если роль не пингуется. */
+export function MentionRolesPicker(props: RolesPickerProps) {
+  const { data } = useOptions();
+  return <RolesPicker {...props} options={data?.mentionRoles} />;
+}
+
+/** Несколько ролей, без предупреждений про упоминание и выдачу, — например, кто может записаться на регу. */
+export function AccessRolesPicker(props: RolesPickerProps) {
+  const { data } = useOptions();
+  return <RolesPicker {...props} options={data?.roles.map((role) => ({ ...role, warning: undefined }))} />;
+}
+
+function RolesPicker({
   value,
   onChange,
   max,
   id,
-}: {
-  value: string[];
-  onChange: (value: string[]) => void;
-  max: number;
-  id?: string;
-}) {
-  const { data } = useOptions();
+  placeholder = 'Никого — выбери роли',
+  disabled,
+  options,
+}: RolesPickerProps & { options: Option[] | undefined }) {
   const anchor = useComboboxAnchor();
-  if (!data) return <Skeleton className="h-8 w-full" />;
-  const options = data.mentionRoles;
+  if (!options) return <Skeleton className="h-8 w-full" />;
   // Роль могли удалить на сервере — оставляем метку, чтобы её было видно и можно было убрать.
   const selected = value.map((roleId) => options.find((o) => o.id === roleId) ?? { id: roleId, name: 'удалена с сервера' });
   const silent = selected.filter((role) => role.warning);
@@ -184,8 +202,9 @@ export function MentionRolesPicker({
         itemToStringLabel={(option: Option) => option.name}
         isItemEqualToValue={(a: Option, b: Option) => a.id === b.id}
         autoHighlight
+        disabled={disabled}
       >
-        <ComboboxChips ref={anchor}>
+        <ComboboxChips ref={anchor} className={cn(disabled && 'opacity-50')}>
           <ComboboxValue>
             {selected.map((role) => (
               <ComboboxChip key={role.id} className={role.warning ? 'text-amber-700 dark:text-amber-300' : undefined}>
@@ -194,7 +213,7 @@ export function MentionRolesPicker({
               </ComboboxChip>
             ))}
           </ComboboxValue>
-          <ComboboxChipsInput id={id} placeholder={selected.length ? '' : 'Никого — выбери роли'} disabled={selected.length >= max} />
+          <ComboboxChipsInput id={id} placeholder={selected.length ? '' : placeholder} disabled={disabled || selected.length >= max} />
         </ComboboxChips>
         <ComboboxContent anchor={anchor}>
           <ComboboxEmpty>Ничего не найдено</ComboboxEmpty>
