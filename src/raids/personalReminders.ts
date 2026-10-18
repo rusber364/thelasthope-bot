@@ -4,6 +4,7 @@ import { ActionRowBuilder, MessageFlags, StringSelectMenuBuilder, TimestampStyle
 import type { ComponentInteraction } from '../types.ts';
 import { formatDuration } from '../lib/time.ts';
 import { uiEmoji } from './emojis.ts';
+import { KINDS } from './kinds.ts';
 import { raidUrl, raidWhen } from './service.ts';
 import { duePersonalReminders, getPersonalReminder, getRaid, markPersonalReminderSent, setPersonalReminder, type Raid } from './store.ts';
 
@@ -21,7 +22,7 @@ export async function showReminderMenu(interaction: ComponentInteraction, raid: 
       ...(current ? [{ label: 'Не напоминать', value: '0' }] : []),
     ]);
   await interaction.reply({
-    content: `${uiEmoji('countdown')} Напомню в личку о рейде **${raid.title}** (${raidWhen(raid)}).${current ? `\n-# Сейчас: за ${formatDuration(current * MINUTE)}.` : ''}`,
+    content: `${uiEmoji('countdown')} Напомню в личку: ${KINDS[raid.kind].word} **${raid.title}** (${raidWhen(raid)}).${current ? `\n-# Сейчас: за ${formatDuration(current * MINUTE)}.` : ''}`,
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
     flags: MessageFlags.Ephemeral,
   });
@@ -39,7 +40,7 @@ export async function chooseReminder(interaction: ComponentInteraction, raid: Ra
   if (!REMINDER_CHOICES.includes(minutes)) return;
   const at = raid.startsAt - minutes * MINUTE;
   if (at <= Date.now()) {
-    await interaction.update({ content: `До рейда уже меньше ${formatDuration(minutes * MINUTE)} — выбери время поменьше.` });
+    await interaction.update({ content: `До начала уже меньше ${formatDuration(minutes * MINUTE)} — выбери время поменьше.` });
     return;
   }
   setPersonalReminder(raid.id, interaction.user.id, minutes);
@@ -57,7 +58,7 @@ export async function sendPersonalReminders(client: Client): Promise<void> {
     if (!raid) continue;
     try {
       const user = await client.users.fetch(userId);
-      await user.send(`${uiEmoji('countdown')} **Твоё напоминание:** рейд **${raid.title}** начнётся ${raidWhen(raid)}.\n[Открыть регу](${raidUrl(raid)})`);
+      await user.send(`${uiEmoji('countdown')} **Твоё напоминание:** ${KINDS[raid.kind].word} **${raid.title}** начнётся ${raidWhen(raid)}.\n[Открыть регу](${raidUrl(raid)})`);
     } catch {
       console.warn(`Не удалось написать в личку ${userId} (личное напоминание, рега #${raid.id}) — скорее всего, ЛС закрыты.`);
     }

@@ -6,6 +6,7 @@ import { LOG_COLORS } from '../logs/send.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 import { ROLES, ROLE_ORDER, specById, type RaidRole } from './classes.ts';
 import { lineup } from './lineup.ts';
+import { KINDS } from './kinds.ts';
 import { buildRaidMessage } from './render.ts';
 import { attendanceCounts, getSignups, markArchived, raidsDueForArchive, type AttendanceStatus, type Raid, type Signup } from './store.ts';
 
@@ -26,8 +27,9 @@ export function raidSummary(raid: Raid, signups: Signup[], attendance: Partial<R
   const cancelled = raid.status === 'cancelled';
 
   const lines = [
+    `**Вид:** ${KINDS[raid.kind].title}`,
     `**Дата:** ${time(new Date(raid.startsAt), TimestampStyles.FullDateShortTime)}`,
-    `**Статус:** ${cancelled ? 'отменён' : 'проведён'}`,
+    `**Итог:** ${cancelled ? 'отменили' : 'провели'}`,
     `**Состав:** ${main.length}/${raid.size} — ${roles}`,
   ];
   if (bench) lines.push(`**Запас:** ${bench}`);

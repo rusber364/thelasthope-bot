@@ -5,6 +5,7 @@ import { getSettings } from '../botSettings.ts';
 import { db } from '../db.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 import { uiEmoji } from './emojis.ts';
+import { KINDS } from './kinds.ts';
 import { getSignups, upcomingRaids, type Raid } from './store.ts';
 
 const ACCENT = 0xc69b3a;
@@ -20,14 +21,16 @@ export interface BoardEntry {
 
 /** Сообщение со списком (чистая функция — легко проверить). */
 export function buildBoard(entries: BoardEntry[]): EmbedBuilder {
-  const embed = new EmbedBuilder().setColor(ACCENT).setTitle(`${uiEmoji('date')} Ближайшие рейды`).setFooter({ text: 'Список обновляется сам' });
+  const embed = new EmbedBuilder().setColor(ACCENT).setTitle(`${uiEmoji('date')} Ближайшие сборы`).setFooter({ text: 'Список обновляется сам' });
   if (!entries.length) return embed.setDescription('Открытых рег пока нет.');
 
   const blocks = entries.map(({ raid, signed, tentative }) => {
     const start = new Date(raid.startsAt);
     const url = `https://discord.com/channels/${raid.guildId}/${raid.channelId}/${raid.messageId ?? ''}`;
     const counts = `${uiEmoji('signups')} ${signed}/${raid.size}${tentative ? ` · ${uiEmoji('tentative')} ${tentative}` : ''}`;
-    return `**[${raid.title}](${url})**\n${uiEmoji('time')} ${time(start, TimestampStyles.ShortDateTime)} · ${time(start, TimestampStyles.RelativeTime)}\n${counts} · <#${raid.channelId}>`;
+    // У рейдов вид не пишем — их большинство; у подземелий и PvP — метка рядом с названием.
+    const kind = raid.kind === 'raid' ? '' : ` · ${KINDS[raid.kind].title}`;
+    return `**[${raid.title}](${url})**${kind}\n${uiEmoji('time')} ${time(start, TimestampStyles.ShortDateTime)} · ${time(start, TimestampStyles.RelativeTime)}\n${counts} · <#${raid.channelId}>`;
   });
   let description = '';
   for (const [index, block] of blocks.entries()) {

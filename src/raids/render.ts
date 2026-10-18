@@ -57,8 +57,8 @@ export function findBanner(): { path: string; name: string } | null {
 
 const STATUS_NOTE: Record<Raid['status'], string | null> = {
   open: null,
-  closed: '**Запись закрыта — рейд начался.**',
-  cancelled: '**Рейд отменён.**',
+  closed: '**Запись закрыта — время начала прошло.**',
+  cancelled: '**Отменили.**',
 };
 
 /** Полное содержимое сообщения реги (для отправки и для редактирования). image — своя картинка реги вместо общего фона. */
@@ -85,7 +85,7 @@ export function buildRaidCreateMessage(raid: Raid, signups: Signup[], pingRoleId
   if (!pingRoleIds.length) return message;
   // Упоминание ролей — строкой над регой; при редактировании текст сообщения не меняется и повторно не пингует.
   const mentions = pingRoleIds.map((id) => `<@&${id}>`).join(' ');
-  return { ...message, content: `${mentions} открыта запись на рейд!`, allowedMentions: { roles: pingRoleIds } };
+  return { ...message, content: `${mentions} открыта запись ${KINDS[raid.kind].to}!`, allowedMentions: { roles: pingRoleIds } };
 }
 
 /** «**Подземелье** · 5 мест · 1 танк, 1 лекарь, 3 бойца» — для подземелий, PvP и любых рег с лимитами по ролям. */

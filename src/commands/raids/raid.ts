@@ -24,7 +24,7 @@ import { startRaidWizard } from '../../raids/wizard.ts';
 export const raid: Command = {
   data: new SlashCommandBuilder()
     .setName('raid')
-    .setDescription('Реги на рейды')
+    .setDescription('Реги: рейды, подземелья, PvP')
     .addSubcommand((sub) =>
       sub
         .setName('create')
@@ -70,7 +70,7 @@ export const raid: Command = {
     .addSubcommand((sub) =>
       sub
         .setName('move')
-        .setDescription('Перенести рейд на другую дату или время (записавшимся придёт сообщение)')
+        .setDescription('Перенести на другую дату или время (записавшимся придёт сообщение)')
         .addStringOption((o) => o.setName('raid').setDescription('Какую регу').setRequired(true).setAutocomplete(true))
         .addStringOption((o) => o.setName('date').setDescription('Новая дата: сегодня, завтра, 17.10 (по умолчанию — та же)'))
         .addStringOption((o) => o.setName('time').setDescription('Новое время, например 21:00 (по умолчанию — то же)')),
@@ -180,7 +180,7 @@ async function cancel(interaction: ChatInputCommandInteraction<'cached'>): Promi
   setRaidStatus(target.id, 'cancelled');
   await refreshRaidMessage(interaction.client, target.id);
   syncRaidEventLater(interaction.client, target.id);
-  await messageSignups(interaction.client, target, () => `${uiEmoji('leave')} Рейд **${target.title}**, который должен был начаться ${raidWhen(target)}, отменён.`);
+  await messageSignups(interaction.client, target, () => `${uiEmoji('leave')} ${KINDS[target.kind].title} **${target.title}** (${raidWhen(target)}) отменили.`);
   await interaction.editReply(`🚫 Рега #${target.id} «${target.title}» отменена, записавшимся отправлено сообщение.`);
 }
 
@@ -200,14 +200,14 @@ async function move(interaction: ChatInputCommandInteraction<'cached'>): Promise
   if (!startTime) return replyEphemeral(interaction, `Не понял время «${timeText}». Пример: 20:00.`);
   const startsAt = toEpochMs(date, startTime);
   if (startsAt <= Date.now()) return replyEphemeral(interaction, 'Это время уже прошло — укажи будущее.');
-  if (startsAt === target.startsAt) return replyEphemeral(interaction, 'Рейд и так в это время.');
+  if (startsAt === target.startsAt) return replyEphemeral(interaction, 'Начало и так в это время.');
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   setRaidStart(target.id, startsAt);
   const moved = { ...target, startsAt };
   await refreshRaidMessage(interaction.client, target.id);
   syncRaidEventLater(interaction.client, target.id);
-  await messageSignups(interaction.client, moved, () => `${uiEmoji('time')} Рейд **${target.title}** перенесён: теперь начало ${raidWhen(moved)}. [Открыть регу](${raidUrl(moved)})`);
+  await messageSignups(interaction.client, moved, () => `${uiEmoji('time')} ${KINDS[target.kind].title} **${target.title}** перенесли: теперь начало ${raidWhen(moved)}. [Открыть регу](${raidUrl(moved)})`);
   await interaction.editReply(`🕗 Рега #${target.id} «${target.title}» перенесена на ${raidWhen(moved)}, записавшимся отправлено сообщение.`);
 }
 

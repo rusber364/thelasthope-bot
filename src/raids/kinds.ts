@@ -15,10 +15,15 @@ export type LimitGroup = keyof RoleLimits;
 
 export const NO_LIMITS: RoleLimits = { tank: null, healer: null, dps: null };
 
-export const KINDS: Record<ActivityKind, { title: string; word: string; size: number; limits: RoleLimits }> = {
-  raid: { title: 'Рейд', word: 'рейд', size: 25, limits: NO_LIMITS },
-  dungeon: { title: 'Подземелье', word: 'подземелье', size: 5, limits: { tank: 1, healer: 1, dps: 3 } },
-  pvp: { title: 'PvP', word: 'PvP', size: 10, limits: NO_LIMITS },
+/**
+ * title — в начале фразы («Подземелье **X** начнётся»), word — внутри («напоминание: подземелье **X**»),
+ * to / from — «запись на рейд / в подземелье», «отписка от рейда / из подземелья».
+ * Глаголы рядом — без рода: «отменили», «перенесли», «начнётся».
+ */
+export const KINDS: Record<ActivityKind, { title: string; word: string; to: string; from: string; size: number; limits: RoleLimits }> = {
+  raid: { title: 'Рейд', word: 'рейд', to: 'на рейд', from: 'от рейда', size: 25, limits: NO_LIMITS },
+  dungeon: { title: 'Подземелье', word: 'подземелье', to: 'в подземелье', from: 'из подземелья', size: 5, limits: { tank: 1, healer: 1, dps: 3 } },
+  pvp: { title: 'PvP', word: 'PvP', to: 'в PvP-группу', from: 'из PvP-группы', size: 10, limits: NO_LIMITS },
 };
 
 /** Группы для лимитов: [ключ, «1 танк», «2 танка», «5 танков», заголовок]. */

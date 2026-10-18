@@ -10,6 +10,7 @@ import { TimestampStyles, time, type Client, type GuildTextBasedChannel } from '
 import { getSettings, type RaidTemplate } from '../botSettings.ts';
 import { nowZoned } from '../lib/time.ts';
 import { lineup } from './lineup.ts';
+import { KINDS } from './kinds.ts';
 import { dueOpenings } from './slots.ts';
 import { archiveRaids } from './archive.ts';
 import { reportAttendance } from './attendance.ts';
@@ -172,7 +173,7 @@ export async function sendLateReminders(client: Client<true>, now = Date.now()):
 
 function reminderText(raid: Raid, signup: Signup): string {
   return [
-    `${uiEmoji('countdown')} **Напоминание:** рейд **${raid.title}** начнётся ${raidWhen(raid)}.`,
+    `${uiEmoji('countdown')} **Напоминание:** ${KINDS[raid.kind].word} **${raid.title}** начнётся ${raidWhen(raid)}.`,
     `Твоя запись: ${describeSignup(signup)}${signup.tentative ? ' (под вопросом)' : ''}.`,
     `[Открыть регу](${raidUrl(raid)})`,
   ].join('\n');
@@ -195,7 +196,7 @@ async function sendGatherCalls(client: Client<true>): Promise<void> {
     try {
       await channel.send({
         content: [
-          `${uiEmoji('countdown')} **Сбор!** Рейд **${raid.title}** начнётся ${time(start, TimestampStyles.RelativeTime)} (${time(start, TimestampStyles.ShortTime)}).${voice}`,
+          `${uiEmoji('countdown')} **Сбор!** ${KINDS[raid.kind].title} **${raid.title}** начнётся ${time(start, TimestampStyles.RelativeTime)} (${time(start, TimestampStyles.ShortTime)}).${voice}`,
           ids.map((id) => `<@${id}>`).join(' '),
         ].join('\n'),
         allowedMentions: { users: ids },

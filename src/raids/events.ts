@@ -8,6 +8,7 @@ import {
   type Client,
 } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
+import { KINDS } from './kinds.ts';
 import { findBanner } from './render.ts';
 import { getRaid, getRaidEventId, getRaidImage, setRaidEventId, type Raid } from './store.ts';
 
@@ -20,7 +21,7 @@ const raidLink = (raid: Raid) => `https://discord.com/channels/${raid.guildId}/$
 /** Название, время, место и описание события по реге (чистая функция). */
 export function eventFields(raid: Raid) {
   const link = raidLink(raid);
-  const description = `${raid.description ? `${raid.description}\n\n` : ''}Запись на рейд: ${link}`;
+  const description = `${raid.description ? `${raid.description}\n\n` : ''}Запись ${KINDS[raid.kind].to}: ${link}`;
   return {
     name: raid.title.slice(0, 100),
     scheduledStartTime: new Date(raid.startsAt),

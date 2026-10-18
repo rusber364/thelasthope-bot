@@ -27,7 +27,7 @@ export async function grantRaidRole(guild: Guild, userId: string): Promise<void>
   if (!role) return;
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member || member.roles.cache.has(role.id)) return;
-  await member.roles.add(role, 'Записан на рейд').catch((error) => console.error('Не удалось выдать роль рейда:', error));
+  await member.roles.add(role, 'Запись на регу').catch((error) => console.error('Не удалось выдать роль рейда:', error));
 }
 
 /** Снимает роль, если игрок не записан ни на один другой рейд, где роль ещё нужна. */
@@ -36,7 +36,7 @@ export async function revokeRaidRole(guild: Guild, userId: string, raidId: numbe
   if (!role || hasOtherActiveSignup(userId, raidId, Date.now(), holdMs())) return;
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member?.roles.cache.has(role.id)) return;
-  await member.roles.remove(role, 'Рейд завершён или запись отменена').catch((error) => console.error('Не удалось снять роль рейда:', error));
+  await member.roles.remove(role, 'Сбор прошёл или запись отменили').catch((error) => console.error('Не удалось снять роль рейда:', error));
 }
 
 /** Тик планировщика: снять роль у участников рег, которые закончились (или отменены). */

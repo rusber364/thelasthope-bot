@@ -40,7 +40,8 @@ test('итог: состав по ролям, запас, посещаемост
   saveAttendance(raid.id, [{ userId: 'a', status: 'present' }, { userId: 'b', status: 'absent' }]);
   const json = raidSummary(raid, getSignups(raid.id), attendanceCounts(raid.id)).toJSON();
   assert.equal(json.title, 'Итог: Итоговый');
-  assert.match(json.description ?? '', /Статус:\*\* проведён/);
+  assert.match(json.description ?? '', /Итог:\*\* провели/);
+  assert.match(json.description ?? '', /Вид:\*\* Рейд/);
   assert.match(json.description ?? '', /Состав:\*\* 2\/2 — Танки 1 · Ближний бой 0 · Дальний бой 0 · Лекари 1/);
   assert.match(json.description ?? '', /Запас:\*\* 1/);
   assert.match(json.description ?? '', /пришли 1, не пришли 1/);
@@ -72,7 +73,7 @@ test('режим «удаление»: в канале реги остаётся
   await archiveRaids(client as never);
   const summary = sentTo.c!.find((embeds) => embeds[0]?.title === 'Итог: Отменённый');
   assert.ok(summary);
-  assert.match(summary![0]!.description ?? '', /отменён/);
+  assert.match(summary![0]!.description ?? '', /Итог:\*\* отменили/);
   assert.ok(deleted.includes('m3'));
 });
 

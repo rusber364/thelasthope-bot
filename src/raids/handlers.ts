@@ -10,7 +10,7 @@ import { ROLES, classById, specById, specsOf, type RaidRole } from './classes.ts
 import { classEmoji, specComponentEmoji, uiEmoji } from './emojis.ts';
 import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
-import { LIMIT_GROUPS, limitGroup } from './kinds.ts';
+import { KINDS, LIMIT_GROUPS, limitGroup } from './kinds.ts';
 import { fullGroups, lineup, roleMentions, signupAccess, takenByGroup } from './lineup.ts';
 import { chooseReminder, showReminderMenu } from './personalReminders.ts';
 import { LATE_REMINDER_MS } from './scheduler.ts';
@@ -22,9 +22,9 @@ export const raidHandler: ComponentHandler = {
   async handle(interaction, [action, raidId]) {
     const raid = getRaid(Number(raidId));
     if (!raid) return replyEphemeral(interaction, 'Эта рега не найдена — возможно, её удалили.');
-    if (raid.status === 'cancelled') return replyEphemeral(interaction, 'Этот рейд отменён.');
+    if (raid.status === 'cancelled') return replyEphemeral(interaction, `${KINDS[raid.kind].title} отменили — записаться уже нельзя.`);
     if (raid.status === 'closed' || raid.startsAt <= Date.now()) {
-      return replyEphemeral(interaction, 'Запись закрыта — рейд уже начался.');
+      return replyEphemeral(interaction, 'Запись закрыта — время начала уже прошло.');
     }
 
     if (action === 'class') await chooseClass(interaction, raid);
@@ -159,7 +159,7 @@ async function leave(interaction: ComponentInteraction, raid: Raid): Promise<voi
   await refreshRaidMessage(interaction.client, raid.id);
   await logRaidAction(interaction.guild, interaction.member, raid, signup, null);
   await revokeRaidRole(interaction.guild, interaction.user.id, raid.id);
-  await alertIfLate(interaction, raid, signup, 'Поздняя отписка от рейда');
+  await alertIfLate(interaction, raid, signup, `Поздняя отписка ${KINDS[raid.kind].from}`);
 }
 
 /** Отписка или «под вопросом» незадолго до рейда — оповещение офицерам, чтобы успели найти замену. */
@@ -174,7 +174,7 @@ async function alertIfLate(interaction: ComponentInteraction, raid: Raid, signup
     .setDescription(
       [
         `**Кто:** ${interaction.member} · ${describeSignup(signup)}`,
-        `**Рейд:** [${raid.title}](${raidUrl(raid)}) — ${raidWhen(raid)}`,
+        `**${KINDS[raid.kind].title}:** [${raid.title}](${raidUrl(raid)}) — ${raidWhen(raid)}`,
         `**До начала:** ${formatDuration(left)}`,
       ].join('\n'),
     );
