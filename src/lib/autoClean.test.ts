@@ -5,7 +5,7 @@ import { Collection, Events, SnowflakeUtil } from 'discord.js';
 
 process.env.BOT_DB_PATH = ':memory:';
 const { BULK_MAX_AGE_MS, MAX_SINGLE_DELETES, cleanChannel, isCleanable } = await import('./autoClean.ts');
-const { registerMessageLogs } = await import('../logs/messages.ts');
+const { REMEMBER_DELETED_MS, markDeletedByBot, registerMessageLogs } = await import('../logs/messages.ts');
 const { getSettings, saveSettings } = await import('../botSettings.ts');
 
 const HOUR = 3_600_000;
@@ -77,4 +77,40 @@ test('удалённое автоочисткой не засоряет «лог
   client.emit(Events.MessageBulkDelete, new Collection([['x', { id: 'x', partial: true }]]), { id: 'C', guild, toString: () => '<#C>' });
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(logged, ['Массовое удаление сообщений']);
+});
+
+test('событие о пачке пришло через несколько минут — всё равно не пишется; в чужой пачке пишутся только чужие', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
+  const logged: { title?: string; fields?: { name: string; value: string }[] }[] = [];
+  const logChannel = { isSendable: () => true, send: async (p: { embeds: { data: (typeof logged)[number] }[] }) => void logged.push(p.embeds[0]!.data) };
+  const s = structuredClone(getSettings());
+  s.logs.messages = { channelId: 'L', enabled: true };
+  saveSettings(s);
+  const guild = { channels: { cache: new Map([['L', logChannel]]) } };
+  const client = new EventEmitter();
+  registerMessageLogs(client as never);
+  const bulk = async (ids: string[]) => {
+    client.emit(Events.MessageBulkDelete, new Collection(ids.map((id) => [id, { id, partial: true }])), { id: 'C', guild, toString: () => '<#C>' });
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+
+  const late = [msg(40), msg(41), msg(42)];
+  await cleanChannel(channelWith(late).channel, rule, NOW, 'bot');
+  t.mock.timers.tick(5 * 60_000); // на проверке Discord прислал событие через 78 секунд
+  markDeletedByBot('other'); // за это время бот удалял и другое — при этом просроченные записи чистятся
+  await bulk(late.map((m) => m.id));
+  assert.equal(logged.length, 0, 'своё удаление не пишется и с опозданием');
+
+  markDeletedByBot('mine');
+  await bulk(['mine', 'someone']);
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0]!.fields?.find((f) => f.name === 'Удалено')?.value, '1', 'в записи только чужое сообщение');
+
+  // Помнит не вечно: старые ID забываются, когда бот удаляет что-то ещё.
+  markDeletedByBot('old');
+  t.mock.timers.tick(REMEMBER_DELETED_MS + 1);
+  markDeletedByBot('new');
+  await bulk(['old']);
+  await bulk(['new']);
+  assert.equal(logged.length, 2, '«old» уже забыт и пишется, «new» — нет');
 });

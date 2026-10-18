@@ -5,12 +5,28 @@ import { LOG_COLORS, isLogChannel, sendLog } from './send.ts';
 
 const TEXT_LIMIT = 1000;
 
-/** ID сообщений, которые бот удалил сам (фильтр мата, автоочистка) — их удаление он записывает сам. */
-const deletedByBot = new Set<string>();
+/**
+ * ID сообщений, которые бот удалил сам (фильтр мата, автоочистка, свои старые сообщения), — их удаление он записывает сам.
+ * Событие об удалении Discord иногда присылает с опозданием больше минуты, поэтому помним с запасом:
+ * удалить сообщение второй раз нельзя, так что лишняя запись ничему не мешает. Значение — до какого времени помнить.
+ */
+const deletedByBot = new Map<string, number>();
+export const REMEMBER_DELETED_MS = 15 * 60_000;
 
 export function markDeletedByBot(messageId: string): void {
-  deletedByBot.add(messageId);
-  setTimeout(() => deletedByBot.delete(messageId), 60_000);
+  const now = Date.now();
+  // Map хранит порядок добавления: просроченные записи — в начале.
+  for (const [id, until] of deletedByBot) {
+    if (until > now) break;
+    deletedByBot.delete(id);
+  }
+  deletedByBot.delete(messageId);
+  deletedByBot.set(messageId, now + REMEMBER_DELETED_MS);
+}
+
+/** Удалил ли это сообщение сам бот. Событие об удалении приходит один раз, так что ID сразу забываем. */
+function takeDeletedByBot(messageId: string): boolean {
+  return deletedByBot.delete(messageId);
 }
 
 function quote(text: string | null | undefined): string {
@@ -28,7 +44,7 @@ function attachmentsOf(message: Message | PartialMessage): string | null {
 export function registerMessageLogs(client: Client): void {
   client.on(Events.MessageDelete, async (message) => {
     if (!message.guild || isLogChannel(message.channelId)) return;
-    if (deletedByBot.delete(message.id)) return;
+    if (takeDeletedByBot(message.id)) return;
     if (!message.partial && (message.author.bot || message.system)) return;
 
     const embed = new EmbedBuilder()
@@ -66,13 +82,11 @@ export function registerMessageLogs(client: Client): void {
     await sendLog(after.guild, 'messages', embed);
   });
 
-  client.on(Events.MessageBulkDelete, async (messages, channel) => {
+  client.on(Events.MessageBulkDelete, async (deleted, channel) => {
     if (isLogChannel(channel.id)) return;
-    // Пачку удалил сам бот (автоочистка) — сводку он запишет сам.
-    if (messages.every((m) => deletedByBot.has(m.id))) {
-      messages.forEach((m) => deletedByBot.delete(m.id));
-      return;
-    }
+    // Удалённое самим ботом (автоочистка) не пишем — сводку он пишет сам.
+    const messages = deleted.filter((m) => !takeDeletedByBot(m.id));
+    if (!messages.size) return;
     const authors = new Set(messages.filter((m) => !m.partial).map((m) => (m.partial ? '' : m.author.tag)));
     const embed = new EmbedBuilder()
       .setColor(LOG_COLORS.delete)
