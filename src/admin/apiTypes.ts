@@ -53,7 +53,7 @@ export interface RaidTemplate {
 }
 
 export interface Settings {
-  channels: { welcome: string | null; rules: string | null; auth: string | null };
+  channels: { welcome: string | null; rules: string | null };
   roles: { guest: string | null; autorole: string | null };
   welcome: { text: string; guestOffer: string; guestButton: string; rulesButton: string };
   raids: {

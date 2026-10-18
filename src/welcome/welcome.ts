@@ -26,7 +26,7 @@ export function buildWelcome(member: GuildMember, guestTaken = false): Pick<Mess
       .replaceAll('{user}', `${member}`)
       .replaceAll('{server}', guild.name)
       .replaceAll('{rules}', channels.rules ? `<#${channels.rules}>` : 'правилами')
-      .replaceAll('{auth}', channels.auth ? `<#${channels.auth}>` : 'авторизацию')
+      .replaceAll('{auth}', 'авторизацию') // канала авторизации больше нет — для старых своих текстов
       .replaceAll('{role}', guestRole?.name ?? 'Гость');
 
   const card = new ContainerBuilder()

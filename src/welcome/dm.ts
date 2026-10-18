@@ -16,12 +16,11 @@ export interface WelcomeDmData {
   server: string;
   /** ID каналов; null — канал не выбран, вместо ссылки подставится слово. */
   rules: string | null;
-  auth: string | null;
   welcome: string | null;
   role: string;
 }
 
-/** Подстановки в текст: {user} {name} {server} {rules} {auth} {welcome} {role}. */
+/** Подстановки в текст: {user} {name} {server} {rules} {welcome} {role}. */
 export function fillWelcomeDm(text: string, data: WelcomeDmData): string {
   const channel = (id: string | null, fallback: string) => (id ? `<#${id}>` : fallback);
   return text
@@ -29,7 +28,7 @@ export function fillWelcomeDm(text: string, data: WelcomeDmData): string {
     .replaceAll('{name}', data.name)
     .replaceAll('{server}', data.server)
     .replaceAll('{rules}', channel(data.rules, 'правила'))
-    .replaceAll('{auth}', channel(data.auth, 'авторизацию'))
+    .replaceAll('{auth}', 'авторизацию') // канала авторизации больше нет — для старых своих текстов
     .replaceAll('{welcome}', channel(data.welcome, 'канале приветствий'))
     .replaceAll('{role}', data.role);
 }
@@ -43,7 +42,6 @@ export function buildWelcomeDm(member: GuildMember): Pick<MessageCreateOptions, 
     name: member.displayName,
     server: guild.name,
     rules: channels.rules,
-    auth: channels.auth,
     welcome: channels.welcome,
     role: guestRole?.name ?? 'Гость',
   });
@@ -53,7 +51,6 @@ export function buildWelcomeDm(member: GuildMember): Pick<MessageCreateOptions, 
     new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(`https://discord.com/channels/${guild.id}/${channelId}`).setEmoji(emoji).setLabel(label);
   const buttons: ButtonBuilder[] = [];
   if (channels.rules) buttons.push(link(channels.rules, '📖', welcome.rulesButton));
-  if (channels.auth) buttons.push(link(channels.auth, '🔓', 'Авторизация'));
 
   return {
     content,

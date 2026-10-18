@@ -24,7 +24,6 @@ const WELCOME_TOKENS: Token[] = [
   { token: '{user}', hint: 'Упоминание новичка' },
   { token: '{server}', hint: 'Название сервера' },
   { token: '{rules}', hint: 'Канал правил' },
-  { token: '{auth}', hint: 'Канал авторизации' },
   { token: '{role}', hint: 'Роль «Гость»' },
 ];
 const DM_TOKENS: Token[] = [
@@ -32,7 +31,6 @@ const DM_TOKENS: Token[] = [
   { token: '{user}', hint: 'Упоминание новичка' },
   { token: '{server}', hint: 'Название сервера' },
   { token: '{rules}', hint: 'Канал правил' },
-  { token: '{auth}', hint: 'Канал авторизации' },
   { token: '{welcome}', hint: 'Канал приветствия' },
   { token: '{role}', hint: 'Роль «Гость»' },
 ];
@@ -58,12 +56,10 @@ function usePreviewValues() {
   return {
     hasGuestRole: Boolean(guest),
     hasRules: Boolean(settings?.channels.rules),
-    hasAuth: Boolean(settings?.channels.auth),
     welcome: {
       user: { text: '@Новичок', mention: true },
       server: { text: me?.guild.name ?? 'Сервер' },
       rules: channel(settings?.channels.rules, 'правилами'),
-      auth: channel(settings?.channels.auth, 'авторизацию'),
       role: { text: guest?.name ?? 'Гость' },
     } satisfies Record<string, PreviewValue>,
     dm: {
@@ -71,7 +67,6 @@ function usePreviewValues() {
       user: { text: '@Новичок', mention: true },
       server: { text: me?.guild.name ?? 'Сервер' },
       rules: channel(settings?.channels.rules, 'правила'),
-      auth: channel(settings?.channels.auth, 'авторизацию'),
       welcome: channel(settings?.channels.welcome, 'канале приветствий'),
       role: { text: guest?.name ?? 'Гость' },
     } satisfies Record<string, PreviewValue>,
@@ -94,6 +89,16 @@ function WithPreview({ children, preview }: { children: ReactNode; preview: Reac
         {preview}
       </div>
     </div>
+  );
+}
+
+/** Канала авторизации больше нет: если в тексте остался {auth}, бот подставит просто слово «авторизацию». */
+function LegacyAuthHint({ text }: { text: string }) {
+  if (!text.includes('{auth}')) return null;
+  return (
+    <p className="text-xs text-amber-600 dark:text-amber-400">
+      Канала авторизации больше нет — убери <code>{'{auth}'}</code> из текста, иначе бот напишет просто «авторизацию».
+    </p>
   );
 }
 
@@ -137,10 +142,7 @@ export function WelcomePage() {
     ...(offerSurvey ? [{ label: o.button, emoji: '📝', style: 'primary' as const }] : []),
     ...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : []),
   ];
-  const dmButtons: PreviewButton[] = [
-    ...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : []),
-    ...(values.hasAuth ? [{ label: 'Авторизация', emoji: '🔓', style: 'link' as const }] : []),
-  ];
+  const dmButtons: PreviewButton[] = [...(values.hasRules ? [{ label: w.rulesButton, emoji: '📖', style: 'link' as const }] : [])];
 
   return (
     <>
@@ -208,6 +210,7 @@ export function WelcomePage() {
                   value={w.text}
                   onChange={(text) => welcome.update(patch('welcome', { text }))}
                 />
+                <LegacyAuthHint text={w.text} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="guest-offer">Предложение роли «Гость»</FieldLabel>
@@ -219,6 +222,7 @@ export function WelcomePage() {
                   value={w.guestOffer}
                   onChange={(guestOffer) => welcome.update(patch('welcome', { guestOffer }))}
                 />
+                <LegacyAuthHint text={w.guestOffer} />
                 <FieldDescription>Показывается, только если роль «Гость» выбрана.</FieldDescription>
               </Field>
               <FieldGroup className="grid gap-5 sm:grid-cols-2">
@@ -251,7 +255,7 @@ export function WelcomePage() {
             <FormErrors errors={dm.errors} />
             <SectionCard
               title="Приветствие в личку"
-              description="Кроме приветствия в канале, бот может написать новичку в личные сообщения: памятку и кнопки-ссылки на правила и авторизацию. Если у новичка закрыта личка, бот просто пропустит его."
+              description="Кроме приветствия в канале, бот может написать новичку в личные сообщения: памятку и кнопку-ссылку на правила. Если у новичка закрыта личка, бот просто пропустит его."
               action={
                 <ActionButton path="/welcome/dm/test" icon={<Send />} dirty={dm.dirty}>
                   Пробное мне
@@ -276,6 +280,7 @@ export function WelcomePage() {
                   value={d.text}
                   onChange={(text) => dm.update(patch('welcomeDm', { text }))}
                 />
+                <LegacyAuthHint text={d.text} />
                 <FieldDescription>Пробное сообщение приходит с сохранённым текстом, даже если отправка выключена.</FieldDescription>
               </Field>
             </SectionCard>
@@ -373,6 +378,7 @@ export function WelcomePage() {
                   value={o.offer}
                   onChange={(offer) => onboarding.update(patch('onboarding', { offer }))}
                 />
+                <LegacyAuthHint text={o.offer} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="onboarding-button">Кнопка</FieldLabel>

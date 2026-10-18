@@ -137,7 +137,6 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         next.channels = {
           welcome: checkChannel(guild, id(channels.welcome), 'Канал приветствия', errors),
           rules: checkChannel(guild, id(channels.rules), 'Канал правил', errors),
-          auth: checkChannel(guild, id(channels.auth), 'Канал авторизации', errors),
         };
         next.roles = { guest: checkRole(guild, id(roles.guest), 'Роль «Гость»', errors), autorole: checkRole(guild, id(roles.autorole), 'Автороль', errors) };
         next.voiceRoles = [];

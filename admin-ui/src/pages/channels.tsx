@@ -31,12 +31,6 @@ export function ChannelsPage() {
                 <FieldDescription>Ссылка и кнопка «Правила» в приветствии.</FieldDescription>
               </Field>
               <Field>
-                <FieldLabel htmlFor="auth">Канал авторизации</FieldLabel>
-                <ChannelPicker id="auth" value={draft.channels.auth} onChange={(auth) => update(patch('channels', { auth }))} />
-                <FieldDescription>Ссылка в приветствии.</FieldDescription>
-              </Field>
-              <div className="hidden md:block" />
-              <Field>
                 <FieldLabel htmlFor="guest">Роль «Гость»</FieldLabel>
                 <RolePicker id="guest" value={draft.roles.guest} onChange={(guest) => update(patch('roles', { guest }))} />
                 <FieldDescription>Выдаётся по кнопке в приветствии.</FieldDescription>

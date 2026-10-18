@@ -23,7 +23,7 @@ export const LOG_LABELS: Record<LogCategory, { title: string; hint: string }> = 
 export interface Onboarding {
   /** Опрос-анкета (открытый опрос этого сервера); null — анкету не предлагать. */
   pollId: number | null;
-  /** Строка в приветствии над кнопкой. Подстановки как у приветствия: {user} {server} {rules} {auth} {role}. */
+  /** Строка в приветствии над кнопкой. Подстановки как у приветствия: {user} {server} {rules} {role}. */
   offer: string;
   /** Подпись кнопки. */
   button: string;
@@ -87,10 +87,10 @@ export interface RaidTemplate {
 }
 
 export interface BotSettings {
-  channels: { welcome: string | null; rules: string | null; auth: string | null };
+  channels: { welcome: string | null; rules: string | null };
   roles: { guest: string | null; autorole: string | null };
   welcome: {
-    /** Подстановки: {user} {server} {rules} {auth} {role}. */
+    /** Подстановки: {user} {server} {rules} {role}. */
     text: string;
     guestOffer: string;
     guestButton: string;
@@ -127,7 +127,7 @@ export interface BotSettings {
   autoClean: AutoCleanRule[];
   /** Прощание при выходе участника. Подстановки: {user} {name} {server} {members}. */
   farewell: { channelId: string | null; text: string };
-  /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {auth} {welcome} {role}. */
+  /** Приветствие в личку новичку. Подстановки: {user} {name} {server} {rules} {welcome} {role}. */
   welcomeDm: { enabled: boolean; text: string };
   /** Анкета новичков: опрос, который предлагается в приветствии, и что сделать, когда его заполнили. */
   onboarding: Onboarding;
@@ -148,11 +148,11 @@ export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, dayOffset
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
   return {
-    channels: { welcome: env(config.welcomeChannelId), rules: env(config.rulesChannelId), auth: env(config.authChannelId) },
+    channels: { welcome: env(config.welcomeChannelId), rules: env(config.rulesChannelId) },
     roles: { guest: env(config.guestRoleId), autorole: env(config.autoroleId) },
     welcome: {
       text:
-        '{user}, добро пожаловать в **{server}**! Ознакомься с {rules} и пройди {auth}. ' +
+        '{user}, добро пожаловать в **{server}**! Ознакомься с {rules}. ' +
         'За любой информацией пиши офицерам! До встречи в Азероте! За Азерот и за Альянс! 🫡',
       guestOffer: 'Хочешь получить роль **{role}**? Нажми кнопку ниже — бот выдаст её сразу.',
       guestButton: 'Получить роль «{role}»',
@@ -192,7 +192,7 @@ function defaults(): BotSettings {
       enabled: false,
       text:
         'Привет, {name}! 👋 Добро пожаловать в **{server}** — гильдию Альянса в Warcraft Forever.\n\n' +
-        'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Пройди {auth}.\n3. Возьми роль «{role}» кнопкой в {welcome}.\n\n' +
+        'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Возьми роль «{role}» кнопкой в {welcome}.\n\n' +
         'Есть вопросы — пиши офицерам. До встречи в Азероте! ⚔️',
     },
     onboarding: {
@@ -234,6 +234,9 @@ export function getSettings(): BotSettings {
   // Массивы из базы заменяют умолчания целиком — дополняем расписания полями, которых не было в старых версиях.
   merged.raids.schedules = merged.raids.schedules.map((schedule) => ({ ...schedule, pingRoleId: schedule.pingRoleId ?? null }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
+  // Канала авторизации больше нет: из стандартных текстов прошлых версий убираем шаг «пройди {auth}».
+  merged.welcome.text = merged.welcome.text.replace(' и пройди {auth}', '');
+  merged.welcomeDm.text = merged.welcomeDm.text.replace('\n2. Пройди {auth}.\n3. ', '\n2. ');
   cache = merged;
   return cache;
 }

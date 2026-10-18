@@ -34,7 +34,6 @@ export const config = {
 
   welcomeChannelId: read('WELCOME_CHANNEL_ID'),
   rulesChannelId: read('RULES_CHANNEL_ID'),
-  authChannelId: read('AUTH_CHANNEL_ID'),
   guestRoleId: read('GUEST_ROLE_ID'),
   autoroleId: read('AUTOROLE_ID'),
 

@@ -21,7 +21,7 @@ const survey = createPoll('G', 'W', definition, 'officer');
 const otherServer = createPoll('X', 'W', definition, 'officer');
 
 const s = structuredClone(getSettings());
-s.channels = { welcome: 'W', rules: 'RU', auth: null };
+s.channels = { welcome: 'W', rules: 'RU' };
 s.roles = { guest: 'R', autorole: null };
 saveSettings(s);
 

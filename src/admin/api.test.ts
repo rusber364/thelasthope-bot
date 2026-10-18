@@ -140,7 +140,7 @@ test('главная, варианты для списков и оформлен
 
 test('каналы и роли: сохранение, чужой канал — ошибка без сохранения, голосовые роли', async () => {
   const saved = await put('channels', {
-    channels: { welcome: 'c1', rules: null, auth: '' },
+    channels: { welcome: 'c1', rules: null },
     roles: { guest: 'r1', autorole: null },
     voiceRoles: [{ channelId: 'c3', roleId: 'r1' }, { channelId: '', roleId: '' }, { channelId: 'c3', roleId: 'r1' }],
   });

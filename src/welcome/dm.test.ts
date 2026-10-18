@@ -8,15 +8,15 @@ const { fillWelcomeDm, sendWelcomeDm } = await import('./dm.ts');
 const { registerWelcomeEvent } = await import('../events/guildMemberAdd.ts');
 const { getSettings, saveSettings } = await import('../botSettings.ts');
 
-test('подстановки: каналы ссылками, невыбранные — словами', () => {
-  const data = { userId: '7', name: 'Морозко', server: 'The Last Hope', rules: 'RU', auth: null, welcome: 'W', role: 'Гость' };
+test('подстановки: каналы ссылками, невыбранные — словами; старый {auth} — просто словом', () => {
+  const data = { userId: '7', name: 'Морозко', server: 'The Last Hope', rules: 'RU', welcome: 'W', role: 'Гость' };
   assert.equal(
     fillWelcomeDm('{user} {name} в {server}: {rules}, {auth}, роль «{role}» в {welcome}', data),
     '<@7> Морозко в The Last Hope: <#RU>, авторизацию, роль «Гость» в <#W>',
   );
 });
 
-// Подставной сервер: канал приветствий W, роли «Гость» и автороль, каналы правил и авторизации.
+// Подставной сервер: канал приветствий W, роли «Гость» и автороль, канал правил.
 const channelPosts: unknown[] = [];
 const addedRoles: string[] = [];
 const guild = {
@@ -38,7 +38,7 @@ const member = (send: (payload: Dm) => Promise<unknown>) => ({
 });
 
 const s = structuredClone(getSettings());
-s.channels = { welcome: 'W', rules: 'RU', auth: 'AU' };
+s.channels = { welcome: 'W', rules: 'RU' };
 s.roles = { guest: 'R', autorole: 'A' };
 saveSettings(s);
 
@@ -51,9 +51,9 @@ test('по умолчанию выключено: в личку ничего н�
   assert.equal(dms.length, 1);
 });
 
-test('при входе: автороль, приветствие в канале и личка с кнопками на правила и авторизацию', async () => {
+test('при входе: автороль, приветствие в канале и личка с кнопкой на правила', async () => {
   const on = structuredClone(getSettings());
-  on.welcomeDm = { enabled: true, text: 'Привет, {name}! Прочитай {rules} и пройди {auth}.' };
+  on.welcomeDm = { enabled: true, text: 'Привет, {name}! Прочитай {rules}.' };
   saveSettings(on);
   const dms: Dm[] = [];
   const client = new EventEmitter();
@@ -65,9 +65,9 @@ test('при входе: автороль, приветствие в канал�
   assert.deepEqual(addedRoles, ['A']);
   assert.equal(channelPosts.length, 1);
   assert.equal(dms.length, 1);
-  assert.equal(dms[0]!.content, 'Привет, Морозко! Прочитай <#RU> и пройди <#AU>.');
+  assert.equal(dms[0]!.content, 'Привет, Морозко! Прочитай <#RU>.');
   const urls = dms[0]!.components[0]!.toJSON().components.map((button) => ('url' in button ? button.url : null));
-  assert.deepEqual(urls, ['https://discord.com/channels/G/RU', 'https://discord.com/channels/G/AU']);
+  assert.deepEqual(urls, ['https://discord.com/channels/G/RU'], 'кнопки «Авторизация» больше нет');
 });
 
 test('закрытая личка: без ошибок, приветствие в канале и автороль всё равно есть', async () => {

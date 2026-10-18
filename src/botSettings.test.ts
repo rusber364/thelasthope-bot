@@ -44,6 +44,23 @@ test('новые поля, которых нет в старой сохранё�
   assert.equal(s.raids.defaultSize, 40);
 });
 
+test('канала авторизации больше нет: из старых стандартных текстов шаг «пройди {auth}» убирается, свой текст не трогается', () => {
+  const old = {
+    channels: { welcome: '111', rules: '555', auth: '666' },
+    welcome: { text: '{user}, добро пожаловать в **{server}**! Ознакомься с {rules} и пройди {auth}. За любой информацией пиши офицерам!' },
+    welcomeDm: { enabled: true, text: 'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Пройди {auth}.\n3. Возьми роль «{role}» кнопкой в {welcome}.' },
+    farewell: { channelId: null, text: 'Свой текст с {auth}' },
+  };
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'bot'").run(JSON.stringify(old));
+  resetSettingsCache();
+  const s = getSettings();
+  assert.deepEqual(s.channels, { welcome: '111', rules: '555' }, 'канал авторизации из старой базы отброшен');
+  assert.equal(s.welcome.text, '{user}, добро пожаловать в **{server}**! Ознакомься с {rules}. За любой информацией пиши офицерам!');
+  assert.equal(s.welcomeDm.text, 'Что сделать первым делом:\n1. Прочитай {rules}.\n2. Возьми роль «{role}» кнопкой в {welcome}.');
+  assert.equal(s.farewell.text, 'Свой текст с {auth}');
+  assert.ok(!getSettings().welcome.text.includes('{auth}'));
+});
+
 test('валидация ловит неверные значения', () => {
   const s = structuredClone(getSettings());
   s.welcome.text = ' ';

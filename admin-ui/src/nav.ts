@@ -33,7 +33,7 @@ export const NAV: NavGroup[] = [
   {
     title: 'Сервер',
     items: [
-      { to: '/channels', title: 'Каналы и роли', icon: Hash, description: 'Правила, авторизация, гостевая и автороль, голосовые роли.' },
+      { to: '/channels', title: 'Каналы и роли', icon: Hash, description: 'Правила, гостевая роль и автороль, голосовые роли.' },
       { to: '/welcome', title: 'Приветствие', icon: HandMetal, description: 'Сообщение новичкам в канале и в личке, прощание.' },
       {
         to: '/logs',
