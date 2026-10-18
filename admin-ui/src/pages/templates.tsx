@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { Option, RaidSlot, RaidTemplate, TemplateCreateResponse } from '@api';
 import { AccessRolesPicker, ChannelPicker, MentionRolesPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
-import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput, TokenTextarea } from '@/components/settings-ui';
+import { FormErrors, FormSkeleton, ListEmpty, NumberField, SaveBar, SectionCard, TimeInput } from '@/components/settings-ui';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,10 +19,11 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
 import { formatDay, todayInKyiv } from '@/lib/format';
 import { useOptions, useSettings } from '@/lib/queries';
@@ -182,7 +183,7 @@ function DaySelect({ value, onChange, label }: { value: number; onChange: (day: 
 /** Строка расписания: «Рейд [день] [время] ← рега откроется [день] [время] · за 1 д 20 ч». */
 function SlotRow({ slot, set, remove }: { slot: RaidSlot; set: (change: Partial<RaidSlot>) => void; remove: () => void }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-muted/40 px-3 py-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-muted/40 px-2.5 py-1.5">
       <div className="flex flex-wrap items-center gap-2">
         <Swords className="size-4 text-muted-foreground" />
         <span className="text-sm">Рейд</span>
@@ -228,17 +229,17 @@ function TemplateEditor({
     setSlots([...template.slots, { raidDay: day, raidTime: template.time, openDay: day, openTime: '00:00' }]);
   };
   return (
-    <div className="flex flex-col gap-4 rounded-lg border p-4">
-      <div className="flex items-center gap-3">
-        <div className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg border', color(index))}>
-          <CopyPlus className="size-4" />
+    <div className="flex flex-col gap-3 rounded-lg border p-3">
+      <div className="flex items-center gap-2">
+        <div className={cn('flex size-7 shrink-0 items-center justify-center rounded-md border', color(index))}>
+          <CopyPlus className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1 truncate font-medium">{template.title || 'Новый шаблон'}</div>
         {!template.id && <Badge variant="secondary">не сохранён</Badge>}
         {!template.channelId && template.slots.length > 0 && <Badge variant="secondary">без канала — реги не откроются</Badge>}
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           className="text-muted-foreground hover:text-destructive"
           aria-label="Удалить шаблон"
           onClick={remove}
@@ -246,12 +247,14 @@ function TemplateEditor({
           <Trash2 />
         </Button>
       </div>
-      <FieldGroup className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Field>
+
+      {/* Основное — одной строкой на широком экране. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,3fr)_auto_auto]">
+        <Field className="gap-1.5">
           <FieldLabel htmlFor={id('title')}>Название</FieldLabel>
           <Input id={id('title')} maxLength={100} value={template.title} onChange={(e) => set({ title: e.target.value })} />
         </Field>
-        <Field>
+        <Field className="gap-1.5">
           <FieldLabel htmlFor={id('channel')}>Канал рег</FieldLabel>
           <ChannelPicker
             id={id('channel')}
@@ -260,27 +263,34 @@ function TemplateEditor({
             onChange={(channelId) => set({ channelId })}
           />
         </Field>
-        <Field className="md:col-span-2">
-          <FieldLabel htmlFor={id('description')}>Описание</FieldLabel>
-          <TokenTextarea
-            id={id('description')}
-            rows={3}
-            max={1000}
-            value={template.description}
-            onChange={(description) => set({ description })}
-          />
-          <FieldDescription>Сбор, требования — можно оставить пустым.</FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor={id('size')}>Мест в составе</FieldLabel>
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor={id('size')}>Мест</FieldLabel>
           <NumberField id={id('size')} min={1} max={100} value={template.size} onChange={(size) => set({ size })} />
         </Field>
-        <Field>
-          <FieldLabel htmlFor={id('time')}>Время для реги вручную</FieldLabel>
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor={id('time')} title="Подставляется в «Создать регу сейчас»">
+            Время вручную
+          </FieldLabel>
           <TimeInput id={id('time')} value={template.time} onChange={(e) => set({ time: e.target.value })} />
-          <FieldDescription>Подставляется в «Создать регу».</FieldDescription>
         </Field>
-        <Field className="md:col-span-2">
+      </div>
+
+      <Field className="gap-1.5">
+        <FieldLabel htmlFor={id('description')}>Описание</FieldLabel>
+        <Textarea
+          id={id('description')}
+          rows={1}
+          maxLength={1000}
+          className="min-h-9"
+          placeholder="Сбор, требования — необязательно"
+          value={template.description}
+          onChange={(e) => set({ description: e.target.value })}
+        />
+      </Field>
+
+      {/* Роли — три поля в ряд. */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <Field className="gap-1.5">
           <FieldLabel htmlFor={id('ping')}>Упомянуть при открытии</FieldLabel>
           <MentionRolesPicker
             id={id('ping')}
@@ -289,8 +299,10 @@ function TemplateEditor({
             onChange={(pingRoleIds) => set({ pingRoleIds })}
           />
         </Field>
-        <Field>
-          <FieldLabel htmlFor={id('main')}>Записываются в основу</FieldLabel>
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor={id('main')} title="Без нужной роли бот скрыто ответит, для кого рега">
+            Записываются в основу
+          </FieldLabel>
           <AccessRolesPicker
             id={id('main')}
             max={MAX_ROLES}
@@ -298,47 +310,47 @@ function TemplateEditor({
             value={template.mainRoleIds}
             onChange={(mainRoleIds) => set({ mainRoleIds, ...(mainRoleIds.length ? {} : { reserveRoleIds: [] }) })}
           />
-          <FieldDescription>Пусто — записаться может любой. Остальным бот скрыто ответит, для кого рега.</FieldDescription>
         </Field>
-        <Field>
-          <FieldLabel htmlFor={id('reserve')}>Только в запас</FieldLabel>
+        <Field className="gap-1.5">
+          <FieldLabel htmlFor={id('reserve')} title="Записываются, но сразу в запас, даже если в основе есть места">
+            Только в запас
+          </FieldLabel>
           <AccessRolesPicker
             id={id('reserve')}
             max={MAX_ROLES}
             disabled={!template.mainRoleIds.length}
+            placeholder={template.mainRoleIds.length ? 'Например, Гость' : 'Сначала выбери основу'}
             value={template.reserveRoleIds}
             onChange={(reserveRoleIds) => set({ reserveRoleIds })}
           />
-          <FieldDescription>
-            {template.mainRoleIds.length
-              ? 'Например, «Гость»: записывается, но сразу в запас, даже если в основе есть места.'
-              : 'Сначала выбери, кто записывается в основу.'}
-          </FieldDescription>
         </Field>
-        <Field className="md:col-span-2">
-          <FieldLabel>Расписание</FieldLabel>
-          {template.slots.length === 0 ? (
-            <ListEmpty>Без расписания — рега создаётся только кнопкой «Создать регу».</ListEmpty>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {template.slots.map((slot, i) => (
-                <SlotRow
-                  key={i}
-                  slot={slot}
-                  set={(change) => setSlots(template.slots.map((s, j) => (j === i ? { ...s, ...change } : s)))}
-                  remove={() => setSlots(template.slots.filter((_, j) => j !== i))}
-                />
-              ))}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" disabled={template.slots.length >= MAX_SLOTS} onClick={addSlot}>
-              <Plus /> Добавить день
-            </Button>
-            <FieldDescription>Время по Киеву. Рега открывается в выбранный день перед рейдом — не раньше чем за неделю.</FieldDescription>
+      </div>
+
+      <Field className="gap-1.5">
+        <FieldLabel>Расписание</FieldLabel>
+        {template.slots.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {template.slots.map((slot, i) => (
+              <SlotRow
+                key={i}
+                slot={slot}
+                set={(change) => setSlots(template.slots.map((s, j) => (j === i ? { ...s, ...change } : s)))}
+                remove={() => setSlots(template.slots.filter((_, j) => j !== i))}
+              />
+            ))}
           </div>
-        </Field>
-      </FieldGroup>
+        )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Button variant="outline" size="sm" disabled={template.slots.length >= MAX_SLOTS} onClick={addSlot}>
+            <Plus /> Добавить день
+          </Button>
+          <FieldDescription>
+            {template.slots.length
+              ? 'По Киеву · рега открывается не раньше чем за неделю до рейда'
+              : 'Без расписания — рега только кнопкой «Создать регу»'}
+          </FieldDescription>
+        </div>
+      </Field>
     </div>
   );
 }
