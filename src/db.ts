@@ -69,10 +69,12 @@ db.exec(`
   );
 `);
 
-/** Добавляет колонку в уже существующую базу (для баз, созданных старой версией бота). */
-function addColumn(table: string, column: string, definition: string): void {
+/** Добавляет колонку в уже существующую базу (для баз, созданных старой версией бота). true — колонку только что добавили. */
+function addColumn(table: string, column: string, definition: string): boolean {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  if (columns.some((c) => c.name === column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  return true;
 }
 
 addColumn('raids', 'leader_name', 'TEXT');
@@ -86,6 +88,11 @@ addColumn('raids', 'event_id', 'TEXT'); // событие Discord для рег�
 addColumn('raids', 'main_role_ids', 'TEXT');
 addColumn('raids', 'reserve_role_ids', 'TEXT');
 addColumn('raid_signups', 'reserve', 'INTEGER NOT NULL DEFAULT 0');
+// Получил ли записавшийся общее напоминание в личку. Кто записался после него, получит своё за 15 минут до начала.
+// В старой базе те, кому напоминание «за час» уже ушло, отмечаются сразу — иначе им пришло бы второе.
+if (addColumn('raid_signups', 'reminded', 'INTEGER NOT NULL DEFAULT 0')) {
+  db.exec('UPDATE raid_signups SET reminded = 1 WHERE raid_id IN (SELECT id FROM raids WHERE reminded_hour = 1)');
+}
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 

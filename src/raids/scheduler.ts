@@ -1,6 +1,6 @@
 // Планировщик: в начале каждой минуты открывает реги по расписанию шаблонов рейдов (например, во вторник в 00:00
 // на среду 20:00) и упоминает роли, а раз в 30 секунд проверяет, не пора ли
-//  • напомнить записавшимся в личку за сутки и за час,
+//  • напомнить записавшимся в личку за сутки и за час (а записавшимся позже — за 15 минут),
 //  • позвать на сбор в канале реги за N минут до начала,
 //  • закрыть запись, когда рейд начался,
 //  • через N минут после начала проверить, кто в голосовом, и отчитаться офицерам,
@@ -20,15 +20,20 @@ import { syncRaidEventLater } from './events.ts';
 import { sendPersonalReminders } from './personalReminders.ts';
 import {
   getSignups,
+  lateSignupsDue,
   markAttendanceDone,
   markReminded,
+  markSignupReminded,
+  markSignupsReminded,
   raidsDueForAttendance,
   raidsDueForReminder,
   raidsToClose,
   scheduleKeyExists,
   setRaidStatus,
   type NewRaid,
+  type Raid,
   type ReminderKind,
+  type Signup,
 } from './store.ts';
 
 const HOUR = 60 * 60 * 1000;
@@ -58,6 +63,7 @@ export function startRaidScheduler(client: Client<true>): void {
 
   const tick = withoutOverlap(async () => {
     await sendReminders(client);
+    await sendLateReminders(client);
     await sendPersonalReminders(client);
     await sendGatherCalls(client);
     await closeStartedRaids(client);
@@ -137,15 +143,37 @@ export async function sendReminders(client: Client<true>): Promise<void> {
       markReminded(raid.id, kind);
       if (reminded.has(raid.id)) continue;
       reminded.add(raid.id);
-      await messageSignups(client, raid, (signup) =>
-        [
-          `${uiEmoji('countdown')} **Напоминание:** рейд **${raid.title}** начнётся ${raidWhen(raid)}.`,
-          `Твоя запись: ${describeSignup(signup)}${signup.tentative ? ' (под вопросом)' : ''}.`,
-          `[Открыть регу](${raidUrl(raid)})`,
-        ].join('\n'),
-      );
+      markSignupsReminded(raid.id);
+      await messageSignups(client, raid, (signup) => reminderText(raid, signup));
     }
   }
+}
+
+/** За сколько до начала напомнить тем, кто записался уже после общего напоминания. */
+export const LATE_REMINDER_MS = 15 * 60 * 1000;
+
+/**
+ * Кто записался, когда общее напоминание уже ушло (например, рега открылась за 53 минуты до рейда), —
+ * своё напоминание в личку за 15 минут до начала.
+ */
+export async function sendLateReminders(client: Client<true>, now = Date.now()): Promise<void> {
+  for (const { raid, signup } of lateSignupsDue(now, LATE_REMINDER_MS)) {
+    markSignupReminded(raid.id, signup.userId);
+    try {
+      const user = await client.users.fetch(signup.userId);
+      await user.send(reminderText(raid, signup));
+    } catch {
+      console.warn(`Не удалось написать в личку ${signup.userId} (рега #${raid.id}) — скорее всего, ЛС закрыты.`);
+    }
+  }
+}
+
+function reminderText(raid: Raid, signup: Signup): string {
+  return [
+    `${uiEmoji('countdown')} **Напоминание:** рейд **${raid.title}** начнётся ${raidWhen(raid)}.`,
+    `Твоя запись: ${describeSignup(signup)}${signup.tentative ? ' (под вопросом)' : ''}.`,
+    `[Открыть регу](${raidUrl(raid)})`,
+  ].join('\n');
 }
 
 /** «Сбор!» в канале реги с упоминанием всех записавшихся (кроме запаса — им не обязательно). */

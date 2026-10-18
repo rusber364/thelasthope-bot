@@ -227,6 +227,34 @@ export function markReminded(id: number, kind: ReminderKind): void {
   db.prepare(`UPDATE raids SET ${REMINDER_COLUMNS[kind]} = 1 WHERE id = ?`).run(id);
 }
 
+/** Все, кто сейчас записан на регу, получили общее напоминание. */
+export function markSignupsReminded(raidId: number): void {
+  db.prepare('UPDATE raid_signups SET reminded = 1 WHERE raid_id = ?').run(raidId);
+}
+
+export function markSignupReminded(raidId: number, userId: string): void {
+  db.prepare('UPDATE raid_signups SET reminded = 1 WHERE raid_id = ? AND user_id = ?').run(raidId, userId);
+}
+
+/**
+ * Записи без общего напоминания (записались, когда оно уже ушло), которым пора напомнить: до начала открытой реги
+ * меньше lead мс, а записались раньше этого момента — тем, кто записался в последние минуты, напоминать незачем.
+ */
+export function lateSignupsDue(now: number, lead: number): { raid: Raid; signup: Signup }[] {
+  return db
+    .prepare(
+      `SELECT r.*, s.user_id AS s_user_id FROM raid_signups s JOIN raids r ON r.id = s.raid_id
+       WHERE r.status = 'open' AND s.reminded = 0 AND r.starts_at > ? AND r.starts_at - ? <= ? AND s.created_at < r.starts_at - ?
+       ORDER BY r.id, s.created_at`,
+    )
+    .all(now, lead, now, lead)
+    .flatMap((row) => {
+      const raid = toRaid(row as Row);
+      const signup = getSignup(raid.id, String((row as Row).s_user_id));
+      return signup ? [{ raid, signup }] : [];
+    });
+}
+
 /** Реги, у участников которых пора снять временную роль: отменённые или начавшиеся больше holdMs назад. */
 export function raidsDueForRoleCleanup(now: number, holdMs: number): Raid[] {
   return db

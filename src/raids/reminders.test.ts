@@ -59,5 +59,34 @@ test('при записи бот обещает только те напомин
   assert.match(reminderNote(3 * 24 * HOUR), /за сутки и за час/);
   assert.match(reminderNote(5 * HOUR), /за час до начала/);
   assert.doesNotMatch(reminderNote(5 * HOUR), /сутки/);
-  assert.match(reminderNote(53 * MINUTE), /меньше часа — общего напоминания в личку уже не будет.*«Напомнить»/);
+  assert.match(reminderNote(53 * MINUTE), /за 15 минут до начала/);
+  assert.match(reminderNote(10 * MINUTE), /меньше 15 минут — напоминания в личку уже не будет/);
+});
+
+test('рега открылась за 53 минуты до рейда: кто записался позже общего напоминания, получает своё за 15 минут', async () => {
+  const { sendLateReminders } = await import('./scheduler.ts');
+  const { createRaid: create, upsertSignup: signUp } = await import('./store.ts');
+  mock.timers.enable({ apis: ['Date'], now: 2_000_000_000_000 });
+  try {
+    dms.length = 0;
+    const raid = create({ guildId: 'g', channelId: 'c', title: 'Рейд', startsAt: Date.now() + 53 * MINUTE, size: 40, createdBy: 'schedule' });
+    signUp(raid.id, 'early', 'mage-fire', 'Ранний'); // записан к моменту общего напоминания
+    await sendReminders(client as never); // рега только открылась — «за час» уже пора
+    assert.deepEqual(dms.map((d) => d.userId), ['early']);
+
+    mock.timers.tick(17 * MINUTE); // за 36 минут до начала
+    signUp(raid.id, 'late', 'rogue-combat', 'Поздний');
+    await sendReminders(client as never);
+    await sendLateReminders(client as never);
+    assert.equal(dms.length, 1, 'общее напоминание повторно не шлём, своё — позже');
+
+    mock.timers.tick(21 * MINUTE + 1); // за 15 минут до начала
+    signUp(raid.id, 'last', 'warrior-prot', 'Последний'); // записался в последние минуты — напоминать незачем
+    await sendLateReminders(client as never);
+    await sendLateReminders(client as never);
+    assert.deepEqual(dms.map((d) => d.userId), ['early', 'late'], 'одно напоминание позднему, раннему — не второе');
+    assert.match(dms[1]!.text, /Напоминание:.*Рейд/);
+  } finally {
+    mock.timers.reset();
+  }
 });

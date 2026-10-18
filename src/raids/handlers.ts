@@ -12,6 +12,7 @@ import { logRaidAction } from './actionLog.ts';
 import { grantRaidRole, revokeRaidRole } from './tempRole.ts';
 import { lineup, roleMentions, signupAccess } from './lineup.ts';
 import { chooseReminder, showReminderMenu } from './personalReminders.ts';
+import { LATE_REMINDER_MS } from './scheduler.ts';
 import { describeSignup, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { getRaid, getSignup, getSignups, removeSignup, setTentative, upsertSignup, type Raid, type Signup } from './store.ts';
 
@@ -37,13 +38,14 @@ export const raidHandler: ComponentHandler = {
 const HOUR = 60 * 60 * 1000;
 
 /**
- * Какие общие напоминания в личку ещё впереди. Напоминание «за сутки» и «за час» отмечается, как только наступает его время,
- * — кто записался позже, его уже не получит (например, рега открылась за 53 минуты до рейда).
+ * Какие напоминания в личку ещё впереди: «за сутки» и «за час» уходят всем, кто записан к этому моменту,
+ * а кто записался позже (например, рега открылась за 53 минуты до рейда), получит своё за 15 минут до начала.
  */
 export function reminderNote(msLeft: number): string {
   if (msLeft > 24 * HOUR) return 'Напомню в личные сообщения за сутки и за час до начала.';
   if (msLeft > HOUR) return 'Напомню в личные сообщения за час до начала.';
-  return 'До начала меньше часа — общего напоминания в личку уже не будет. Своё можно поставить кнопкой «Напомнить».';
+  if (msLeft > LATE_REMINDER_MS) return 'Напомню в личные сообщения за 15 минут до начала.';
+  return 'До начала меньше 15 минут — напоминания в личку уже не будет.';
 }
 
 /** Куда этому участнику можно записаться — по его ролям и ролям реги из шаблона. */
