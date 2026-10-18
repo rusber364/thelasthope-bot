@@ -101,6 +101,28 @@ async function call(method: string, path: string, body?: unknown, { userId = ADM
 }
 const put = (section: string, body: unknown) => call('PUT', `/settings/${section}`, body);
 
+test('лог бота: только для админки, новые строки первыми, фильтр и поиск', async () => {
+  const { recordBotLog } = await import('../lib/botLog.ts');
+  recordBotLog('info', '📅 Открыта рега #18 «Рейд» в #рега-1');
+  recordBotLog('error', 'Ошибка планировщика рейдов: Missing Access');
+  assert.equal((await call('GET', '/botlog', undefined, { userId: '99' })).status, 403);
+
+  const all = await call('GET', '/botlog');
+  assert.equal(all.status, 200);
+  assert.deepEqual(
+    all.json!.entries.slice(0, 2).map((e: { level: string; text: string }) => [e.level, e.text]),
+    [
+      ['error', 'Ошибка планировщика рейдов: Missing Access'],
+      ['info', '📅 Открыта рега #18 «Рейд» в #рега-1'],
+    ],
+  );
+  const errors = await call('GET', `/botlog?level=error&q=${encodeURIComponent('ПЛАНИРОВЩИКА')}`);
+  assert.deepEqual(
+    errors.json!.entries.map((e: { text: string }) => e.text),
+    ['Ошибка планировщика рейдов: Missing Access'],
+  );
+});
+
 test('вход, права и CSRF', async () => {
   assert.equal((await app.request('/api/me')).status, 401);
   assert.equal((await call('GET', '/me', undefined, { userId: '99' })).status, 403);

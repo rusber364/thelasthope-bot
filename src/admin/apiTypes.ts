@@ -118,6 +118,20 @@ export interface OverviewResponse {
   bannerUrl: string | null;
 }
 
+/** Строка лога бота: start — запуск, info — обычное, warn — предупреждение, error — ошибка. */
+export interface BotLogEntry {
+  id: number;
+  at: number;
+  level: 'start' | 'info' | 'warn' | 'error';
+  text: string;
+}
+
+/** GET /api/botlog?level=all|warn|error&q=…&before=<id> — новые строки первыми, по 200. */
+export interface BotLogResponse {
+  entries: BotLogEntry[];
+  hasMore: boolean;
+}
+
 export interface OptionsResponse {
   textChannels: Option[];
   voiceChannels: Option[];

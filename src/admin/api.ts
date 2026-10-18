@@ -9,6 +9,7 @@ import { ARCHIVE_MODES, LOG_CATEGORIES, LOG_LABELS, getSettings, saveSettings, v
 import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { runAutoClean } from '../lib/autoClean.ts';
 import { applyBranding, brandingError } from '../lib/branding.ts';
+import { readBotLog } from '../lib/botLog.ts';
 import { memberNames } from '../lib/members.ts';
 import { refreshStickies } from '../lib/sticky.ts';
 import { parseDate, parseTime, toEpochMs } from '../lib/time.ts';
@@ -112,6 +113,19 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       avatarUrl: client.user.displayAvatarURL({ size: 128 }),
       bannerUrl: client.user.bannerURL({ size: 512 }) ?? null, // Discord принимает только степени двойки
     } satisfies Api.OverviewResponse);
+  });
+
+  // --- Лог бота: что бот писал в консоль ---
+  api.get('/botlog', (c) => {
+    const level = c.req.query('level');
+    const before = Number(c.req.query('before'));
+    return c.json(
+      readBotLog({
+        filter: level === 'warn' || level === 'error' ? level : 'all',
+        search: c.req.query('q') ?? '',
+        before: Number.isInteger(before) && before > 0 ? before : null,
+      }) satisfies Api.BotLogResponse,
+    );
   });
 
   api.get('/options', (c) => {

@@ -30,6 +30,7 @@ const PAGES: Record<string, ComponentType> = {
   '/polls': page(() => import('@/pages/polls'), 'PollsSection'),
   '/sticky': page(() => import('@/pages/sticky'), 'StickyPage'),
   '/autoclean': page(() => import('@/pages/autoclean'), 'AutoCleanPage'),
+  '/botlog': page(() => import('@/pages/botlog'), 'BotLogPage'),
 };
 
 /** Сначала узнаём, кто вошёл: нет сессии — экран входа, нет права «Управлять сервером» — экран «Нет доступа». */

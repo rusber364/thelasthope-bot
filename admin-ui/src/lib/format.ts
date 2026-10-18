@@ -27,3 +27,24 @@ export const formatDateTime = (ms: number) => dateTime.format(ms);
 
 /** «18 октября» из ГГГГ-ММ-ДД. */
 export const formatDay = (date: string) => dateOnly.format(new Date(`${date}T12:00:00Z`));
+
+const logTime = new Intl.DateTimeFormat('ru-RU', {
+  timeZone: TIME_ZONE,
+  day: '2-digit',
+  month: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+/** «18.10, 19:07:26» — время строки лога бота, по Киеву. */
+export const formatLogTime = (ms: number) => logTime.format(ms);
+
+/** 1 строка, 2 строки, 5 строк: plural(n, ['строка', 'строки', 'строк']). */
+export function plural(n: number, [one, few, many]: [string, string, string]): string {
+  const tens = n % 100;
+  const units = n % 10;
+  if (units === 1 && tens !== 11) return one;
+  if (units >= 2 && units <= 4 && (tens < 12 || tens > 14)) return few;
+  return many;
+}

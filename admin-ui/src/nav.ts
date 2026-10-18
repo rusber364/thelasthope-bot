@@ -11,6 +11,7 @@ import {
   Pin,
   ScrollText,
   SlidersHorizontal,
+  SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -42,6 +43,12 @@ export const NAV: NavGroup[] = [
         description: 'Каналы журналов: участники, сервер, сообщения, голос, модерация, реги.',
       },
       { to: '/alerts', title: 'Оповещения', icon: Bell, description: 'Сигналы офицерам: поздние отмены, посещаемость, инциденты.' },
+      {
+        to: '/botlog',
+        title: 'Лог бота',
+        icon: SquareTerminal,
+        description: 'Что бот писал в консоль: запуски, реги, обрывы связи, ошибки.',
+      },
     ],
   },
   {

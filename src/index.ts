@@ -9,6 +9,10 @@ import { registerLogs } from './logs/index.ts';
 import { registerVoiceRoles } from './lib/voiceRoles.ts';
 import { registerSticky } from './lib/sticky.ts';
 import { registerRaidWizard } from './raids/wizard.ts';
+import { captureConsole } from './lib/botLog.ts';
+
+// Всё, что бот пишет в консоль, копируется в «Лог бота» в админке — с самого запуска.
+captureConsole();
 
 // Client — это сам бот. После login() он держит постоянное соединение с Discord (Gateway)
 // и получает оттуда события: «бот готов», «кто-то вызвал команду», «зашёл новый участник»…
@@ -42,6 +46,11 @@ registerSticky(client);
 registerRaidWizard(client);
 
 client.on(Events.Error, (error) => console.error('Ошибка клиента Discord:', error));
+client.on(Events.Warn, (message) => console.warn('Discord:', message));
+// Обрывы связи: пока бот переподключается, события копятся, и реги, логи и ответы могут прийти с опозданием.
+client.on(Events.ShardDisconnect, (event) => console.warn(`Связь с Discord прервана (код ${event.code}).`));
+client.on(Events.ShardReconnecting, () => console.warn('Переподключаюсь к Discord…'));
+client.on(Events.ShardResume, (_shard, replayed) => console.log(`Связь с Discord восстановлена, пропущенных событий: ${replayed}.`));
 process.on('unhandledRejection', (error) => console.error('Необработанная ошибка:', error));
 
 try {

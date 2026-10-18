@@ -170,3 +170,13 @@ db.exec(`
     PRIMARY KEY (raid_id, user_id)
   );
 `);
+
+// Лог бота: всё, что он пишет в консоль (страница «Лог бота» в админке). Хранятся последние строки — см. src/lib/botLog.ts.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS bot_log (
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    at    INTEGER NOT NULL,
+    level TEXT    NOT NULL,  -- start | info | warn | error
+    text  TEXT    NOT NULL
+  );
+`);
