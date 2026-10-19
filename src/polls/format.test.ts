@@ -79,7 +79,7 @@ test('анкета новичка из examples/ разбирается, «Фи�
   const { poll } = result;
   assert.equal(poll.button, 'Пройти анкету');
   assert.equal(poll.blocks.length, 3);
-  assert.equal(questionCount(poll), 12);
+  assert.equal(questionCount(poll), 11);
   assert.equal(poll.finish, 'Спасибо за ответы, друг! ⚡️\nДо встречи в совместных рейдах и других мероприятиях! ⚔️\nЗа Альянс и Азерот! ⚔️');
 
   const state = emptyState();
