@@ -1,6 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CircleAlert, CircleCheck, ExternalLink, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import {
+  BookUser,
+  Brain,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  ExternalLink,
+  Plus,
+  Search,
+  Settings2,
+  ShieldAlert,
+  Trash2,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import type { Settings, SvetaPerson, SvetaStatus } from '@api';
 import { ChannelPicker, ChannelsPicker } from '@/components/entity-picker';
@@ -24,10 +37,11 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
-import { useOptions } from '@/lib/queries';
+import { useOptions, useSettings } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
 
 const PERSONA_MAX = 4000;
@@ -250,10 +264,113 @@ function MemoryCard() {
   );
 }
 
+type Lore = Settings['sveta']['lore'];
+
+/** Имя и ники через запятую. Текст поля — свой, чтобы запятые и пробелы не «прыгали» при наборе. */
+function NamesInput({ id, names, onChange }: { id: string; names: string[]; onChange: (names: string[]) => void }) {
+  const [text, setText] = useState(names.map((name) => name.trim()).join(', '));
+  return (
+    <Input
+      id={id}
+      placeholder="Имя и другие ники через запятую: Эльын, Нобухидзе"
+      value={text}
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(event.target.value.split(','));
+      }}
+    />
+  );
+}
+
+/** Истории о людях: карточка на человека — кто (имя и ники) и что Света о нём знает. */
+function LoreEditor({ lore, onChange }: { lore: Lore; onChange: (lore: Lore) => void }) {
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  // Новая (пустая) карточка видна всегда, чтобы её можно было заполнить и при включённом поиске.
+  const shown = lore
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry }) => !query || !entry.names.join('').trim() || `${entry.names.join(' ')} ${entry.story}`.toLowerCase().includes(query),
+    );
+  const change = (index: number, next: Partial<Lore[number]>) => onChange(lore.map((e, i) => (i === index ? { ...e, ...next } : e)));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground">
+        Что Света знает о людях гильдии: привычки, мемы, старые истории. Историю она вспоминает, когда человека называют в разговоре или он
+        сам пишет, — и может шутить по её мотивам прямо в чате. Пиши только то, над чем людям нормально посмеяться. Света эти истории только
+        читает.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button disabled={lore.length >= LORE_MAX} onClick={() => onChange([{ names: [], story: '' }, ...lore])}>
+          <Plus /> Добавить человека
+        </Button>
+        {lore.length > 4 && (
+          <div className="relative min-w-48 flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-8"
+              placeholder="Поиск по имени или истории"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+        )}
+        <span className="text-sm text-muted-foreground">
+          {lore.length} из {LORE_MAX}
+        </span>
+      </div>
+      {lore.length === 0 && <p className="text-sm text-muted-foreground">Историй пока нет — добавь первого человека.</p>}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {shown.map(({ entry, index }) => (
+          <SectionCard
+            // При добавлении и удалении карточки пересоздаются — у полей «Кто» не останется чужого текста.
+            key={`${index}-${lore.length}`}
+            title={entry.names.filter((n) => n.trim()).join(', ') || 'Новый человек'}
+            action={
+              <Button variant="ghost" size="icon" aria-label="Удалить историю" onClick={() => onChange(lore.filter((_, i) => i !== index))}>
+                <Trash2 />
+              </Button>
+            }
+          >
+            <Field>
+              <FieldLabel htmlFor={`lore-names-${index}`}>Кто</FieldLabel>
+              <NamesInput id={`lore-names-${index}`} names={entry.names} onChange={(names) => change(index, { names })} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`lore-story-${index}`}>История</FieldLabel>
+              <Textarea
+                id={`lore-story-${index}`}
+                rows={5}
+                maxLength={STORY_MAX}
+                value={entry.story}
+                onChange={(event) => change(index, { story: event.target.value })}
+              />
+              <FieldDescription>
+                {entry.story.length} / {STORY_MAX}
+              </FieldDescription>
+            </Field>
+          </SectionCard>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const dot = (dirty: boolean) => dirty && <span className="size-1.5 rounded-full bg-primary" aria-label="есть изменения" />;
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
 export function SvetaPage() {
   const form = useSectionForm('sveta', (s) => ({ sveta: s.sveta }));
   const { draft, update } = form;
   const set = (change: Partial<Settings['sveta']>) => update(patch('sveta', change));
+  // ?tab=lore — сразу на вкладку историй.
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(params.get('tab') ?? 'settings');
+  const { data: settings } = useSettings();
+  const saved = settings?.sveta;
+  const loreDirty = Boolean(draft && saved && !same(draft.sveta.lore, saved.lore));
+  const settingsDirty = Boolean(draft && saved && !same({ ...draft.sveta, lore: [] }, { ...saved, lore: [] }));
 
   return (
     <>
@@ -266,164 +383,131 @@ export function SvetaPage() {
       ) : (
         <>
           <FormErrors errors={form.errors} />
-          <StatusCard perDay={draft.sveta.perDay} />
+          <Tabs value={tab} onValueChange={(value: string) => setTab(value)} className="gap-6">
+            <TabsList className="w-full sm:w-fit">
+              <TabsTrigger value="settings">
+                <Settings2 /> Настройки {dot(settingsDirty)}
+              </TabsTrigger>
+              <TabsTrigger value="lore">
+                <BookUser /> Истории о людях {dot(loreDirty)}
+              </TabsTrigger>
+              <TabsTrigger value="memory">
+                <Brain /> Память
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="settings" className="flex flex-col gap-6">
+              <StatusCard perDay={draft.sveta.perDay} />
 
-          <SectionCard title="Где живёт" description="Света читает и отвечает только в этих каналах — остальные в Gemini не уходят.">
-            <Field orientation="horizontal" className="items-start">
-              <Switch id="sveta-enabled" checked={draft.sveta.enabled} onCheckedChange={(enabled: boolean) => set({ enabled })} />
-              <div className="flex flex-col gap-0.5">
-                <FieldLabel htmlFor="sveta-enabled">Света включена</FieldLabel>
-                <FieldDescription>Выключенная Света молчит, даже если её зовут.</FieldDescription>
-              </div>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="sveta-channels">Каналы</FieldLabel>
-              <ChannelsPicker
-                id="sveta-channels"
-                max={CHANNELS_MAX}
-                value={draft.sveta.channelIds}
-                onChange={(channelIds) => set({ channelIds })}
-              />
-              <FieldDescription>
-                Бесплатный Gemini может использовать сообщения для улучшения продуктов Google — выбирай общие «весёлые» каналы, а в их
-                описании напиши: «Сообщения здесь читает ИИ Света (Google Gemini)».
-              </FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="sveta-news">Новости о сборах</FieldLabel>
-              <ChannelPicker
-                id="sveta-news"
-                emptyLabel="Не рассказывать"
-                value={draft.sveta.newsChannelId}
-                onChange={(newsChannelId) => set({ newsChannelId })}
-              />
-              <FieldDescription>
-                Сюда Света коротко пишет, когда открылась рега, «Сбор!», перенос или отмена. Это заготовленные фразы — лимит Gemini не
-                тратится.
-              </FieldDescription>
-            </Field>
-          </SectionCard>
-
-          <SectionCard
-            title="Характер"
-            description="Кто она и как говорит. Правила чата — коротко, на «ты», без родовых окончаний, без мата и политики — бот добавляет сам."
-          >
-            <Field>
-              <FieldLabel htmlFor="sveta-persona">Характер</FieldLabel>
-              <Textarea
-                id="sveta-persona"
-                rows={6}
-                maxLength={PERSONA_MAX}
-                value={draft.sveta.persona}
-                onChange={(event) => set({ persona: event.target.value })}
-              />
-              <FieldDescription>
-                {draft.sveta.persona.length} / {PERSONA_MAX}
-              </FieldDescription>
-            </Field>
-          </SectionCard>
-
-          <SectionCard
-            title="Истории о людях"
-            description="Что Света знает о людях гильдии: привычки, мемы, старые истории. Историю она вспоминает, когда человека называют в разговоре или он сам пишет, — и может шутить по её мотивам прямо в чате. Пиши только то, над чем людям нормально посмеяться. Света эти истории только читает."
-          >
-            {draft.sveta.lore.length === 0 && <p className="text-sm text-muted-foreground">Историй пока нет.</p>}
-            {draft.sveta.lore.map((entry, index) => {
-              const change = (next: Partial<typeof entry>) =>
-                set({ lore: draft.sveta.lore.map((e, i) => (i === index ? { ...e, ...next } : e)) });
-              return (
-                <div key={index} className="flex flex-col gap-3 rounded-xl border p-3">
-                  <div className="flex items-end gap-2">
-                    <Field className="flex-1">
-                      <FieldLabel htmlFor={`lore-names-${index}`}>Кто</FieldLabel>
-                      <Input
-                        id={`lore-names-${index}`}
-                        placeholder="Имя и другие ники через запятую: Эльын, Нобухидзе"
-                        value={entry.names.join(',')}
-                        onChange={(event) => change({ names: event.target.value.split(',') })}
-                      />
-                    </Field>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Удалить историю"
-                      onClick={() => set({ lore: draft.sveta.lore.filter((_, i) => i !== index) })}
-                    >
-                      <Trash2 />
-                    </Button>
+              <SectionCard title="Где живёт" description="Света читает и отвечает только в этих каналах — остальные в Gemini не уходят.">
+                <Field orientation="horizontal" className="items-start">
+                  <Switch id="sveta-enabled" checked={draft.sveta.enabled} onCheckedChange={(enabled: boolean) => set({ enabled })} />
+                  <div className="flex flex-col gap-0.5">
+                    <FieldLabel htmlFor="sveta-enabled">Света включена</FieldLabel>
+                    <FieldDescription>Выключенная Света молчит, даже если её зовут.</FieldDescription>
                   </div>
-                  <Field>
-                    <FieldLabel htmlFor={`lore-story-${index}`}>История</FieldLabel>
-                    <Textarea
-                      id={`lore-story-${index}`}
-                      rows={3}
-                      maxLength={STORY_MAX}
-                      value={entry.story}
-                      onChange={(event) => change({ story: event.target.value })}
-                    />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="sveta-channels">Каналы</FieldLabel>
+                  <ChannelsPicker
+                    id="sveta-channels"
+                    max={CHANNELS_MAX}
+                    value={draft.sveta.channelIds}
+                    onChange={(channelIds) => set({ channelIds })}
+                  />
+                  <FieldDescription>
+                    Бесплатный Gemini может использовать сообщения для улучшения продуктов Google — выбирай общие «весёлые» каналы, а в их
+                    описании напиши: «Сообщения здесь читает ИИ Света (Google Gemini)».
+                  </FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="sveta-news">Новости о сборах</FieldLabel>
+                  <ChannelPicker
+                    id="sveta-news"
+                    emptyLabel="Не рассказывать"
+                    value={draft.sveta.newsChannelId}
+                    onChange={(newsChannelId) => set({ newsChannelId })}
+                  />
+                  <FieldDescription>
+                    Сюда Света коротко пишет, когда открылась рега, «Сбор!», перенос или отмена. Это заготовленные фразы — лимит Gemini не
+                    тратится.
+                  </FieldDescription>
+                </Field>
+              </SectionCard>
+
+              <SectionCard
+                title="Характер"
+                description="Кто она и как говорит. Правила чата — коротко, на «ты», без родовых окончаний, без мата и политики — бот добавляет сам."
+              >
+                <Field>
+                  <FieldLabel htmlFor="sveta-persona">Характер</FieldLabel>
+                  <Textarea
+                    id="sveta-persona"
+                    rows={6}
+                    maxLength={PERSONA_MAX}
+                    value={draft.sveta.persona}
+                    onChange={(event) => set({ persona: event.target.value })}
+                  />
+                  <FieldDescription>
+                    {draft.sveta.persona.length} / {PERSONA_MAX}
+                  </FieldDescription>
+                </Field>
+              </SectionCard>
+
+              <SectionCard
+                title="Модель и потолки"
+                description="Один ответ — один запрос к Gemini. Потолки берегут бесплатный лимит Google."
+              >
+                <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  <Field className="md:col-span-2">
+                    <FieldLabel htmlFor="sveta-model">Модель Gemini</FieldLabel>
+                    <Input id="sveta-model" value={draft.sveta.model} onChange={(event) => set({ model: event.target.value.trim() })} />
                     <FieldDescription>
-                      {entry.story.length} / {STORY_MAX}
+                      Бесплатно доступны модели Flash: {code('gemini-flash-latest')} — умнее, {code('gemini-flash-lite-latest')} — больше
+                      запросов в день.
                     </FieldDescription>
                   </Field>
-                </div>
-              );
-            })}
-            <div>
-              <Button
-                variant="outline"
-                disabled={draft.sveta.lore.length >= LORE_MAX}
-                onClick={() => set({ lore: [...draft.sveta.lore, { names: [], story: '' }] })}
-              >
-                <Plus /> Добавить историю
-              </Button>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Модель и потолки" description="Один ответ — один запрос к Gemini. Потолки берегут бесплатный лимит Google.">
-            <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <Field className="md:col-span-2">
-                <FieldLabel htmlFor="sveta-model">Модель Gemini</FieldLabel>
-                <Input id="sveta-model" value={draft.sveta.model} onChange={(event) => set({ model: event.target.value.trim() })} />
-                <FieldDescription>
-                  Бесплатно доступны модели Flash: {code('gemini-flash-latest')} — умнее, {code('gemini-flash-lite-latest')} — больше
-                  запросов в день.
-                </FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="sveta-random">Встревает сама</FieldLabel>
-                <NumberField
-                  id="sveta-random"
-                  min={0}
-                  max={20}
-                  suffix="% сообщений"
-                  value={draft.sveta.randomPercent}
-                  onChange={(randomPercent) => set({ randomPercent })}
-                />
-                <FieldDescription>0 — только когда зовут. Сама — не чаще раза в 10 минут на канал.</FieldDescription>
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="sveta-cooldown">Пауза для одного человека</FieldLabel>
-                <NumberField
-                  id="sveta-cooldown"
-                  min={0}
-                  max={600}
-                  suffix="секунд"
-                  value={draft.sveta.userCooldownSeconds}
-                  onChange={(userCooldownSeconds) => set({ userCooldownSeconds })}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="sveta-hour">Ответов в час</FieldLabel>
-                <NumberField id="sveta-hour" min={1} max={500} value={draft.sveta.perHour} onChange={(perHour) => set({ perHour })} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="sveta-day">Ответов в день</FieldLabel>
-                <NumberField id="sveta-day" min={1} max={5000} value={draft.sveta.perDay} onChange={(perDay) => set({ perDay })} />
-                <FieldDescription>Достигла потолка — один раз скажет, что на перерыве.</FieldDescription>
-              </Field>
-            </FieldGroup>
-          </SectionCard>
-          <MemoryCard />
+                  <Field>
+                    <FieldLabel htmlFor="sveta-random">Встревает сама</FieldLabel>
+                    <NumberField
+                      id="sveta-random"
+                      min={0}
+                      max={20}
+                      suffix="% сообщений"
+                      value={draft.sveta.randomPercent}
+                      onChange={(randomPercent) => set({ randomPercent })}
+                    />
+                    <FieldDescription>0 — только когда зовут. Сама — не чаще раза в 10 минут на канал.</FieldDescription>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-cooldown">Пауза для одного человека</FieldLabel>
+                    <NumberField
+                      id="sveta-cooldown"
+                      min={0}
+                      max={600}
+                      suffix="секунд"
+                      value={draft.sveta.userCooldownSeconds}
+                      onChange={(userCooldownSeconds) => set({ userCooldownSeconds })}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-hour">Ответов в час</FieldLabel>
+                    <NumberField id="sveta-hour" min={1} max={500} value={draft.sveta.perHour} onChange={(perHour) => set({ perHour })} />
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-day">Ответов в день</FieldLabel>
+                    <NumberField id="sveta-day" min={1} max={5000} value={draft.sveta.perDay} onChange={(perDay) => set({ perDay })} />
+                    <FieldDescription>Достигла потолка — один раз скажет, что на перерыве.</FieldDescription>
+                  </Field>
+                </FieldGroup>
+              </SectionCard>
+            </TabsContent>
+            <TabsContent value="lore">
+              <LoreEditor lore={draft.sveta.lore} onChange={(lore) => set({ lore })} />
+            </TabsContent>
+            <TabsContent value="memory">
+              <MemoryCard />
+            </TabsContent>
+          </Tabs>
           <SaveBar form={form} />
         </>
       )}
