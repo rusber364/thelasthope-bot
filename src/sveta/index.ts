@@ -87,7 +87,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       authorIsBot: message.author.bot,
       channelId: message.channelId,
       content: message.content,
-      mentionsSveta: message.mentions.users.has(me),
+      // Discord в подсказке «@» предлагает и саму Свету, и её роль с тем же именем — считаем обращением оба.
+      mentionsSveta: message.mentions.users.has(me) || message.mentions.roles.some((role) => role.tags?.botId === me),
       replyToSveta: message.mentions.repliedUser?.id === me,
     },
     s.channelIds,

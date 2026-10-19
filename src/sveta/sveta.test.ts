@@ -145,7 +145,7 @@ const deps = {
 };
 
 const earlier = new Map([['m0', { id: 'm0', author: { id: 'S', displayName: 'Света' }, member: null, cleanContent: 'Кто сегодня танкует?', attachments: { size: 0 }, stickers: { size: 0 } }]]);
-function message(content: string, { userId = 'u1', channelId = 'C', bot = false, mention = false, guildId = 'T' } = {}) {
+function message(content: string, { userId = 'u1', channelId = 'C', bot = false, mention = false, roleMention = false, guildId = 'T' } = {}) {
   const msg = {
     id: `m${Math.random()}`,
     content,
@@ -158,7 +158,12 @@ function message(content: string, { userId = 'u1', channelId = 'C', bot = false,
     guild: { name: 'The Last Hope' },
     attachments: { size: 0 },
     stickers: { size: 0 },
-    mentions: { users: new Map(mention ? [['S', {}]] : []), repliedUser: null },
+    mentions: {
+      users: new Map(mention ? [['S', {}]] : []),
+      // Роль бота «Sveta» (managed): tags.botId — это Света.
+      roles: { some: (fn: (role: { tags?: { botId?: string } }) => boolean) => (roleMention ? [{ tags: { botId: 'S' } }] : []).some(fn) },
+      repliedUser: null,
+    },
     channel: { name: 'таверна', sendTyping: async () => {}, messages: { fetch: async () => earlier } },
     inGuild: () => true,
     reply: async (payload: (typeof replies)[number]) => void replies.push(payload),
@@ -421,4 +426,12 @@ test('Света и память: «что помнишь» и «забудь м
   await onMessage(message('Света, забудь меня', { userId: 'u7' }), deps);
   assert.equal(replies.at(-1)?.content, 'Всё, забыла 🙈 Начинаем с чистого листа.');
   assert.equal(memory.getPerson('T', 'u7'), null);
+});
+
+test('упоминание роли Светы (Discord предлагает её рядом с ботом) — тоже обращение', async () => {
+  configure();
+  await onMessage(message('ну ты и морда', { roleMention: true }), deps);
+  assert.equal(requests.length, 1, 'ответила на упоминание её роли');
+  await onMessage(message('ну ты и морда', { userId: 'u2' }), deps);
+  assert.equal(requests.length, 1, 'без упоминания и имени — молчит');
 });
