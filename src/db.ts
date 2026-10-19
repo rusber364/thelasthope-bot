@@ -110,6 +110,20 @@ db.exec(`
 // Сколько запросов к Gemini ушло за день (ответ с инструментами — несколько запросов).
 addColumn('sveta_usage', 'requests', 'INTEGER NOT NULL DEFAULT 0');
 
+// Что Света помнит о людях: отношение (−100…+100), прозвище, короткие заметки (JSON [{ at, text }]).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sveta_people (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    attitude   INTEGER NOT NULL DEFAULT 0,
+    nickname   TEXT,
+    notes      TEXT    NOT NULL DEFAULT '[]',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+`);
+
 // Картинки из ответов на опросы («Ответ: картинка»). Ссылки Discord на вложения со временем перестают
 // открываться, поэтому бот хранит сами файлы. В ответе на вопрос лежит id картинки отсюда.
 db.exec(`

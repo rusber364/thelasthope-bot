@@ -1,18 +1,31 @@
-import { useQuery } from '@tanstack/react-query';
-import { CircleAlert, CircleCheck, ExternalLink, ShieldAlert } from 'lucide-react';
-import type { ReactNode } from 'react';
-import type { Settings, SvetaStatus } from '@api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight, CircleAlert, CircleCheck, ExternalLink, ShieldAlert, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import type { Settings, SvetaPerson, SvetaStatus } from '@api';
 import { ChannelPicker, ChannelsPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, NumberField, SaveBar, SectionCard } from '@/components/settings-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { api } from '@/lib/api';
+import { api, errorText } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useOptions } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
@@ -112,6 +125,123 @@ function StatusCard({ perDay }: { perDay: number }) {
               <AlertDescription>{status.lastError.text}</AlertDescription>
             </Alert>
           )}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+const signed = (n: number) => (n > 0 ? `+${n}` : String(n));
+const notesText = (person: SvetaPerson) => person.notes.map((note) => note.text).join('\n');
+
+/** Один человек: отношение, прозвище, заметки — правка и «стереть». */
+function PersonRow({ person }: { person: SvetaPerson }) {
+  const queryClient = useQueryClient();
+  const [attitude, setAttitude] = useState(person.attitude);
+  const [nickname, setNickname] = useState(person.nickname ?? '');
+  const [notes, setNotes] = useState(notesText(person));
+  const dirty = attitude !== person.attitude || nickname !== (person.nickname ?? '') || notes !== notesText(person);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['sveta-people'] });
+
+  const save = useMutation({
+    mutationFn: () => api.put<SvetaPerson>(`/sveta/people/${person.userId}`, { attitude, nickname, notes: notes.split('\n') }),
+    onSuccess: () => {
+      toast.success('Сохранено.');
+      void refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const forget = useMutation({
+    mutationFn: () => api.delete(`/sveta/people/${person.userId}`),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      void refresh();
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+
+  const tone = person.attitude <= -20 ? 'bg-destructive/15 text-destructive' : person.attitude >= 20 ? 'bg-success/15 text-success' : '';
+  const id = (field: string) => `person-${person.userId}-${field}`;
+  return (
+    <details className="group rounded-xl border bg-card">
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-3 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-medium">{person.name}</span>
+          {person.nickname && <span className="text-muted-foreground"> · «{person.nickname}»</span>}
+        </span>
+        <Badge variant="secondary" className={tone}>
+          {signed(person.attitude)}
+        </Badge>
+        <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">{formatDateTime(person.updatedAt)}</span>
+      </summary>
+      <div className="flex flex-col gap-4 border-t px-4 py-3">
+        <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field>
+            <FieldLabel htmlFor={id('attitude')}>Отношение</FieldLabel>
+            <NumberField id={id('attitude')} min={-100} max={100} value={attitude} onChange={setAttitude} />
+            <FieldDescription>−100 — терпеть не может, 0 — нейтрально, +100 — обожает.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={id('nickname')}>Прозвище</FieldLabel>
+            <Input id={id('nickname')} maxLength={32} value={nickname} onChange={(event) => setNickname(event.target.value)} />
+          </Field>
+          <Field className="sm:col-span-2">
+            <FieldLabel htmlFor={id('notes')}>Заметки</FieldLabel>
+            <Textarea id={id('notes')} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} />
+            <FieldDescription>По одной на строку: до 10 заметок, каждая до 200 символов.</FieldDescription>
+          </Field>
+        </FieldGroup>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+            Сохранить
+          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger render={<Button variant="outline" disabled={forget.isPending} />}>
+              <Trash2 /> Стереть
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Стереть память Светы — {person.name}?</AlertDialogTitle>
+                <AlertDialogDescription>Света забудет отношение, прозвище и заметки. Вернуть их не получится.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Отмена</AlertDialogCancel>
+                <AlertDialogAction onClick={() => forget.mutate()}>Стереть</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+/** Что Света помнит о людях: список с поиском. */
+function MemoryCard() {
+  const { data: people } = useQuery({ queryKey: ['sveta-people'], queryFn: () => api.get<SvetaPerson[]>('/sveta/people') });
+  const [search, setSearch] = useState('');
+  const query = search.trim().toLowerCase();
+  const shown = people?.filter((p) => `${p.name} ${p.nickname ?? ''}`.toLowerCase().includes(query)) ?? [];
+
+  return (
+    <SectionCard
+      title="Память о людях"
+      description="Отношение, прозвище и заметки о каждом. Света меняет их сама — только о том, кто к ней обратился. Участник может спросить «Света, что ты обо мне помнишь?» или попросить «Света, забудь меня»."
+    >
+      {!people ? (
+        <Skeleton className="h-20 w-full" />
+      ) : people.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Света пока ни о ком ничего не помнит.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {people.length > 5 && (
+            <Input placeholder="Поиск по нику или прозвищу" value={search} onChange={(event) => setSearch(event.target.value)} />
+          )}
+          {shown.map((person) => (
+            <PersonRow key={`${person.userId}-${person.updatedAt}`} person={person} />
+          ))}
+          {shown.length === 0 && <p className="text-sm text-muted-foreground">Никого не нашлось.</p>}
         </div>
       )}
     </SectionCard>
@@ -235,6 +365,7 @@ export function SvetaPage() {
               </Field>
             </FieldGroup>
           </SectionCard>
+          <MemoryCard />
           <SaveBar form={form} />
         </>
       )}

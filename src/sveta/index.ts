@@ -17,6 +17,7 @@ import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './c
 import { GeminiError, generate, type GeminiReply } from './gemini.ts';
 import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
+import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
 import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
 
@@ -100,6 +101,21 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   if (!apiKey) return noteError('нет ключа: впиши GEMINI_API_KEY в .env и перезапусти бота.', now);
 
   const quiet = { parse: [] as never[], repliedUser: false };
+  const authorName = message.member?.displayName ?? message.author.displayName;
+
+  // «Что ты обо мне помнишь» и «забудь меня» — отвечает код: точно, без запроса к Gemini и без лимитов.
+  const command = trigger === 'random' ? null : memoryCommand(message.content);
+  if (command === 'ask') {
+    await message.reply({ content: memoryReport(getPerson(message.guildId, message.author.id)), allowedMentions: quiet });
+    return;
+  }
+  if (command === 'forget') {
+    const forgotten = forgetPerson(message.guildId, message.author.id);
+    await message.reply({ content: forgotten ? FORGOTTEN : NOTHING_TO_FORGET, allowedMentions: quiet });
+    if (forgotten) console.log(`🧹 Света стёрла память по просьбе: ${authorName}.`);
+    return;
+  }
+
   const verdict = limiter.check(trigger, message.author.id, message.channelId, now, s);
   if (verdict !== 'ok') {
     // Позвали, а ответить нельзя: один раз в час говорим, что на перерыве; в остальных случаях молчим.
@@ -113,16 +129,31 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
 
   await message.channel.sendTyping().catch(() => {});
   const earlier = await message.channel.messages.fetch({ limit: HISTORY - 1, before: message.id }).catch(() => null);
-  const lines: ChatLine[] = [...(earlier?.values() ?? [])]
-    .reverse()
-    .concat(message)
-    .map((m) => ({
-      name: m.member?.displayName ?? m.author.displayName,
-      text: lineText(m.cleanContent, m.attachments.size, m.stickers.size),
-      fromSveta: m.author.id === me,
-    }));
+  const history = [...(earlier?.values() ?? [])].reverse().concat(message);
+  const lines: ChatLine[] = history.map((m) => ({
+    name: m.member?.displayName ?? m.author.displayName,
+    text: lineText(m.cleanContent, m.attachments.size, m.stickers.size),
+    fromSveta: m.author.id === me,
+  }));
+  // Досье тех, кто в разговоре (люди, не боты), — Света видит, как к кому относится.
+  const people = [...new Set(history.filter((m) => !m.author.bot).map((m) => m.author.id))]
+    .map((userId) => getPerson(message.guildId, userId))
+    .filter((person): person is Person => person !== null);
 
-  const system = systemPrompt(s.persona, { guildName: message.guild.name, now: formatNow(now), summary: guildSummary(message.guildId) });
+  const system = systemPrompt(s.persona, {
+    guildName: message.guild.name,
+    now: formatNow(now),
+    summary: guildSummary(message.guildId),
+    people: dossiers(people),
+  });
+  const author = { guildId: message.guildId, userId: message.author.id, name: authorName };
+  let writes = 0;
+  // Инструменты сборов только читают; инструменты памяти пишут — только об авторе и не больше трёх раз за ответ.
+  const runCall = (call: { name: string; args: Record<string, unknown> }) => {
+    if (!MEMORY_TOOL_NAMES.has(call.name)) return runTool(call.name, call.args, message.guildId);
+    if (++writes > MEMORY.writesPerReply) return { error: 'Хватит записей на этот раз.' };
+    return runMemoryTool(call.name, call.args, author, now);
+  };
   let contents = buildContents(lines);
   const used: string[] = [];
   let requests = 0;
@@ -133,13 +164,15 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     for (let round = 0; ; round++) {
       const last = round >= MAX_TOOL_ROUNDS;
       requests++;
-      reply = await deps.generate({ apiKey, model: s.model, system, contents, tools: TOOLS, toolMode: last ? 'NONE' : 'AUTO' });
-      if (!reply.calls.length || last) break;
+      reply = await deps.generate({ apiKey, model: s.model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' });
+      if (!reply.calls.length) break;
       used.push(...reply.calls.map((call) => call.name));
       // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.
       const results = reply.calls.map((call) => ({
-        functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: { result: runTool(call.name, call.args, message.guildId) } },
+        functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: { result: runCall(call) } },
       }));
+      // Только записи в память, а текст уже есть, — второй запрос не нужен.
+      if (last || (reply.calls.every((call) => MEMORY_TOOL_NAMES.has(call.name)) && cleanReply(reply.text))) break;
       contents = [...contents, reply.content, { role: 'user', parts: results }];
     }
     const text = cleanReply(reply.text);

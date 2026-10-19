@@ -137,6 +137,16 @@ export type SettingsSection = keyof SettingsSections;
 
 // --- Ответы API ---
 
+/** Что Света помнит о человеке (GET /api/sveta/people). */
+export interface SvetaPerson {
+  userId: string;
+  name: string;
+  attitude: number;
+  nickname: string | null;
+  notes: { at: number; text: string }[];
+  updatedAt: number;
+}
+
 /** GET /api/sveta/status — подключена ли Света и сколько ответила сегодня. */
 export interface SvetaStatus {
   hasToken: boolean;

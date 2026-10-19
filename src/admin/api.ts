@@ -29,6 +29,7 @@ import { settings as constants } from '../settings.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
 import { svetaStatus } from '../sveta/index.ts';
+import { forgetPerson, getPerson, listPeople, personInput, savePerson, type Person } from '../sveta/memory.ts';
 import type * as Api from './apiTypes.ts';
 import { readSession, type Session } from './auth.ts';
 import { channelName, checkChannel, checkRole, checkVoiceChannel, guildPoll, mentionRoles, messageUrl, roleOptions, textChannels, voiceChannels } from './forms.ts';
@@ -369,6 +370,28 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
 
   api.get('/settings', (c) => c.json(settingsJson(getSettings())));
   api.get('/sveta/status', (c) => c.json(svetaStatus(c.get('guild').id) satisfies Api.SvetaStatus));
+
+  // --- Память Светы о людях: посмотреть, поправить, стереть ---
+  const personJson = ({ userId, name, attitude, nickname, notes, updatedAt }: Person): Api.SvetaPerson => ({ userId, name, attitude, nickname, notes, updatedAt });
+  api.get('/sveta/people', (c) => c.json(listPeople(c.get('guild').id).map(personJson)));
+  api.put('/sveta/people/:user{[0-9]+}', async (c) => {
+    const person = getPerson(c.get('guild').id, c.req.param('user'));
+    if (!person) return fail(c, ['Света об этом человеке ничего не помнит.'], 404);
+    const input = personInput(obj(await c.req.json().catch(() => null)));
+    if (input.errors.length) return fail(c, input.errors);
+    const now = Date.now();
+    // У заметок, которые не меняли, остаётся их дата.
+    const notes = input.notes.map((text) => ({ at: person.notes.find((n) => n.text === text)?.at ?? now, text }));
+    savePerson({ ...person, attitude: input.attitude, nickname: input.nickname, notes, updatedAt: now });
+    await log(c, 'Память Светы изменена в админке', `**О ком:** ${person.name} (<@${person.userId}>)`);
+    return c.json(personJson(getPerson(person.guildId, person.userId)!));
+  });
+  api.delete('/sveta/people/:user{[0-9]+}', async (c) => {
+    const person = getPerson(c.get('guild').id, c.req.param('user'));
+    if (!person || !forgetPerson(person.guildId, person.userId)) return fail(c, ['Света об этом человеке ничего не помнит.'], 404);
+    await log(c, 'Память Светы стёрта в админке', `**О ком:** ${person.name} (<@${person.userId}>)`, LOG_COLORS.delete);
+    return ok(c, `Память Светы стёрта: ${person.name}.`);
+  });
 
   api.put('/settings/:section', async (c) => {
     const section = sections[c.req.param('section') as Api.SettingsSection];

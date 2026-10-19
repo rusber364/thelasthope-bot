@@ -49,6 +49,7 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T = ApiMessage>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T = ApiMessage>(path: string, body: unknown) => request<T>('PUT', path, body),
+  delete: <T = ApiMessage>(path: string) => request<T>('DELETE', path),
 };
 
 /** Текст ошибки для уведомления. */

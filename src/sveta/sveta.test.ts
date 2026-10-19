@@ -333,3 +333,92 @@ test('новости о сборах: заготовленные фразы со
   assert.doesNotMatch(cancel, /discord\.com/);
   assert.match(newsText('cancel', published, 0.99), /^Отбой: рейд \*\*Огненные Недра\*\* не состоится/);
 });
+
+// --- Этап 3: память о людях ---
+
+const memory = await import('./memory.ts');
+
+test('память: шаг отношения не больше ±20 и предел ±100; заметки без упоминаний, не длиннее 200, хранятся последние 10', () => {
+  const t = 1_000;
+  assert.equal(memory.changeAttitude('M', 'p1', 'Вася', 50, t).attitude, 20, 'за раз — не больше 20');
+  for (let i = 0; i < 10; i++) memory.changeAttitude('M', 'p1', 'Вася', 20, t);
+  assert.equal(memory.getPerson('M', 'p1')!.attitude, 100);
+  assert.equal(memory.changeAttitude('M', 'p1', 'Вася', -500, t).attitude, 80);
+
+  memory.addNote('M', 'p1', 'Вася', 'зовёт <@123> и @everyone   в рейд', t);
+  assert.equal(memory.getPerson('M', 'p1')!.notes[0]!.text, 'зовёт и everyone в рейд');
+  for (let i = 0; i < 12; i++) memory.addNote('M', 'p1', 'Вася', `заметка ${i}`, t + i);
+  const notes = memory.getPerson('M', 'p1')!.notes;
+  assert.equal(notes.length, 10);
+  assert.equal(notes.at(-1)!.text, 'заметка 11');
+  assert.equal(memory.addNote('M', 'p1', 'Вася', 'а'.repeat(500), t)!.notes.at(-1)!.text.length, 200);
+  assert.equal(memory.setNickname('M', 'p1', 'Вася', 'Беглый танк '.repeat(5), t).nickname!.length, 32);
+
+  assert.equal(memory.forgetPerson('M', 'p1'), true);
+  assert.equal(memory.getPerson('M', 'p1'), null);
+  assert.equal(memory.forgetPerson('M', 'p1'), false);
+});
+
+test('«что ты обо мне помнишь» и «забудь меня» распознаются; отчёт — ровно то, что в памяти', () => {
+  assert.equal(memory.memoryCommand('Света, что ты обо мне помнишь?'), 'ask');
+  assert.equal(memory.memoryCommand('света что знаешь про меня'), 'ask');
+  assert.equal(memory.memoryCommand('Света, забудь меня'), 'forget');
+  assert.equal(memory.memoryCommand('Света, забудь всё обо мне!'), 'forget');
+  assert.equal(memory.memoryCommand('Света, что думаешь про рейд?'), null);
+
+  assert.equal(memory.memoryReport(null), 'Пока ничего — мы почти не знакомы 🙂');
+  const report = memory.memoryReport({ guildId: 'M', userId: 'p', name: 'Вася', attitude: -35, nickname: 'Беглый танк', notes: [{ at: 0, text: 'убежал с пулла' }], updatedAt: 0 });
+  assert.match(report, /Отношение: -35 — недолюбливаю/);
+  assert.match(report, /Прозвище: «Беглый танк»/);
+  assert.match(report, /• .+: убежал с пулла/);
+  assert.match(memory.dossiers([]), /пока ничего не помнишь/);
+
+  const bad = memory.personInput({ attitude: 150, nickname: 'x'.repeat(40), notes: Array.from({ length: 11 }, () => 'n') });
+  assert.equal(bad.errors.length, 3);
+  const good = memory.personInput({ attitude: -10, nickname: ' Танк ', notes: ['любит друида', ''] });
+  assert.deepEqual(good, { errors: [], attitude: -10, nickname: 'Танк', notes: ['любит друида'] });
+});
+
+test('Света и память: «что помнишь» и «забудь меня» — без Gemini; запись — только об авторе, без второго запроса; досье — в инструкции', async () => {
+  configure();
+  memory.forgetPerson('T', 'u7');
+  await onMessage(message('Света, что ты обо мне помнишь?', { userId: 'u7' }), deps);
+  assert.equal(requests.length, 0, 'в Gemini ничего не ушло');
+  assert.equal(replies.at(-1)?.content, 'Пока ничего — мы почти не знакомы 🙂');
+
+  // Модель ответила текстом и сразу записала в память — второй запрос не нужен.
+  geminiAnswer = async () => ({
+    text: 'Ах так? Запомню 😤',
+    tokens: 5,
+    calls: [
+      { name: 'change_attitude', args: { change: -15, reason: 'назвал Свету железякой' }, id: 'a' },
+      { name: 'set_nickname', args: { nickname: 'Обидчик' }, id: 'b' },
+    ],
+    content: { role: 'model', parts: [] },
+  });
+  await onMessage(message('Света, ты просто железяка', { userId: 'u7' }), deps);
+  assert.equal(requests.length, 1);
+  assert.equal(replies.at(-1)?.content, 'Ах так? Запомню 😤');
+  const person = memory.getPerson('T', 'u7')!;
+  assert.equal(person.attitude, -15);
+  assert.equal(person.nickname, 'Обидчик');
+  assert.match(person.notes[0]!.text, /железякой/, 'причина заметной смены отношения — в заметках');
+  assert.equal(memory.getPerson('T', 'u8'), null, 'о других — ничего');
+
+  // В следующий раз Света видит досье собеседника.
+  clock += 20_000;
+  geminiAnswer = async () => say('Ну-ну.');
+  await onMessage(message('Света, мир?', { userId: 'u7' }), deps);
+  assert.match(requests.at(-1)!.system, /- Морозко: отношение -15 \(нейтрально\), прозвище «Обидчик», помнишь: обидело: назвал Свету железякой/);
+
+  // Больше трёх записей за ответ — не выполняются.
+  clock += 20_000;
+  const spam = Array.from({ length: 5 }, (_, i) => ({ name: 'remember', args: { note: `факт ${i}` }, id: `r${i}` }));
+  geminiAnswer = async () => ({ text: 'Запомнила!', tokens: 1, calls: spam, content: { role: 'model', parts: [] } });
+  await onMessage(message('Света, запомни всё', { userId: 'u7' }), deps);
+  assert.equal(memory.getPerson('T', 'u7')!.notes.filter((n) => n.text.startsWith('факт')).length, 3);
+
+  await onMessage(message('Света, забудь меня', { userId: 'u7' }), deps);
+  assert.equal(replies.at(-1)?.content, 'Всё, забыла 🙈 Начинаем с чистого листа.');
+  assert.equal(memory.getPerson('T', 'u7'), null);
+});
