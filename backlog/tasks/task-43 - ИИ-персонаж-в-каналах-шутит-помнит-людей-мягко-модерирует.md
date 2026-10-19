@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-18 20:26'
-updated_date: '2026-10-19 00:55'
+updated_date: '2026-10-19 01:11'
 labels:
   - ai
   - fun
@@ -55,4 +55,6 @@ ordinal: 21000
 
 <!-- SECTION:NOTES:BEGIN -->
 19.10, этап 1 в коде: src/sveta (triggers, context, gemini, limits, persona, index), настройки settings.sveta, таблица sveta_usage, страница «Света» в админке (подключение, каналы, характер, модель, потолки), ChannelsPicker. 11 тестов Светы, всего 225. Модель по умолчанию gemini-flash-latest, запрос generateContent (Interactions API у Google рекомендованный, но в нём нет safetySettings). Ждёт владельца: приложение «Света» + SVETA_TOKEN, GEMINI_API_KEY, приглашение, каналы — и проверка вживую.
+
+19.10 04:10: Света вживую ответила в #приветствие на упоминание (Sveta#5176, gemini-flash-latest, 513 токенов, ответ в характере). Первое упоминание было до сохранения настроек — промолчала, как и должна. Осталось проверить вживую: вызов по имени, паузу, потолок и «перерыв», ошибку модели, попытку сломать характер.
 <!-- SECTION:NOTES:END -->
