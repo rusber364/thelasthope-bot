@@ -67,7 +67,7 @@ test('валидация ловит неверные значения', () => {
   s.welcome.text = ' ';
   s.raids.defaultSize = 0;
   s.raids.defaultTime = '25:00';
-  const template = { id: 'a', title: 'Рейд', description: '', size: 40, time: '20:00', channelId: null, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], kind: 'raid' as const, limits: { tank: null, healer: null, dps: null }, slots: [] };
+  const template = { id: 'a', title: 'Рейд', description: '', size: 40, time: '20:00', channelId: null, pingRoleIds: [], dmOnOpen: false, mainRoleIds: [], reserveRoleIds: [], kind: 'raid' as const, limits: { tank: null, healer: null, dps: null }, slots: [] };
   s.raidTemplates = [
     { ...template, slots: [{ raidDay: 3, raidTime: '20:00', openDay: 2, openTime: '00:00' }, { raidDay: 3, raidTime: '21:00', openDay: 8, openTime: '0:0' }] },
     { ...template, title: 'Рейд 2', size: 0, slots: [{ raidDay: 1, raidTime: '25:00', openDay: 5, openTime: '23:00' }] },
@@ -103,7 +103,7 @@ test('старые расписания (дни открытия + сдвиг) �
     ['t1', 'group1', 'late'],
   );
   const [manual, group, late] = s.raidTemplates;
-  const everyone = { mainRoleIds: [], reserveRoleIds: [], kind: 'raid', limits: { tank: null, healer: null, dps: null } };
+  const everyone = { dmOnOpen: false, mainRoleIds: [], reserveRoleIds: [], kind: 'raid', limits: { tank: null, healer: null, dps: null } };
   assert.deepEqual(manual, { id: 't1', title: 'Огненные Недра', description: 'Сбор в 19:45', size: 40, time: '20:00', channelId: 'C', pingRoleIds: ['P2'], ...everyone, slots: [] });
   assert.deepEqual(group, {
     id: 'group1',
@@ -129,6 +129,6 @@ test('лимиты по ролям: целые, в сумме не больше 
   assert.match(limitErrors('Шаблон 1', { tank: 1.5, healer: null, dps: null }, 5).join(), /«Танки» — целое число/);
 
   const s = structuredClone(getSettings());
-  s.raidTemplates = [{ id: 'd', title: 'Мёртвые копи', description: '', size: 5, time: '21:00', channelId: null, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], kind: 'quest' as never, limits: { tank: 1, healer: 1, dps: 3 }, slots: [] }];
+  s.raidTemplates = [{ id: 'd', title: 'Мёртвые копи', description: '', size: 5, time: '21:00', channelId: null, pingRoleIds: [], dmOnOpen: false, mainRoleIds: [], reserveRoleIds: [], kind: 'quest' as never, limits: { tank: 1, healer: 1, dps: 3 }, slots: [] }];
   assert.match(validateSettings(s).join(), /неизвестный вид сбора/);
 });

@@ -60,7 +60,7 @@ export async function publishRaid(
   }
 }
 
-export function raidUrl(raid: Raid): string {
+export function raidUrl(raid: Pick<Raid, 'guildId' | 'channelId' | 'messageId'>): string {
   return `https://discord.com/channels/${raid.guildId}/${raid.channelId}/${raid.messageId ?? ''}`;
 }
 

@@ -23,6 +23,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
 import { formatDay, todayInKyiv } from '@/lib/format';
@@ -368,6 +369,23 @@ function TemplateEditor({
         </Field>
       </div>
 
+      <Field orientation="horizontal" className="items-start">
+        <Switch
+          id={id('dm')}
+          checked={template.dmOnOpen}
+          disabled={!template.pingRoleIds.length && !template.dmOnOpen}
+          onCheckedChange={(dmOnOpen: boolean) => set({ dmOnOpen })}
+        />
+        <div className="flex flex-col gap-0.5">
+          <FieldLabel htmlFor={id('dm')}>Разослать в личку при открытии</FieldLabel>
+          <FieldDescription>
+            {template.pingRoleIds.length
+              ? 'Тем, у кого роли из «Упомянуть при открытии»: сообщение со ссылкой на регу и кнопкой «Не присылать мне».'
+              : 'Рассылка идёт ролям из «Упомянуть при открытии» — сначала выбери их.'}
+          </FieldDescription>
+        </div>
+      </Field>
+
       <Field className="gap-1.5">
         <FieldLabel>Расписание</FieldLabel>
         {template.slots.length > 0 && (
@@ -451,6 +469,7 @@ export function TemplatesPage() {
                       time: settings.raids.defaultTime,
                       channelId: null,
                       pingRoleIds: [],
+                      dmOnOpen: false,
                       mainRoleIds: [],
                       reserveRoleIds: [],
                       kind: 'raid',

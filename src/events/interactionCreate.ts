@@ -2,6 +2,7 @@ import { Events, MessageFlags, type Client, type Interaction } from 'discord.js'
 import { commandsByName } from '../commands/index.ts';
 import { componentHandlers } from '../components.ts';
 import { handlePollInteraction, pollHandler } from '../polls/handlers.ts';
+import { RAID_DM_PREFIX, handleRaidDmButton } from '../raids/openDm.ts';
 import { raidWizardHandler } from '../raids/wizard.ts';
 
 /**
@@ -45,9 +46,11 @@ async function route(interaction: Interaction): Promise<void> {
   if (interaction.isMessageComponent() || interaction.isModalSubmit()) {
     const [prefix = '', ...args] = interaction.customId.split(':');
     if (!interaction.inCachedGuild()) {
-      // Вне сервера — кнопки создания реги в личке и опросы (анкету новичков бот присылает и в личку).
+      // Вне сервера — кнопки создания реги в личке, опросы (анкету новичков бот присылает и в личку)
+      // и «Не присылать мне» в реге, разосланной в личку.
       if (prefix === raidWizardHandler.prefix && interaction.isMessageComponent()) await raidWizardHandler.handle(interaction, args);
       else if (prefix === pollHandler.prefix && !interaction.inGuild()) await handlePollInteraction(interaction, args);
+      else if (prefix === RAID_DM_PREFIX && interaction.isButton()) await handleRaidDmButton(interaction, args);
       return;
     }
     await componentHandlers.get(prefix)?.handle(interaction, args);

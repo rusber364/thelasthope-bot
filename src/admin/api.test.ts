@@ -248,6 +248,7 @@ test('шаблоны рейдов: расписание и роли, прове�
       {
         ...base,
         pingRoleIds: ['r1', 'r1', 'r2'],
+        dmOnOpen: true,
         mainRoleIds: ['r1'],
         reserveRoleIds: ['r2'],
         slots: [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')],
@@ -258,6 +259,7 @@ test('шаблоны рейдов: расписание и роли, прове�
   const template = getSettings().raidTemplates[0]!;
   assert.ok(template.id);
   assert.deepEqual(template.pingRoleIds, ['r1', 'r2'], 'повтор роли убран');
+  assert.equal(template.dmOnOpen, true, 'галочка «Разослать в личку при открытии» сохраняется');
   assert.deepEqual([template.mainRoleIds, template.reserveRoleIds], [['r1'], ['r2']]);
   assert.deepEqual(template.slots, [slot(1, '20:00', 5, '23:00'), slot(3, '20:00', 2, '00:00')]);
 

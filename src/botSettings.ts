@@ -126,6 +126,8 @@ export interface RaidTemplate {
   channelId: string | null;
   /** Роли, которые бот упоминает, когда открывает регу. */
   pingRoleIds: string[];
+  /** Разослать открытую регу в личку тем, у кого роли из pingRoleIds (с кнопкой «Не присылать мне»). */
+  dmOnOpen: boolean;
   /** С какими ролями записываются в основу (пусто — все). */
   mainRoleIds: string[];
   /** С какими ролями записываются только в запас (имеет смысл, только если основа ограничена). */
@@ -277,7 +279,7 @@ function defaults(): BotSettings {
 /** Группа по умолчанию: рейды в чт, пт и пн в 20:00, рега открывается в тот же день в 00:00. */
 function defaultGroup(id: string, title: string, channelId: string | null): RaidTemplate {
   const slots = [4, 5, 1].map((day) => ({ raidDay: day, raidTime: '20:00', openDay: day, openTime: '00:00' }));
-  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], mainRoleIds: [], reserveRoleIds: [], kind: 'raid', limits: NO_LIMITS, slots };
+  return { id, title, description: '', size: 40, time: '20:00', channelId, pingRoleIds: [], dmOnOpen: false, mainRoleIds: [], reserveRoleIds: [], kind: 'raid', limits: NO_LIMITS, slots };
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -304,6 +306,7 @@ function migrateSchedules(saved: unknown): unknown {
       time: s.raidTime,
       channelId: s.channelId ?? null,
       pingRoleIds: s.pingRoleId ? [s.pingRoleId] : [],
+      dmOnOpen: false,
       mainRoleIds: [],
       reserveRoleIds: [],
       slots: days.map((day) => ({ raidDay: ((day - 1 + offset) % 7) + 1, raidTime: s.raidTime, openDay: day, openTime: s.openAt })),
@@ -338,6 +341,7 @@ export function getSettings(): BotSettings {
   merged.raidTemplates = merged.raidTemplates.map(({ pingRoleId, ...template }: RaidTemplate & { pingRoleId?: string | null }) => ({
     ...template,
     pingRoleIds: template.pingRoleIds ?? (pingRoleId ? [pingRoleId] : []),
+    dmOnOpen: template.dmOnOpen === true,
     mainRoleIds: template.mainRoleIds ?? [],
     reserveRoleIds: template.reserveRoleIds ?? [],
     kind: isKind(template.kind) ? template.kind : 'raid',

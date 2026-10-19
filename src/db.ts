@@ -171,6 +171,14 @@ db.exec(`
     PRIMARY KEY (raid_id, user_id)
   );
 
+  -- Кто отписался от рег в личку при открытии (кнопка «Не присылать мне»), по серверам.
+  CREATE TABLE IF NOT EXISTS raid_dm_optout (
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+
   -- Временные каналы: когда удалить.
   CREATE TABLE IF NOT EXISTS temp_channels (
     channel_id TEXT    PRIMARY KEY,

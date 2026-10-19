@@ -65,6 +65,8 @@ export interface RaidTemplate {
   time: string;
   channelId: string | null;
   pingRoleIds: string[];
+  /** Разослать регу в личку ролям из pingRoleIds при открытии. */
+  dmOnOpen: boolean;
   /** Кто записывается в основу (пусто — все) и кто только в запас. */
   mainRoleIds: string[];
   reserveRoleIds: string[];

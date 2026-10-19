@@ -19,6 +19,7 @@ import { uiEmoji } from './emojis.ts';
 import { describeSignup, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { syncRaidEventLater } from './events.ts';
 import { sendPersonalReminders } from './personalReminders.ts';
+import { sendRaidToDms } from './openDm.ts';
 import { announceRaid } from '../sveta/news.ts';
 import {
   getSignups,
@@ -110,6 +111,7 @@ async function openScheduledRaids(client: Client<true>): Promise<void> {
       template.pingRoleIds,
     );
     console.log(`📅 Открыта рега #${raid.id} «${raid.title}» в #${channel.name}`);
+    if (template.dmOnOpen) void sendRaidToDms(channel.guild, raid, template.pingRoleIds);
   }
 }
 

@@ -24,6 +24,7 @@ import { refreshBoard } from '../raids/board.ts';
 import { KINDS, isKind, type ActivityKind, type RoleLimits } from '../raids/kinds.ts';
 import { raidFromTemplate } from '../raids/scheduler.ts';
 import { RAID_PUBLISH_PERMISSIONS, publishRaid, raidUrl } from '../raids/service.ts';
+import { sendRaidToDms } from '../raids/openDm.ts';
 import { listRaids } from '../raids/store.ts';
 import { settings as constants } from '../settings.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
@@ -289,6 +290,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
             time: text(t.time),
             channelId: checkChannel(guild, id(t.channelId), `Шаблон ${i + 1}`, errors),
             pingRoleIds: roleList(guild, t.pingRoleIds, `Шаблон ${i + 1}: роль для упоминания`, errors),
+            dmOnOpen: bool(t.dmOnOpen),
             mainRoleIds: roleList(guild, t.mainRoleIds, `Шаблон ${i + 1}: роль основы`, errors),
             reserveRoleIds: roleList(guild, t.reserveRoleIds, `Шаблон ${i + 1}: роль запаса`, errors),
             kind: (text(t.kind) || 'raid') as ActivityKind,
@@ -630,6 +632,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         template.pingRoleIds,
       );
       await log(c, 'Рега создана через админку', `**Рега:** #${raid.id} «${raid.title}» по шаблону\n**Канал:** <#${raid.channelId}>`, LOG_COLORS.create);
+      if (template.dmOnOpen) void sendRaidToDms(guild, raid, template.pingRoleIds);
       return c.json({ message: `Рега #${raid.id} «${raid.title}» создана в #${channel.name}.`, url: raidUrl(raid) } satisfies Api.TemplateCreateResponse);
     } catch (error) {
       console.error('Не удалось создать регу из админки:', error);
