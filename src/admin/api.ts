@@ -17,7 +17,7 @@ import { syncVoiceRoles } from '../lib/voiceRoles.ts';
 import { LOG_COLORS, sendLog, sendTestLogs } from '../logs/send.ts';
 import { estimatedMinutes, parsePollFile, questionCount } from '../polls/format.ts';
 import { buildResultsCsv } from '../polls/render.ts';
-import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pollStats, publishPoll } from '../polls/service.ts';
+import { MAX_IMAGE_SIZE, PUBLISH_PERMISSIONS, answersByUser, closeAndRedraw, pollStats, publishPoll, savePollUnpublished } from '../polls/service.ts';
 import { countResponses, getPollFile, listPolls, listResponses, type StoredPoll } from '../polls/store.ts';
 import { attendanceRecords, checkedRaids, summarize } from '../raids/attendanceStats.ts';
 import { refreshBoard } from '../raids/board.ts';
@@ -469,6 +469,16 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
     const parsed = parsePollFile(source);
     if (!parsed.ok) return fail(c, parsed.errors);
 
+    // «Сохранить без публикации»: ни канала, ни сообщения — такой опрос проходят из приветствия и лички (анкета новичков).
+    if (form.publish === '0') {
+      if (form.image instanceof File && form.image.size > 0) {
+        return fail(c, ['Картинка-файл показывается в сообщении опроса в канале — без публикации её некуда прикрепить. Убери её или опубликуй опрос.']);
+      }
+      const poll = savePollUnpublished(guild.id, parsed.poll, c.get('session').userId, source);
+      await logPoll(c, 'Опрос сохранён без публикации', poll, LOG_COLORS.create);
+      return c.json({ id: poll.id });
+    }
+
     const errors: string[] = [];
     const channelId = checkChannel(guild, id(form.channel), 'Канал опроса', errors);
     if (!channelId && !errors.length) errors.push('Выбери канал, куда опубликовать опрос.');
@@ -572,7 +582,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
   });
 
   const logPoll = (c: C, title: string, poll: StoredPoll, color: number) =>
-    log(c, title, `**Опрос:** #${poll.id} «${poll.definition.title}»\n**Канал:** <#${poll.channelId}>`, color);
+    log(c, title, `**Опрос:** #${poll.id} «${poll.definition.title}»\n**Канал:** ${poll.channelId ? `<#${poll.channelId}>` : 'без публикации'}`, color);
 
   // --- Посещаемость ---
   api.get('/attendance', async (c) => {

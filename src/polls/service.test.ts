@@ -111,6 +111,16 @@ test('закрытие: опрос закрыт в базе, сообщение 
   assert.equal(edits.length, 1);
 });
 
+test('опрос без публикации: ни канала, ни сообщения; закрытие не трогает Discord', async () => {
+  const { savePollUnpublished } = await import('./service.ts');
+  const stored = savePollUnpublished('g', definition, 'u', SOURCE);
+  assert.deepEqual([stored.channelId, stored.messageId, stored.source], [null, null, SOURCE]);
+  assert.equal(getPoll(stored.id)!.channelId, null, 'пустой канал в базе читается как null');
+  const untouchable = { channels: { cache: { get: () => assert.fail('без публикации Discord не нужен') } } };
+  await closeAndRedraw(untouchable as never, stored);
+  assert.equal(getPoll(stored.id)!.closed, true);
+});
+
 test('ответы по людям: только отвеченные вопросы, сначала дошедшие до конца, варианты — названиями', async () => {
   const { answersByUser } = await import('./service.ts');
   const people = answersByUser(poll(false), [

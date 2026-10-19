@@ -86,11 +86,12 @@ export function guildPoll(guild: Guild, id: string | undefined): StoredPoll | nu
   return poll?.guildId === guild.id ? poll : null;
 }
 
-export function channelName(guild: Guild, channelId: string): string {
+export function channelName(guild: Guild, channelId: string | null): string {
+  if (!channelId) return 'без публикации';
   const channel = guild.channels.cache.get(channelId);
   return channel ? `#${channel.name}` : 'канал удалён';
 }
 
 export function messageUrl(poll: StoredPoll): string | null {
-  return poll.messageId ? `https://discord.com/channels/${poll.guildId}/${poll.channelId}/${poll.messageId}` : null;
+  return poll.messageId && poll.channelId ? `https://discord.com/channels/${poll.guildId}/${poll.channelId}/${poll.messageId}` : null;
 }

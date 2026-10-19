@@ -51,10 +51,15 @@ export async function publishPoll(
   }
 }
 
+/** Сохранить опрос без сообщения в канале — для анкеты новичков: её проходят по кнопке из приветствия и лички. */
+export function savePollUnpublished(guildId: string, definition: PollDefinition, createdBy: string, source?: string): StoredPoll {
+  return createPoll(guildId, null, structuredClone(definition), createdBy, source ?? null);
+}
+
 /** Закрыть опрос и перерисовать его сообщение. Прикреплённую картинку загружаем заново, чтобы она не пропала. */
 export async function closeAndRedraw(guild: Guild, poll: StoredPoll): Promise<void> {
   closePoll(poll.id);
-  if (!poll.messageId) return;
+  if (!poll.messageId || !poll.channelId) return; // сохранён без публикации — перерисовывать нечего
   try {
     const channel = guild.channels.cache.get(poll.channelId);
     if (!channel?.isTextBased()) return;

@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CircleAlert, CircleCheck, FileText, ImagePlus, Send, X } from 'lucide-react';
+import { ArrowLeft, CircleAlert, CircleCheck, FileText, ImagePlus, Save, Send, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
@@ -76,7 +76,7 @@ export function PollEditorPage() {
   const [roleId, setRoleId] = useState<string | null>(null);
   const [image, setImage] = useState<File | null>(null);
   const [publishErrors, setPublishErrors] = useState<string[]>([]);
-  const [confirm, setConfirm] = useState<'publish' | 'template' | null>(null);
+  const [confirm, setConfirm] = useState<'publish' | 'save' | 'template' | null>(null);
   const imageUrl = useMemo(() => (image ? URL.createObjectURL(image) : null), [image]);
   useEffect(() => () => void (imageUrl && URL.revokeObjectURL(imageUrl)), [imageUrl]);
 
@@ -123,19 +123,23 @@ export function PollEditorPage() {
     onError: (error) => toast.error(errorText(error)),
   });
 
+  // save — без публикации: ни канала, ни сообщения; такой опрос делают анкетой новичков.
   const publish = useMutation({
-    mutationFn: () => {
+    mutationFn: (mode: 'publish' | 'save') => {
       const body = new FormData();
       body.set('source', source ?? '');
-      body.set('channel', channelId ?? '');
-      body.set('role', roleId ?? '');
-      if (image) body.set('image', image);
+      if (mode === 'save') body.set('publish', '0');
+      else {
+        body.set('channel', channelId ?? '');
+        body.set('role', roleId ?? '');
+        if (image) body.set('image', image);
+      }
       return api.post<{ id: number }>('/polls', body);
     },
-    onSuccess: ({ id }) => {
+    onSuccess: ({ id }, mode) => {
       storage.clear();
       void queryClient.invalidateQueries({ queryKey: ['polls'] });
-      toast.success('Опрос опубликован.');
+      toast.success(mode === 'publish' ? 'Опрос опубликован.' : 'Опрос сохранён без публикации — его можно сделать анкетой новичков.');
       void navigate(`/polls/${id}`);
     },
     onError: (error) => {
@@ -237,7 +241,7 @@ export function PollEditorPage() {
             {publishErrors.length > 0 && (
               <Alert variant="destructive">
                 <CircleAlert />
-                <AlertTitle>Не опубликовано</AlertTitle>
+                <AlertTitle>Не получилось</AlertTitle>
                 <AlertDescription>
                   <ul className="list-disc pl-4">
                     {publishErrors.map((error) => (
@@ -289,9 +293,18 @@ export function PollEditorPage() {
               )}
               <FieldDescription>Файл до 8 МБ — или строка «Картинка: ссылка» в тексте.</FieldDescription>
             </Field>
-            <Button size="lg" disabled={!valid || !channelId || checking || publish.isPending} onClick={() => setConfirm('publish')}>
-              {publish.isPending ? <Spinner /> : <Send />} Опубликовать
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button size="lg" disabled={!valid || !channelId || checking || publish.isPending} onClick={() => setConfirm('publish')}>
+                {publish.isPending && publish.variables === 'publish' ? <Spinner /> : <Send />} Опубликовать
+              </Button>
+              <Button size="lg" variant="outline" disabled={!valid || checking || publish.isPending} onClick={() => setConfirm('save')}>
+                {publish.isPending && publish.variables === 'save' ? <Spinner /> : <Save />} Сохранить без публикации
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Без публикации опрос не появится в канале — его делают анкетой новичков, и её проходят по кнопке из приветствия и лички.
+              Канал, роль и картинка тогда не нужны.
+            </p>
           </SectionCard>
         </div>
 
@@ -310,11 +323,19 @@ export function PollEditorPage() {
       <AlertDialog open={confirm !== null} onOpenChange={(open: boolean) => !open && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm === 'publish' ? 'Опубликовать опрос?' : 'Заменить текст шаблоном?'}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirm === 'publish'
+                ? 'Опубликовать опрос?'
+                : confirm === 'save'
+                  ? 'Сохранить без публикации?'
+                  : 'Заменить текст шаблоном?'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === 'publish'
                 ? `«${result?.preview?.title ?? ''}» появится в выбранном канале, и участники сразу смогут отвечать.`
-                : 'Текущий текст и черновик в браузере пропадут.'}
+                : confirm === 'save'
+                  ? `«${result?.preview?.title ?? ''}» сохранится без сообщения в канале. На его странице нажми «Сделать анкетой новичков» — и анкету предложат в приветствии и в личке.`
+                  : 'Текущий текст и черновик в браузере пропадут.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -322,14 +343,14 @@ export function PollEditorPage() {
             <AlertDialogAction
               variant={confirm === 'template' ? 'destructive' : 'default'}
               onClick={() => {
-                if (confirm === 'publish') {
+                if (confirm === 'publish' || confirm === 'save') {
                   setPublishErrors([]);
-                  publish.mutate();
+                  publish.mutate(confirm);
                 } else loadTemplate.mutate();
                 setConfirm(null);
               }}
             >
-              {confirm === 'publish' ? 'Опубликовать' : 'Заменить'}
+              {confirm === 'publish' ? 'Опубликовать' : confirm === 'save' ? 'Сохранить' : 'Заменить'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

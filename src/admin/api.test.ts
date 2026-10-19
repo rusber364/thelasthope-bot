@@ -357,6 +357,39 @@ test('анкета новичков: открытый опрос сервера 
   assert.equal(getSettings().onboarding.pollId, null);
 });
 
+test('опрос без публикации: ни канала, ни сообщения, «без публикации» в списке, можно сделать анкетой; картинка-файл — ошибка', async () => {
+  const source = '# Анкета\n\n## Знакомство\n\n### Как зовут персонажа? *\nОтвет: короткий\n';
+  const postsBefore = posts.length;
+  const withImage = new FormData();
+  withImage.append('source', source);
+  withImage.append('publish', '0');
+  withImage.append('image', new File([new Uint8Array([137, 80, 78, 71])], 'a.png', { type: 'image/png' }));
+  assert.match((await call('POST', '/polls', withImage)).json!.errors[0], /некуда прикрепить/);
+
+  const form = new FormData();
+  form.append('source', source);
+  form.append('publish', '0');
+  form.append('channel', 'c4'); // канал при сохранении без публикации не нужен и не используется
+  const saved = await call('POST', '/polls', form);
+  assert.equal(saved.status, 200);
+  const id = saved.json!.id as number;
+  const poll = getPoll(id)!;
+  assert.deepEqual([poll.channelId, poll.messageId, poll.closed, poll.source], [null, null, false, source]);
+  assert.ok(!JSON.stringify(posts.slice(postsBefore)).includes(`poll:start:${id}`), 'сообщения опроса в Discord нет');
+
+  const row = ((await call('GET', '/polls')).json! as { id: number; channel: string; url: string | null }[]).find((r) => r.id === id)!;
+  assert.deepEqual([row.channel, row.url], ['без публикации', null]);
+  assert.equal((await call('GET', `/polls/${id}`)).json!.info.channel, 'без публикации');
+  assert.equal((await put('onboarding', { onboarding: { ...getSettings().onboarding, pollId: id } })).status, 200, 'годится в анкету новичков');
+  assert.equal(getSettings().onboarding.pollId, id);
+  assert.equal((await put('onboarding', { onboarding: { ...getSettings().onboarding, pollId: null } })).status, 200);
+
+  const editsBefore = edits.length;
+  assert.match((await call('POST', `/polls/${id}/close`)).json!.message, /Опрос закрыт/);
+  assert.equal(getPoll(id)!.closed, true);
+  assert.equal(edits.length, editsBefore, 'перерисовывать нечего');
+});
+
 test('посещаемость за период', async () => {
   const raid = createRaid({ guildId: 'g1', channelId: 'c4', title: 'Проверка посещаемости', startsAt: Date.now() - 86_400_000, size: 40, createdBy: ADMIN });
   upsertSignup(raid.id, '20', 'mage_fire', 'Тестер');

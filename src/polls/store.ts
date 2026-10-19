@@ -5,7 +5,8 @@ import { emptyState, type PollDefinition, type PollState } from './format.ts';
 export interface StoredPoll {
   id: number;
   guildId: string;
-  channelId: string;
+  /** Канал сообщения опроса; null — сохранён без публикации (анкету проходят из приветствия и лички). */
+  channelId: string | null;
   messageId: string | null;
   definition: PollDefinition;
   createdBy: string;
@@ -28,7 +29,7 @@ function toPoll(row: Row): StoredPoll {
   return {
     id: Number(row.id),
     guildId: String(row.guild_id),
-    channelId: String(row.channel_id),
+    channelId: row.channel_id ? String(row.channel_id) : null,
     messageId: row.message_id == null ? null : String(row.message_id),
     definition: JSON.parse(String(row.definition)) as PollDefinition,
     createdBy: String(row.created_by),
@@ -47,10 +48,11 @@ function toResponse(row: Row): PollResponse {
   };
 }
 
-export function createPoll(guildId: string, channelId: string, definition: PollDefinition, createdBy: string, source: string | null = null): StoredPoll {
+export function createPoll(guildId: string, channelId: string | null, definition: PollDefinition, createdBy: string, source: string | null = null): StoredPoll {
+  // channel_id в базе NOT NULL: опрос без публикации хранится с пустой строкой.
   const row = db
     .prepare('INSERT INTO polls (guild_id, channel_id, definition, created_by, created_at, source) VALUES (?, ?, ?, ?, ?, ?) RETURNING *')
-    .get(guildId, channelId, JSON.stringify(definition), createdBy, Date.now(), source);
+    .get(guildId, channelId ?? '', JSON.stringify(definition), createdBy, Date.now(), source);
   return toPoll(row as Row);
 }
 
