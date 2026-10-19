@@ -81,3 +81,14 @@ test('дополнительные слова из настроек', () => {
   assert.ok(findProfanity('ну ты нуб', ['нуб']));
   assert.equal(findProfanity('ну ты нуб'), null);
 });
+
+test('уровень «только мат»: грубые слова пропускаются, мат и оскорбления по национальности и ориентации ловятся', () => {
+  for (const text of ['ну ты и сука', 'мудак', 'шлюха', 'гондон', 'suka', 'bitch', 'bullshit']) {
+    assert.equal(findProfanity(text, [], 'mat'), null, `«${text}» — грубое слово, не мат`);
+    assert.ok(findProfanity(text, [], 'rude'), `«${text}» на уровне «мат и грубые слова» ловится`);
+  }
+  for (const text of ['ну ты и хуй', 'заебал уже', 'бля', 'пидор', 'fuck', 'nigger', 'blyat']) {
+    assert.ok(findProfanity(text, [], 'mat'), `«${text}» ловится и на уровне «только мат»`);
+  }
+  assert.ok(findProfanity('ну ты нуб', ['нуб'], 'mat'), 'свои слова — на любом уровне');
+});

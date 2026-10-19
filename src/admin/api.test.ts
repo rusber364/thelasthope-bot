@@ -194,6 +194,15 @@ test('логи, оповещения, приветствие, личка и пр
   assert.equal(badAlerts.status, 400);
   assert.ok(badAlerts.json!.errors.some((e: string) => /такого голосового канала нет/.test(e)));
 
+  const profanity = { enabled: false, level: 'mat', action: 'report', strikesToMute: 2, strikeWindowMinutes: 5, muteMinutes: 30, warningSeconds: 0 };
+  const savedFilter = await put('profanity', { profanity: { ...profanity, ignoredChannelIds: ['c1', 'c1'], extraWords: [' Нуб ', 'нуб', '', 'Рак'] } });
+  assert.equal(savedFilter.status, 200);
+  assert.deepEqual(getSettings().profanity, { ...profanity, ignoredChannelIds: ['c1'], extraWords: ['нуб', 'рак'] }, 'слова — в нижнем регистре, без пустых и повторов');
+  const badFilter = await put('profanity', { profanity: { ...profanity, level: 'soft', ignoredChannelIds: ['c3'] } });
+  assert.equal(badFilter.status, 400);
+  assert.ok(badFilter.json!.errors.some((e: string) => /неизвестный уровень/.test(e)));
+  assert.equal(getSettings().profanity.level, 'mat', 'при ошибке ничего не сохранено');
+
   const welcome = await put('welcome', { welcome: { text: 'Привет, {user}!', guestOffer: 'Роль?', guestButton: 'Взять', rulesButton: 'Правила' } });
   assert.equal(welcome.status, 200);
   assert.equal(getSettings().welcome.text, 'Привет, {user}!');

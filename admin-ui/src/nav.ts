@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Pin,
   ScrollText,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   SquareTerminal,
@@ -44,6 +45,12 @@ export const NAV: NavGroup[] = [
         description: 'Каналы журналов: участники, сервер, сообщения, голос, модерация, реги.',
       },
       { to: '/alerts', title: 'Оповещения', icon: Bell, description: 'Сигналы офицерам: поздние отмены, посещаемость, инциденты.' },
+      {
+        to: '/profanity',
+        title: 'Фильтр мата',
+        icon: ShieldAlert,
+        description: 'Выключатель, какие слова ловить, что делать с нарушителем, исключения.',
+      },
       {
         to: '/botlog',
         title: 'Лог бота',

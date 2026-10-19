@@ -375,6 +375,27 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         };
       },
     },
+    profanity: {
+      label: 'Фильтр мата',
+      apply(next, body, guild, errors) {
+        const profanity = obj(body.profanity);
+        const channelIds = arr(profanity.ignoredChannelIds)
+          .map((raw, i) => checkChannel(guild, id(raw), `Фильтр мата: канал-исключение ${i + 1}`, errors))
+          .filter((channelId): channelId is string => channelId !== null);
+        next.profanity = {
+          enabled: bool(profanity.enabled),
+          level: text(profanity.level) as BotSettings['profanity']['level'],
+          action: text(profanity.action) as BotSettings['profanity']['action'],
+          strikesToMute: num(profanity.strikesToMute),
+          strikeWindowMinutes: num(profanity.strikeWindowMinutes),
+          muteMinutes: num(profanity.muteMinutes),
+          warningSeconds: num(profanity.warningSeconds),
+          ignoredChannelIds: [...new Set(channelIds)],
+          // Свои слова — в нижнем регистре, без пустых и повторов.
+          extraWords: [...new Set(arr(profanity.extraWords).map((word) => text(word).toLowerCase()).filter(Boolean))],
+        };
+      },
+    },
   };
 
   api.get('/settings', (c) => c.json(settingsJson(getSettings())));

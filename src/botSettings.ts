@@ -7,6 +7,7 @@ import { config } from './config.ts';
 import { db } from './db.ts';
 import { parseTime } from './lib/time.ts';
 import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
+import type { ProfanityLevel } from './lib/profanity.ts';
 import { DEFAULT_PERSONA } from './sveta/persona.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
@@ -188,6 +189,8 @@ export interface BotSettings {
   onboarding: Onboarding;
   /** ИИ-персонаж Света (src/sveta): где живёт, характер, модель и потолки. */
   sveta: SvetaSettings;
+  /** Фильтр мата (src/events/profanityFilter.ts): что ловить и что делать с нарушителем. */
+  profanity: ProfanitySettings;
   /** Оповещения офицерам: посещаемость, поздние отписки. */
   alerts: {
     channelId: string | null;
@@ -200,7 +203,29 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+/** report — только карточка модераторам (сообщение остаётся); delete — удалить с предупреждением; mute — ещё и мут за повторы. */
+export type ProfanityAction = 'report' | 'delete' | 'mute';
+export const PROFANITY_LEVELS: readonly ProfanityLevel[] = ['mat', 'rude'];
+export const PROFANITY_ACTIONS: readonly ProfanityAction[] = ['report', 'delete', 'mute'];
+
+export interface ProfanitySettings {
+  enabled: boolean;
+  /** mat — только мат и оскорбления по национальности и ориентации; rude — ещё и грубые слова (сука, мудак…). */
+  level: ProfanityLevel;
+  action: ProfanityAction;
+  /** Мут (action = mute): столько нарушений за strikeWindowMinutes — мут на muteMinutes. */
+  strikesToMute: number;
+  strikeWindowMinutes: number;
+  muteMinutes: number;
+  /** Через сколько секунд убрать предупреждение в чате (0 — не предупреждать). */
+  warningSeconds: number;
+  /** Каналы, где фильтр не работает. */
+  ignoredChannelIds: string[];
+  /** Свои слова: ловятся как начало слова, на любом уровне. */
+  extraWords: string[];
+}
+
+export const LIMITS = { profanityChannels: 25, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -236,6 +261,17 @@ function defaults(): BotSettings {
       raids: { channelId: null, enabled: true },
     },
     alerts: { channelId: null, roleId: null, lateCancelHours: 3, incidentChannelId: null },
+    profanity: {
+      enabled: true,
+      level: 'rude',
+      action: 'mute',
+      strikesToMute: 3,
+      strikeWindowMinutes: 10,
+      muteMinutes: 10,
+      warningSeconds: 8,
+      ignoredChannelIds: [],
+      extraWords: [],
+    },
     voiceRoles: [],
     sticky: { intervalSeconds: 15, items: [] },
     raidTemplates: [defaultGroup('group1', 'Рейд — группа 1', env(config.raidChannel1Id)), defaultGroup('group2', 'Рейд — группа 2', env(config.raidChannel2Id))],
@@ -450,6 +486,23 @@ export function validateSettings(s: BotSettings): string[] {
     if (!entry.story.trim()) errors.push(`${name}: текст истории не может быть пустым.`);
     else if (entry.story.length > LIMITS.loreStory) errors.push(`${name}: не длиннее ${LIMITS.loreStory} символов.`);
   });
+
+  const profanity = s.profanity;
+  if (!PROFANITY_LEVELS.includes(profanity.level)) errors.push('Фильтр мата: неизвестный уровень — «только мат» или «мат и грубые слова».');
+  if (!PROFANITY_ACTIONS.includes(profanity.action)) errors.push('Фильтр мата: неизвестное действие с нарушителем.');
+  const profanityRanges: [string, number, number, number][] = [
+    ['Фильтр мата: нарушений до мута', profanity.strikesToMute, 1, LIMITS.strikes],
+    ['Фильтр мата: окно нарушений (минут)', profanity.strikeWindowMinutes, 1, LIMITS.strikeWindow],
+    ['Фильтр мата: мут (минут)', profanity.muteMinutes, 1, LIMITS.muteMinutes],
+    ['Фильтр мата: предупреждение (секунд)', profanity.warningSeconds, 0, LIMITS.warningSeconds],
+  ];
+  for (const [name, value, min, max] of profanityRanges) {
+    if (!Number.isInteger(value) || value < min || value > max) errors.push(`${name}: целое число от ${min} до ${max}.`);
+  }
+  if (profanity.ignoredChannelIds.length > LIMITS.profanityChannels) errors.push(`Фильтр мата: каналов-исключений не больше ${LIMITS.profanityChannels}.`);
+  if (profanity.extraWords.length > LIMITS.profanityWords) errors.push(`Фильтр мата: своих слов не больше ${LIMITS.profanityWords}.`);
+  const badWord = profanity.extraWords.find((word) => word.length < 2 || word.length > LIMITS.profanityWord || /\s/.test(word));
+  if (badWord !== undefined) errors.push(`Фильтр мата: «${badWord}» — слово от 2 до ${LIMITS.profanityWord} символов без пробелов.`);
 
   if (!Number.isInteger(s.sticky.intervalSeconds) || s.sticky.intervalSeconds < LIMITS.stickyMin || s.sticky.intervalSeconds > LIMITS.stickyMax) {
     errors.push(`Липкие сообщения: переставлять не чаще раза в ${LIMITS.stickyMin}–${LIMITS.stickyMax} секунд.`);

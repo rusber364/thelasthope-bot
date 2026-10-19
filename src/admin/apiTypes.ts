@@ -119,6 +119,18 @@ export interface Settings {
     /** Истории о людях: по каким именам узнавать и что рассказывать. */
     lore: { names: string[]; story: string }[];
   };
+  /** Фильтр мата: mat — только мат, rude — ещё и грубые слова; report — только сообщить, delete — удалить, mute — и мутить за повторы. */
+  profanity: {
+    enabled: boolean;
+    level: 'mat' | 'rude';
+    action: 'report' | 'delete' | 'mute';
+    strikesToMute: number;
+    strikeWindowMinutes: number;
+    muteMinutes: number;
+    warningSeconds: number;
+    ignoredChannelIds: string[];
+    extraWords: string[];
+  };
 }
 
 /** Разделы настроек для PUT /api/settings/:section и что в каждом сохраняется. */
@@ -136,6 +148,7 @@ export interface SettingsSections {
   sticky: Pick<Settings, 'sticky'>;
   autoclean: Pick<Settings, 'autoClean'>;
   sveta: Pick<Settings, 'sveta'>;
+  profanity: Pick<Settings, 'profanity'>;
 }
 export type SettingsSection = keyof SettingsSections;
 

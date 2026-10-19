@@ -24,6 +24,7 @@ const PAGES: Record<string, ComponentType> = {
   '/welcome': page(() => import('@/pages/welcome'), 'WelcomePage'),
   '/logs': page(() => import('@/pages/logs'), 'LogsPage'),
   '/alerts': page(() => import('@/pages/alerts'), 'AlertsPage'),
+  '/profanity': page(() => import('@/pages/profanity'), 'ProfanityPage'),
   '/raids': page(() => import('@/pages/raids'), 'RaidsPage'),
   '/templates': page(() => import('@/pages/templates'), 'TemplatesPage'),
   '/attendance': page(() => import('@/pages/attendance'), 'AttendancePage'),

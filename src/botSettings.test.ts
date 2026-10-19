@@ -132,3 +132,18 @@ test('лимиты по ролям: целые, в сумме не больше 
   s.raidTemplates = [{ id: 'd', title: 'Мёртвые копи', description: '', size: 5, time: '21:00', channelId: null, pingRoleIds: [], dmOnOpen: false, mainRoleIds: [], reserveRoleIds: [], kind: 'quest' as never, limits: { tank: 1, healer: 1, dps: 3 }, slots: [] }];
   assert.match(validateSettings(s).join(), /неизвестный вид сбора/);
 });
+
+test('фильтр мата: по умолчанию — как раньше (мат и грубые слова, удалить и мутить 3 за 10 мин на 10 мин); неверные значения — ошибки', () => {
+  const s = structuredClone(getSettings());
+  assert.deepEqual(
+    [s.profanity.enabled, s.profanity.level, s.profanity.action, s.profanity.strikesToMute, s.profanity.strikeWindowMinutes, s.profanity.muteMinutes],
+    [true, 'rude', 'mute', 3, 10, 10],
+  );
+  s.profanity = { ...s.profanity, level: 'soft' as never, action: 'ban' as never, strikesToMute: 0, muteMinutes: 99999, extraWords: ['ок', 'два слова', 'x'] };
+  const errors = validateSettings(s).join('\n');
+  assert.match(errors, /Фильтр мата: неизвестный уровень/);
+  assert.match(errors, /Фильтр мата: неизвестное действие/);
+  assert.match(errors, /нарушений до мута: целое число от 1 до 20/);
+  assert.match(errors, /мут \(минут\): целое число от 1 до 10080/);
+  assert.match(errors, /«два слова» — слово от 2 до 30 символов без пробелов/);
+});

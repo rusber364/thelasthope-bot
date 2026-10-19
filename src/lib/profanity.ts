@@ -10,48 +10,55 @@ const LOOKALIKE: Record<string, string> = {
   '0': 'о', '3': 'з', '4': 'ч', '6': 'б', '@': 'а', '$': 'с',
 };
 
-/** Корни на кириллице (после очистки и схлопывания повторов). */
-const CYRILLIC: RegExp[] = [
+/**
+ * Насколько строго: mat — мат и оскорбления по национальности и ориентации; rude — ещё и грубые слова
+ * (сука, мудак, шлюха…). Настраивается в админке, страница «Фильтр мата».
+ */
+export type ProfanityLevel = 'mat' | 'rude';
+
+/** Мат на кириллице (после очистки и схлопывания повторов) — ловится на любом уровне. */
+const CYRILLIC_MAT: RegExp[] = [
   /ху[йяеию]/, // хуй, хуя, хуе(ть), хуи, хую
   /^(?:на|по|ни)?хул[иь]$/, // хули, нахуль
   /пизд/,
   /^(?:за|на|у|вы|въ|съ|разъ|объ|отъ|подъ|до|по|про|пере|при|недо|долбо|раз)?еб(?:а|у|л|н|ы|о|и|е|с|т|ч|$)/,
   /долбое/,
   /^бля(?:$|д|т|ть|дь|ха-?муха|ск)/,
+  /залуп/,
+  /^манд(?:а|ы|е|у|ой)$|мандав[оа]ш/,
+  /пид[оа]р|пидр/,
+];
+
+/** Грубые слова на кириллице — только на уровне «мат и грубые слова». */
+const CYRILLIC_RUDE: RegExp[] = [
   /^сук(?:а|и|у|е|ой|ам|ами|ах|ин\p{L}*)$/u,
   /^суч(?:ар|ка|ки|ку|ке|кой|ье|ий)/,
   /^муд(?:ак|ач|ил|о[зх]|ло)/,
-  /пид[оа]р|пидр/,
   /^педик(?:и|а|у|ов|ом)?$/,
   /г[ао]ндон/,
-  /залуп/,
   /шлюх/,
   /шалав/,
   /^дроч/,
-  /^манд(?:а|ы|е|у|ой)$|мандав[оа]ш/,
   /^курв/,
 ];
 
-/** Транслит и английская брань (латиница, после схлопывания повторов). */
-const LATIN: RegExp[] = [
+/** Мат транслитом и английский мат с оскорблениями (латиница, после схлопывания повторов). */
+const LATIN_MAT: RegExp[] = [
   /^(?:na|po|ni|do|o)?h[uy](?:i|j|y|ya|yu|ye)/,
   /pizd|pezd/,
   /^bl[yi]a(?:$|t|d)|^blyad|^blyat/,
-  /^suk(?:a|i)$/,
   /^(?:za|na|vy|ot|do|po|pro|pere|u|s)?y?eb(?:at|al|an|lo|nu|uch)/,
   /pid[oa]r/,
-  /^mudak/,
-  /^g[ao]nd[oa]n$/,
   /^zalup/,
   /fuck|fuk(?:ing)?$/,
-  /^(?:bul)?shit/,
-  /bitch/,
   /^cunts?$/,
-  /^ashole/,
   /^motherf/,
   /nig(?:er|a)s?$/,
   /^fagot/,
 ];
+
+/** Грубые слова транслитом и по-английски. */
+const LATIN_RUDE: RegExp[] = [/^suk(?:a|i)$/, /^mudak/, /^g[ao]nd[oa]n$/, /^(?:bul)?shit/, /bitch/, /^ashole/];
 
 /** Обычные слова, в которых встречаются «плохие» сочетания букв. */
 const WHITELIST = [/страху/, /хулиган/, /бляшк/, /^бляха$/, /мудр/, /педикюр/, /гондол/, /сукн/, /рубаху/];
@@ -87,7 +94,8 @@ function words(text: string): string[] {
   return result;
 }
 
-function isProfane(word: string, extra: readonly RegExp[]): boolean {
+function isProfane(word: string, extra: readonly RegExp[], level: ProfanityLevel): boolean {
+  const rude = level === 'rude';
   const hasCyrillic = /\p{Script=Cyrillic}/u.test(word);
   const hasLatin = /[a-z]/.test(word);
 
@@ -95,16 +103,16 @@ function isProfane(word: string, extra: readonly RegExp[]): boolean {
   if (hasCyrillic || !hasLatin) {
     const cyr = collapse(toCyrillic(word));
     if (WHITELIST.some((re) => re.test(cyr))) return false;
-    return CYRILLIC.some((re) => re.test(cyr)) || extra.some((re) => re.test(cyr));
+    return CYRILLIC_MAT.some((re) => re.test(cyr)) || (rude && CYRILLIC_RUDE.some((re) => re.test(cyr))) || extra.some((re) => re.test(cyr));
   }
 
   // Чистая латиница: транслит (blyat, suka) и английская брань.
   const latin = collapse(word);
-  return LATIN.some((re) => re.test(latin)) || extra.some((re) => re.test(latin));
+  return LATIN_MAT.some((re) => re.test(latin)) || (rude && LATIN_RUDE.some((re) => re.test(latin))) || extra.some((re) => re.test(latin));
 }
 
-/** Возвращает первое найденное матерное слово или null. extraWords — дополнительные слова из настроек. */
-export function findProfanity(text: string, extraWords: readonly string[] = []): string | null {
+/** Возвращает первое найденное матерное слово или null. extraWords — свои слова из настроек (ловятся на любом уровне). */
+export function findProfanity(text: string, extraWords: readonly string[] = [], level: ProfanityLevel = 'rude'): string | null {
   const extra = extraWords.map((word) => new RegExp(`^${collapse(word.toLowerCase()).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  return words(text).find((word) => isProfane(word, extra)) ?? null;
+  return words(text).find((word) => isProfane(word, extra, level)) ?? null;
 }
