@@ -230,3 +230,41 @@ cd /opt/thelasthope-bot && sudo -u tlh pnpm deploy
 7. Дальше — разделы 1–5 этой инструкции (пользователь в образе Ubuntu — `ubuntu`: `ssh -i ~/.ssh/thelasthope_oracle ubuntu@IP`).
 
 > Oracle может забрать бесплатный сервер, который долго почти не нагружен. Бот сам делает копии базы раз в сутки; если хочешь хранить их и у себя — раздел 5.
+
+## Два бота на одном сервере (основной и тестовый)
+
+Так сейчас: **основной** бот гильдии (приложение ГМа в Discord) и **тестовый** бот разработчика (своё приложение, тестовый сервер Discord) работают на одном VPS — памяти хватает, каждый занимает 100–150 МБ. Это две независимые копии: свой `.env`, своя база, своя админка. Одно приложение Discord = одна копия, иначе события обрабатываются дважды.
+
+| | Основной | Тестовый |
+|---|---|---|
+| Папка | `/opt/thelasthope-bot` | `/opt/thelasthope-dev` |
+| Служба | `thelasthope-bot` | `thelasthope-dev` |
+| Порт админки (`ADMIN_PORT`) | 3000 | 3001 |
+| Адрес админки (`ADMIN_URL`) | основной домен | второй домен (например, `имя-dev.duckdns.org`) |
+
+Вторая копия:
+
+```bash
+sudo cp -a /opt/thelasthope-bot /opt/thelasthope-dev
+```
+
+В её `.env` — ключи второго приложения, `ADMIN_PORT=3001` и `ADMIN_URL=https://второй-домен`; старую базу из `data/` убери, если копия должна начаться с чистой. Служба — та же, с другой папкой:
+
+```bash
+sed 's#/opt/thelasthope-bot#/opt/thelasthope-dev#g' /opt/thelasthope-bot/deploy/thelasthope-bot.service | sudo tee /etc/systemd/system/thelasthope-dev.service && sudo systemctl daemon-reload && sudo systemctl enable --now thelasthope-dev
+```
+
+В `/etc/caddy/Caddyfile` — второй блок с портом 3001, затем `sudo systemctl reload caddy`:
+
+```text
+второй-домен {
+	encode gzip
+	reverse_proxy 127.0.0.1:3001
+}
+```
+
+В Discord Developer Portal второго приложения → OAuth2 → Redirects — `https://второй-домен/auth/callback`. Команды регистрируются в каждой папке отдельно: `sudo -u tlh pnpm run deploy`.
+
+**Обновление** — сначала тестовый, проверить, потом основной (раздел 6, в каждой папке и со своей службой).
+
+**Перенести истории Светы о людях** из одной копии в другую — в админке «Света» → «Истории о людях»: «Скачать истории» в одной, «Загрузить истории» и «Сохранить» в другой.
