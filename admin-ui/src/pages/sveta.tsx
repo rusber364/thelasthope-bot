@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CircleAlert, CircleCheck, ExternalLink, ShieldAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Settings, SvetaStatus } from '@api';
-import { ChannelsPicker } from '@/components/entity-picker';
+import { ChannelPicker, ChannelsPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, NumberField, SaveBar, SectionCard } from '@/components/settings-ui';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -101,7 +101,8 @@ function StatusCard({ perDay }: { perDay: number }) {
               </Button>
             )}
             <span className="text-sm text-muted-foreground">
-              Сегодня ответов: <span className="font-medium text-foreground tabular-nums">{status.today}</span> из {perDay}
+              Сегодня ответов: <span className="font-medium text-foreground tabular-nums">{status.today}</span> из {perDay}, запросов к
+              Gemini: <span className="font-medium text-foreground tabular-nums">{status.requestsToday}</span>
             </span>
           </div>
           {status.lastError && (
@@ -154,6 +155,19 @@ export function SvetaPage() {
               <FieldDescription>
                 Бесплатный Gemini может использовать сообщения для улучшения продуктов Google — выбирай общие «весёлые» каналы, а в их
                 описании напиши: «Сообщения здесь читает ИИ Света (Google Gemini)».
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="sveta-news">Новости о сборах</FieldLabel>
+              <ChannelPicker
+                id="sveta-news"
+                emptyLabel="Не рассказывать"
+                value={draft.sveta.newsChannelId}
+                onChange={(newsChannelId) => set({ newsChannelId })}
+              />
+              <FieldDescription>
+                Сюда Света коротко пишет, когда открылась рега, «Сбор!», перенос или отмена. Это заготовленные фразы — лимит Gemini не
+                тратится.
               </FieldDescription>
             </Field>
           </SectionCard>

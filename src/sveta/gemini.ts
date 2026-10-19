@@ -1,9 +1,25 @@
 // Запрос к Google Gemini (generateContent по REST). Без SDK: один fetch, ответ разбираем сами.
 // Документация: https://ai.google.dev/gemini-api/docs — generateContent, safety-settings, gemini-3 (thinking).
 
+/** Кусок сообщения: текст, вызов инструмента или его результат. thoughtSignature Gemini 3 нужно вернуть как есть. */
+export interface GeminiPart {
+  text?: string;
+  thought?: boolean;
+  thoughtSignature?: string;
+  functionCall?: { name: string; args?: Record<string, unknown>; id?: string };
+  functionResponse?: { name: string; id?: string; response: Record<string, unknown> };
+}
+
 export interface GeminiContent {
   role: 'user' | 'model';
-  parts: { text: string }[];
+  parts: GeminiPart[];
+}
+
+/** Описание инструмента для модели. */
+export interface GeminiFunction {
+  name: string;
+  description: string;
+  parameters?: Record<string, unknown>;
 }
 
 export interface GeminiRequest {
@@ -11,12 +27,25 @@ export interface GeminiRequest {
   model: string;
   system: string;
   contents: GeminiContent[];
+  tools?: GeminiFunction[];
+  /** NONE — инструменты не вызывать, только ответить текстом (последний круг). */
+  toolMode?: 'AUTO' | 'NONE';
+}
+
+export interface FunctionCall {
+  name: string;
+  args: Record<string, unknown>;
+  id?: string;
 }
 
 export interface GeminiReply {
   text: string;
   /** Сколько токенов ушло на запрос (для журнала). */
   tokens: number | null;
+  /** Инструменты, которые модель попросила вызвать. */
+  calls: FunctionCall[];
+  /** Ответ модели целиком — его возвращают в переписку вместе с результатами инструментов (с подписями мыслей). */
+  content: GeminiContent;
 }
 
 /** quota — исчерпан лимит (429); auth — неверный ключ; model — нет такой модели; blocked — ответ отфильтрован; unavailable — сеть или сбой Google. */
@@ -39,18 +68,19 @@ const SAFETY = ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_C
 );
 
 /** Тело запроса. У Gemini 3 «обдумывание» по умолчанию глубокое и медленное — для болтовни хватает низкого. */
-export function requestBody({ model, system, contents }: Omit<GeminiRequest, 'apiKey'>) {
+export function requestBody({ model, system, contents, tools, toolMode }: Omit<GeminiRequest, 'apiKey'>) {
   const thinks = !/gemini-(1|2)\./.test(model); // у 2.x свой параметр, thinkingLevel им не подходит
   return {
     systemInstruction: { parts: [{ text: system }] },
     contents,
     safetySettings: SAFETY,
     generationConfig: { maxOutputTokens: 1024, ...(thinks ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}) },
+    ...(tools?.length ? { tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: toolMode ?? 'AUTO' } } } : {}),
   };
 }
 
 interface ResponseJson {
-  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[];
+  candidates?: { content?: { role?: string; parts?: GeminiPart[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
   usageMetadata?: { totalTokenCount?: number };
   error?: { message?: string; status?: string; details?: { reason?: string }[] };
@@ -72,12 +102,16 @@ export function parseResponse(status: number, json: ResponseJson): GeminiReply {
   if (json.promptFeedback?.blockReason) throw new GeminiError('blocked', `Запрос отклонён фильтром: ${json.promptFeedback.blockReason}`);
   const candidate = json.candidates?.[0];
   if (candidate?.finishReason && BLOCKED.has(candidate.finishReason)) throw new GeminiError('blocked', `Ответ отфильтрован: ${candidate.finishReason}`);
-  const text = (candidate?.content?.parts ?? [])
+  const parts = candidate?.content?.parts ?? [];
+  const text = parts
     .filter((part) => !part.thought && typeof part.text === 'string')
     .map((part) => part.text)
     .join('')
     .trim();
-  return { text, tokens: json.usageMetadata?.totalTokenCount ?? null };
+  const calls = parts.flatMap((part) =>
+    part.functionCall ? [{ name: part.functionCall.name, args: part.functionCall.args ?? {}, ...(part.functionCall.id ? { id: part.functionCall.id } : {}) }] : [],
+  );
+  return { text, tokens: json.usageMetadata?.totalTokenCount ?? null, calls, content: { role: 'model', parts } };
 }
 
 export async function generate(request: GeminiRequest): Promise<GeminiReply> {

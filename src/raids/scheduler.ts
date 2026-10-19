@@ -19,6 +19,7 @@ import { uiEmoji } from './emojis.ts';
 import { describeSignup, messageSignups, publishRaid, raidUrl, raidWhen, refreshRaidMessage } from './service.ts';
 import { syncRaidEventLater } from './events.ts';
 import { sendPersonalReminders } from './personalReminders.ts';
+import { announceRaid } from '../sveta/news.ts';
 import {
   getSignups,
   lateSignupsDue,
@@ -201,6 +202,7 @@ async function sendGatherCalls(client: Client<true>): Promise<void> {
         ].join('\n'),
         allowedMentions: { users: ids },
       });
+      void announceRaid('gather', raid);
     } catch (error) {
       console.error(`Не удалось позвать на сбор (рега #${raid.id}):`, error);
     }

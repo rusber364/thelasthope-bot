@@ -26,6 +26,8 @@ export interface SvetaSettings {
   enabled: boolean;
   /** Каналы, где Света читает и отвечает. Остальные каналы в Gemini не уходят. */
   channelIds: string[];
+  /** Куда Света пишет новости о сборах: открылась рега, «Сбор!», перенос, отмена (null — не пишет). */
+  newsChannelId: string | null;
   /** Характер — начало системной инструкции; правила поведения добавляются к нему всегда. */
   persona: string;
   /** Модель Gemini, например gemini-flash-latest. */
@@ -251,6 +253,7 @@ function defaults(): BotSettings {
     sveta: {
       enabled: false,
       channelIds: [],
+      newsChannelId: null,
       persona: DEFAULT_PERSONA,
       model: 'gemini-flash-latest',
       randomPercent: 2,

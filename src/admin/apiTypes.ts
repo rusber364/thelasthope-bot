@@ -107,6 +107,7 @@ export interface Settings {
   sveta: {
     enabled: boolean;
     channelIds: string[];
+    newsChannelId: string | null;
     persona: string;
     model: string;
     randomPercent: number;
@@ -146,6 +147,7 @@ export interface SvetaStatus {
   onServer: boolean;
   channelsWithoutAccess: string[];
   today: number;
+  requestsToday: number;
   lastError: { at: number; text: string } | null;
 }
 

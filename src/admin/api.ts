@@ -355,6 +355,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
         next.sveta = {
           enabled: bool(sveta.enabled),
           channelIds: [...new Set(channelIds)],
+          newsChannelId: checkChannel(guild, id(sveta.newsChannelId), 'Света: канал новостей о сборах', errors),
           persona: text(sveta.persona),
           model: text(sveta.model),
           randomPercent: num(sveta.randomPercent),

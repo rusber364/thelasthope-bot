@@ -32,6 +32,16 @@ function countReply(day: string): void {
   db.prepare('INSERT INTO sveta_usage (day, replies) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET replies = replies + 1').run(day);
 }
 
+/** Запросов к Gemini за день: ответ с инструментами — это 2–3 запроса. Бесплатный лимит Google считает именно их. */
+export function requestsOn(day: string): number {
+  const row = db.prepare('SELECT requests FROM sveta_usage WHERE day = ?').get(day) as { requests: number } | undefined;
+  return Number(row?.requests ?? 0);
+}
+
+export function countRequests(day: string, n: number): void {
+  db.prepare('INSERT INTO sveta_usage (day, requests) VALUES (?, ?) ON CONFLICT (day) DO UPDATE SET requests = requests + excluded.requests').run(day, n);
+}
+
 export class Limiter {
   private readonly userLast = new Map<string, number>();
   private readonly channelLast = new Map<string, number>();

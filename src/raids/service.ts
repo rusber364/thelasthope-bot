@@ -6,6 +6,7 @@ import { requestBoardRefresh } from './board.ts';
 import { markDeletedByBot } from '../logs/messages.ts';
 import { syncRaidEventLater } from './events.ts';
 import { specEmoji, uiEmoji } from './emojis.ts';
+import { announceRaid } from '../sveta/news.ts';
 import { KINDS } from './kinds.ts';
 import { parseDate, parseTime, toEpochMs } from '../lib/time.ts';
 import { buildRaidCreateMessage, buildRaidMessage } from './render.ts';
@@ -51,6 +52,7 @@ export async function publishRaid(
     setRaidMessage(raid.id, message.id);
     requestBoardRefresh(channel.client, raid.guildId);
     syncRaidEventLater(channel.client, raid.id);
+    void announceRaid('open', { ...raid, messageId: message.id });
     return { ...raid, messageId: message.id };
   } catch (error) {
     deleteRaid(raid.id); // чтобы планировщик попробовал создать её ещё раз
@@ -169,6 +171,7 @@ export async function cancelRaid(client: Client, raid: Raid): Promise<void> {
   setRaidStatus(raid.id, 'cancelled');
   await refreshRaidMessage(client, raid.id);
   syncRaidEventLater(client, raid.id);
+  void announceRaid('cancel', raid);
   await messageSignups(client, raid, () => `${uiEmoji('leave')} ${KINDS[raid.kind].title} **${raid.title}** (${raidWhen(raid)}) отменили.`);
 }
 
@@ -178,6 +181,7 @@ export async function moveRaid(client: Client, raid: Raid, startsAt: number): Pr
   const moved = { ...raid, startsAt };
   await refreshRaidMessage(client, raid.id);
   syncRaidEventLater(client, raid.id);
+  void announceRaid('move', moved);
   await messageSignups(
     client,
     moved,

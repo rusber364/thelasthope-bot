@@ -33,7 +33,7 @@ export function buildContents(lines: ChatLine[]): GeminiContent[] {
     const role = line.fromSveta ? 'model' : 'user';
     const value = line.fromSveta ? text : `${line.name}: ${text}`;
     const last = contents.at(-1);
-    if (last?.role === role) last.parts[0]!.text += `\n${value}`;
+    if (last?.role === role) last.parts[0]!.text = `${last.parts[0]!.text ?? ''}\n${value}`;
     else contents.push({ role, parts: [{ text: value }] });
   }
   while (contents[0]?.role === 'model') contents.shift();

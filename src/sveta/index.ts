@@ -14,9 +14,10 @@ import { getSettings } from '../botSettings.ts';
 import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
-import { GeminiError, generate } from './gemini.ts';
-import { BREAK_LINES, Limiter, dayKey, repliesOn } from './limits.ts';
+import { GeminiError, generate, type GeminiReply } from './gemini.ts';
+import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
+import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
 
 /** Права Светы: только читать и писать. Банить, кикать, трогать роли и каналы Discord ей не даст. */
@@ -46,6 +47,8 @@ export interface SvetaDeps {
 
 const DEFAULT_DEPS: SvetaDeps = { generate, now: Date.now, random: Math.random, apiKey: () => config.geminiApiKey };
 const HOUR = 60 * 60 * 1000;
+/** Сколько раз за ответ модель может попросить инструменты (каждый круг — ещё один запрос к Gemini). */
+const MAX_TOOL_ROUNDS = 2;
 
 let client: Client | null = null;
 let limiter = new Limiter();
@@ -119,19 +122,33 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       fromSveta: m.author.id === me,
     }));
 
+  const system = systemPrompt(s.persona, { guildName: message.guild.name, now: formatNow(now), summary: guildSummary(message.guildId) });
+  let contents = buildContents(lines);
+  const used: string[] = [];
+  let requests = 0;
   try {
-    const reply = await deps.generate({
-      apiKey,
-      model: s.model,
-      system: systemPrompt(s.persona, { guildName: message.guild.name, now: formatNow(now) }),
-      contents: buildContents(lines),
-    });
+    // Модель может попросить инструменты (состав реги, расписание): бот выполняет их и спрашивает ещё раз.
+    // Не больше MAX_TOOL_ROUNDS кругов, на последнем — только текст.
+    let reply: GeminiReply;
+    for (let round = 0; ; round++) {
+      const last = round >= MAX_TOOL_ROUNDS;
+      requests++;
+      reply = await deps.generate({ apiKey, model: s.model, system, contents, tools: TOOLS, toolMode: last ? 'NONE' : 'AUTO' });
+      if (!reply.calls.length || last) break;
+      used.push(...reply.calls.map((call) => call.name));
+      // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.
+      const results = reply.calls.map((call) => ({
+        functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: { result: runTool(call.name, call.args, message.guildId) } },
+      }));
+      contents = [...contents, reply.content, { role: 'user', parts: results }];
+    }
     const text = cleanReply(reply.text);
     if (!text) return;
     // Кто позвал — получит уведомление об ответе; если встряла сама — без уведомления.
     await message.reply({ content: text, allowedMentions: { parse: [], repliedUser: trigger !== 'random' } });
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
-    console.log(`💬 Света ответила в ${channel} (${TRIGGER_LABEL[trigger]}${reply.tokens ? `, токенов: ${reply.tokens}` : ''}).`);
+    const details = [TRIGGER_LABEL[trigger], `запросов: ${requests}`, used.length ? `инструменты: ${[...new Set(used)].join(', ')}` : '', reply.tokens ? `токенов: ${reply.tokens}` : ''];
+    console.log(`💬 Света ответила в ${channel} (${details.filter(Boolean).join(', ')}).`);
   } catch (error) {
     if (!(error instanceof GeminiError)) throw error;
     if (error.kind === 'quota') {
@@ -143,7 +160,15 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     } else {
       noteError(error.kind === 'unavailable' ? `${ERROR_TEXT.unavailable}: ${error.message}` : ERROR_TEXT[error.kind], now);
     }
+  } finally {
+    if (requests) countRequests(dayKey(now), requests);
   }
+}
+
+/** Канал, куда Света может написать (для новостей о сборах). null — Света не подключена или канала не видит. */
+export function svetaChannel(channelId: string) {
+  const channel = client?.isReady() ? client.channels.cache.get(channelId) : undefined;
+  return channel?.isSendable() ? channel : null;
 }
 
 /** Подключить Свету к Discord. Без SVETA_TOKEN — ничего не делает: остальной бот работает как обычно. */
@@ -179,9 +204,11 @@ export interface SvetaStatus {
   inviteUrl: string | null;
   /** Света добавлена на сервер админки. */
   onServer: boolean;
-  /** Каналы из списка, где у Светы нет прав видеть, читать историю или писать. */
+  /** Каналы из списка (и канал новостей), где у Светы нет прав видеть, читать историю или писать. */
   channelsWithoutAccess: string[];
   today: number;
+  /** Запросов к Gemini сегодня — именно их считает бесплатный лимит Google. */
+  requestsToday: number;
   lastError: { at: number; text: string } | null;
 }
 
@@ -192,7 +219,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
   const guild = ready?.guilds.cache.get(guildId);
   const me = guild?.members.me;
   const channelsWithoutAccess = guild
-    ? s.channelIds.filter((id) => {
+    ? [...new Set([...s.channelIds, ...(s.newsChannelId ? [s.newsChannelId] : [])])].filter((id) => {
         const channel = guild.channels.cache.get(id);
         return !channel || !me || !channel.permissionsFor(me).has(SVETA_PERMISSIONS.slice(0, 3));
       })
@@ -206,6 +233,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
     onServer: Boolean(guild),
     channelsWithoutAccess,
     today: repliesOn(dayKey(Date.now())),
+    requestsToday: requestsOn(dayKey(Date.now())),
     lastError,
   };
 }
