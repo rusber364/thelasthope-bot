@@ -46,6 +46,15 @@ export const config = {
   clientSecret: read('DISCORD_CLIENT_SECRET'),
   sessionSecret: read('SESSION_SECRET'),
   adminPort: Number(read('ADMIN_PORT') ?? 3000),
+  /** Света (src/sveta): токен её отдельного бот-аккаунта. Без него Света не подключается. */
+  get svetaToken(): string | undefined {
+    return read('SVETA_TOKEN');
+  },
+  /** Ключ Google Gemini для Светы: aistudio.google.com → Get API key. */
+  get geminiApiKey(): string | undefined {
+    return read('GEMINI_API_KEY');
+  },
+
   /** Адрес, по которому админку открывают в браузере. На VPS — https://твой-домен. */
   get adminUrl(): string {
     return (read('ADMIN_URL') ?? `http://localhost:${this.adminPort}`).replace(/\/+$/, '');

@@ -7,6 +7,7 @@ import { config } from './config.ts';
 import { db } from './db.ts';
 import { parseTime } from './lib/time.ts';
 import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
+import { DEFAULT_PERSONA } from './sveta/persona.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];
@@ -20,6 +21,22 @@ export const LOG_LABELS: Record<LogCategory, { title: string; hint: string }> = 
   moderation: { title: 'лог-модерация', hint: 'кики, баны, муты, очистка, мат' },
   raids: { title: 'лог-рейдов', hint: 'запись на реги, смена спека, «под вопросом», отписки' },
 };
+
+export interface SvetaSettings {
+  enabled: boolean;
+  /** Каналы, где Света читает и отвечает. Остальные каналы в Gemini не уходят. */
+  channelIds: string[];
+  /** Характер — начало системной инструкции; правила поведения добавляются к нему всегда. */
+  persona: string;
+  /** Модель Gemini, например gemini-flash-latest. */
+  model: string;
+  /** Шанс встрять самой в разговор, % (0 — только когда зовут). */
+  randomPercent: number;
+  /** Пауза между ответами одному человеку, секунд. */
+  userCooldownSeconds: number;
+  perHour: number;
+  perDay: number;
+}
 
 export interface Onboarding {
   /** Опрос-анкета (открытый опрос этого сервера); null — анкету не предлагать. */
@@ -156,6 +173,8 @@ export interface BotSettings {
   welcomeDm: { enabled: boolean; text: string };
   /** Анкета новичков: опрос, который предлагается в приветствии, и что сделать, когда его заполнили. */
   onboarding: Onboarding;
+  /** ИИ-персонаж Света (src/sveta): где живёт, характер, модель и потолки. */
+  sveta: SvetaSettings;
   /** Оповещения офицерам: посещаемость, поздние отписки. */
   alerts: {
     channelId: string | null;
@@ -168,7 +187,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -228,6 +247,16 @@ function defaults(): BotSettings {
       roleId: null,
       removeRoleId: null,
       notify: true,
+    },
+    sveta: {
+      enabled: false,
+      channelIds: [],
+      persona: DEFAULT_PERSONA,
+      model: 'gemini-flash-latest',
+      randomPercent: 2,
+      userCooldownSeconds: 15,
+      perHour: 40,
+      perDay: 300,
     },
   };
 }
@@ -378,6 +407,22 @@ export function validateSettings(s: BotSettings): string[] {
   if (archive.mode === 'move' && !archive.channelId) errors.push('Архив рег: для переноса выбери канал-архив.');
   for (const [name, value, max] of ranges) {
     if (!Number.isInteger(value) || value < 0 || value > max) errors.push(`${name}: целое число от 0 до ${max}.`);
+  }
+
+  const sveta = s.sveta;
+  if (sveta.channelIds.length > LIMITS.svetaChannels) errors.push(`Света: не больше ${LIMITS.svetaChannels} каналов.`);
+  if (sveta.enabled && !sveta.channelIds.length) errors.push('Света: выбери хотя бы один канал, где она живёт.');
+  if (!sveta.persona.trim()) errors.push('Света: характер не может быть пустым.');
+  else if (sveta.persona.length > LIMITS.persona) errors.push(`Света: характер не длиннее ${LIMITS.persona} символов.`);
+  if (!/^[a-z0-9][a-z0-9.\-]{2,60}$/.test(sveta.model)) errors.push('Света: модель — латиница, цифры, точки и дефисы, например gemini-flash-latest.');
+  const svetaRanges: [string, number, number, number][] = [
+    ['Света: шанс встрять самой (%)', sveta.randomPercent, 0, LIMITS.randomPercent],
+    ['Света: пауза для одного человека (секунд)', sveta.userCooldownSeconds, 0, LIMITS.svetaCooldown],
+    ['Света: ответов в час', sveta.perHour, 1, LIMITS.svetaPerHour],
+    ['Света: ответов в день', sveta.perDay, 1, LIMITS.svetaPerDay],
+  ];
+  for (const [name, value, min, max] of svetaRanges) {
+    if (!Number.isInteger(value) || value < min || value > max) errors.push(`${name}: целое число от ${min} до ${max}.`);
   }
 
   if (!Number.isInteger(s.sticky.intervalSeconds) || s.sticky.intervalSeconds < LIMITS.stickyMin || s.sticky.intervalSeconds > LIMITS.stickyMax) {

@@ -30,6 +30,7 @@ const PAGES: Record<string, ComponentType> = {
   '/polls': page(() => import('@/pages/polls'), 'PollsSection'),
   '/sticky': page(() => import('@/pages/sticky'), 'StickyPage'),
   '/autoclean': page(() => import('@/pages/autoclean'), 'AutoCleanPage'),
+  '/sveta': page(() => import('@/pages/sveta'), 'SvetaPage'),
   '/botlog': page(() => import('@/pages/botlog'), 'BotLogPage'),
 };
 

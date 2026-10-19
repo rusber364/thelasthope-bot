@@ -18,6 +18,7 @@
 4. На вкладке **OAuth2** (нужно для входа в админку):
    - нажми **Reset Secret** и скопируй **Client Secret** в `DISCORD_CLIENT_SECRET`;
    - в **Redirects** добавь `http://localhost:3000/auth/callback` и сохрани.
+5. Необязательно — **Света** (ИИ-персонаж): отдельное приложение «Света» с включённым **Message Content Intent**, его токен — `SVETA_TOKEN`, ключ Google Gemini из [AI Studio](https://aistudio.google.com) — `GEMINI_API_KEY`. Подробнее — в [руководстве](guide.md#офицерам-света).
 
 ### 2. Настройка
 
@@ -152,6 +153,18 @@ pnpm dev
 ### Лог бота
 
 [src/lib/botLog.ts](../src/lib/botLog.ts) с самого запуска (`captureConsole()` в `src/index.ts`) копирует всё, что бот пишет через `console.log/info/warn/error`, в таблицу `bot_log` (последние 5000 строк, цвета терминала убираются) и отмечает запуск. Падение процесса записывается через `uncaughtExceptionMonitor` — поведение Node при этом не меняется; обрывы и восстановление связи с Discord пишутся из событий shard в `src/index.ts`. Админка показывает это на странице «Лог бота» (`GET /api/botlog?level=all|warn|error&q=…&before=<id>`). Чтобы что-то появилось в логе, достаточно `console.log`/`console.warn`/`console.error`.
+
+### Света
+
+[src/sveta/](../src/sveta) — ИИ-персонаж. Это второе подключение к Discord внутри того же процесса (`startSveta()` в `src/index.ts`): свой токен `SVETA_TOKEN`, свой бот-аккаунт с урезанными правами (`SVETA_PERMISSIONS`: видеть, писать, читать историю, реакции). Без токена Света просто не подключается.
+
+- [triggers.ts](../src/sveta/triggers.ts) — когда отвечать: упоминание, ответ на её сообщение, имя (в начале, после запятой или приветствия; «свет погас» не считается), изредка сама.
+- [context.ts](../src/sveta/context.ts) — последние 15 сообщений канала → переписка для модели: люди как «Имя: текст» (подряд идущие склеиваются), её реплики — от модели; ответ чистится от «Света:» и живых @everyone.
+- [gemini.ts](../src/sveta/gemini.ts) — `generateContent` по REST через `fetch` (ключ — в заголовке `x-goog-api-key`), мягкие фильтры безопасности, у Gemini 3 низкое «обдумывание»; ошибки сводятся к `quota | auth | model | blocked | unavailable`.
+- [limits.ts](../src/sveta/limits.ts) — пауза для одного человека, потолки в час и в день (счётчик дня по Киеву — в таблице `sveta_usage`), «перерыв» на час после 429 от Google.
+- [persona.ts](../src/sveta/persona.ts) — характер по умолчанию и правила чата, которые добавляются к характеру из админки всегда.
+
+Настройки — `settings.sveta` (страница «Света» в админке), состояние — `GET /api/sveta/status`.
 
 ### Логи
 

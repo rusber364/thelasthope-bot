@@ -100,6 +100,14 @@ if (addColumn('raid_signups', 'reminded', 'INTEGER NOT NULL DEFAULT 0')) {
 // Исходный текст опроса — чтобы в админке можно было создать копию и поправить.
 addColumn('polls', 'source', 'TEXT');
 
+// Сколько раз Света ответила за день (по Киеву) — дневной потолок переживает перезапуск бота.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sveta_usage (
+    day     TEXT    PRIMARY KEY,
+    replies INTEGER NOT NULL DEFAULT 0
+  );
+`);
+
 // Картинки из ответов на опросы («Ответ: картинка»). Ссылки Discord на вложения со временем перестают
 // открываться, поэтому бот хранит сами файлы. В ответе на вопрос лежит id картинки отсюда.
 db.exec(`

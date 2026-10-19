@@ -10,6 +10,7 @@ import { registerVoiceRoles } from './lib/voiceRoles.ts';
 import { registerSticky } from './lib/sticky.ts';
 import { registerRaidWizard } from './raids/wizard.ts';
 import { captureConsole } from './lib/botLog.ts';
+import { startSveta } from './sveta/index.ts';
 
 // Всё, что бот пишет в консоль, копируется в «Лог бота» в админке — с самого запуска.
 captureConsole();
@@ -66,3 +67,6 @@ try {
   }
   process.exit(1);
 }
+
+// Света — второй бот-аккаунт с ИИ (src/sveta). Без SVETA_TOKEN в .env просто не подключается.
+await startSveta();

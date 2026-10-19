@@ -28,6 +28,7 @@ import { listRaids } from '../raids/store.ts';
 import { settings as constants } from '../settings.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
+import { svetaStatus } from '../sveta/index.ts';
 import type * as Api from './apiTypes.ts';
 import { readSession, type Session } from './auth.ts';
 import { channelName, checkChannel, checkRole, checkVoiceChannel, guildPoll, mentionRoles, messageUrl, roleOptions, textChannels, voiceChannels } from './forms.ts';
@@ -344,9 +345,29 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
       },
       after: async () => void runAutoClean(client).catch((error) => console.error('Автоочистка:', error)),
     },
+    sveta: {
+      label: 'Света',
+      apply(next, body, guild, errors) {
+        const sveta = obj(body.sveta);
+        const channelIds = arr(sveta.channelIds)
+          .map((raw, i) => checkChannel(guild, id(raw), `Света: канал ${i + 1}`, errors))
+          .filter((channelId): channelId is string => channelId !== null);
+        next.sveta = {
+          enabled: bool(sveta.enabled),
+          channelIds: [...new Set(channelIds)],
+          persona: text(sveta.persona),
+          model: text(sveta.model),
+          randomPercent: num(sveta.randomPercent),
+          userCooldownSeconds: num(sveta.userCooldownSeconds),
+          perHour: num(sveta.perHour),
+          perDay: num(sveta.perDay),
+        };
+      },
+    },
   };
 
   api.get('/settings', (c) => c.json(settingsJson(getSettings())));
+  api.get('/sveta/status', (c) => c.json(svetaStatus(c.get('guild').id) satisfies Api.SvetaStatus));
 
   api.put('/settings/:section', async (c) => {
     const section = sections[c.req.param('section') as Api.SettingsSection];

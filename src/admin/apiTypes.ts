@@ -103,6 +103,17 @@ export interface Settings {
   /** Анкета новичков: опрос в приветствии, роль и карточка офицерам после заполнения. */
   onboarding: { pollId: number | null; offer: string; button: string; dm: boolean; roleId: string | null; removeRoleId: string | null; notify: boolean };
   alerts: { channelId: string | null; roleId: string | null; lateCancelHours: number; incidentChannelId: string | null };
+  /** ИИ-персонаж Света: каналы, характер, модель Gemini, шанс встрять самой, пауза и потолки ответов. */
+  sveta: {
+    enabled: boolean;
+    channelIds: string[];
+    persona: string;
+    model: string;
+    randomPercent: number;
+    userCooldownSeconds: number;
+    perHour: number;
+    perDay: number;
+  };
 }
 
 /** Разделы настроек для PUT /api/settings/:section и что в каждом сохраняется. */
@@ -119,10 +130,24 @@ export interface SettingsSections {
   groups: Pick<Settings, 'groups'>;
   sticky: Pick<Settings, 'sticky'>;
   autoclean: Pick<Settings, 'autoClean'>;
+  sveta: Pick<Settings, 'sveta'>;
 }
 export type SettingsSection = keyof SettingsSections;
 
 // --- Ответы API ---
+
+/** GET /api/sveta/status — подключена ли Света и сколько ответила сегодня. */
+export interface SvetaStatus {
+  hasToken: boolean;
+  hasKey: boolean;
+  connected: boolean;
+  tag: string | null;
+  inviteUrl: string | null;
+  onServer: boolean;
+  channelsWithoutAccess: string[];
+  today: number;
+  lastError: { at: number; text: string } | null;
+}
 
 export interface MeResponse {
   user: { id: string; name: string; avatar: string | null };

@@ -155,10 +155,10 @@ export const RolePicker = makePicker((o) => o.roles, 'role');
 /** Роль для упоминания: высота роли неважна. */
 export const MentionPicker = makePicker((o) => o.mentionRoles, 'mention');
 
-interface RolesPickerProps {
+interface MultiPickerProps {
   value: string[];
   onChange: (value: string[]) => void;
-  /** Сколько ролей можно выбрать. */
+  /** Сколько можно выбрать. */
   max: number;
   id?: string;
   /** Подсказка, когда ничего не выбрано. */
@@ -167,30 +167,38 @@ interface RolesPickerProps {
 }
 
 /** Несколько ролей для упоминания: метки с цветом роли, список с поиском и предупреждение, если роль не пингуется. */
-export function MentionRolesPicker(props: RolesPickerProps) {
+export function MentionRolesPicker(props: MultiPickerProps) {
   const { data } = useOptions();
-  return <RolesPicker {...props} options={data?.mentionRoles} />;
+  return <MultiPicker {...props} kind="mention" options={data?.mentionRoles} />;
 }
 
 /** Несколько ролей, без предупреждений про упоминание и выдачу, — например, кто может записаться на регу. */
-export function AccessRolesPicker(props: RolesPickerProps) {
+export function AccessRolesPicker(props: MultiPickerProps) {
   const { data } = useOptions();
-  return <RolesPicker {...props} options={data?.roles.map((role) => ({ ...role, warning: undefined }))} />;
+  return <MultiPicker {...props} kind="mention" options={data?.roles.map((role) => ({ ...role, warning: undefined }))} />;
 }
 
-function RolesPicker({
+/** Несколько текстовых каналов — например, где живёт Света. */
+export function ChannelsPicker(props: MultiPickerProps) {
+  const { data } = useOptions();
+  return <MultiPicker placeholder="Ни одного — выбери каналы" {...props} kind="channel" options={data?.textChannels} />;
+}
+
+function MultiPicker({
   value,
   onChange,
   max,
   id,
   placeholder = 'Никого — выбери роли',
   disabled,
+  kind,
   options,
-}: RolesPickerProps & { options: Option[] | undefined }) {
+}: MultiPickerProps & { kind: Kind; options: Option[] | undefined }) {
   const anchor = useComboboxAnchor();
   if (!options) return <Skeleton className="h-8 w-full" />;
-  // Роль могли удалить на сервере — оставляем метку, чтобы её было видно и можно было убрать.
-  const selected = value.map((roleId) => options.find((o) => o.id === roleId) ?? { id: roleId, name: 'удалена с сервера' });
+  // Роль или канал могли удалить на сервере — оставляем метку, чтобы её было видно и можно было убрать.
+  const gone = kind === 'channel' ? 'удалён с сервера' : 'удалена с сервера';
+  const selected = value.map((itemId) => options.find((o) => o.id === itemId) ?? { id: itemId, name: gone });
   const silent = selected.filter((role) => role.warning);
   return (
     <div className="flex flex-col gap-1.5">
@@ -199,17 +207,17 @@ function RolesPicker({
         multiple
         value={selected}
         onValueChange={(next: Option[]) => onChange(next.slice(0, max).map((o) => o.id))}
-        itemToStringLabel={(option: Option) => option.name}
+        itemToStringLabel={(option: Option) => displayName(option)}
         isItemEqualToValue={(a: Option, b: Option) => a.id === b.id}
         autoHighlight
         disabled={disabled}
       >
         <ComboboxChips ref={anchor} className={cn(disabled && 'opacity-50')}>
           <ComboboxValue>
-            {selected.map((role) => (
-              <ComboboxChip key={role.id} className={role.warning ? 'text-amber-700 dark:text-amber-300' : undefined}>
-                {role.warning ? <TriangleAlert className="size-3 text-amber-500" /> : <OptionIcon kind="mention" option={role} />}
-                {role.name}
+            {selected.map((item) => (
+              <ComboboxChip key={item.id} className={item.warning ? 'text-amber-700 dark:text-amber-300' : undefined}>
+                {item.warning ? <TriangleAlert className="size-3 text-amber-500" /> : <OptionIcon kind={kind} option={item} />}
+                {displayName(item)}
               </ComboboxChip>
             ))}
           </ComboboxValue>
@@ -220,8 +228,8 @@ function RolesPicker({
           <ComboboxList>
             {(option: Option) => (
               <ComboboxItem key={option.id} value={option}>
-                <OptionIcon kind="mention" option={option} />
-                <span className="truncate">{option.name}</span>
+                <OptionIcon kind={kind} option={option} />
+                <span className="truncate">{displayName(option)}</span>
                 {option.warning && <TriangleAlert className="ml-auto text-amber-500" />}
               </ComboboxItem>
             )}

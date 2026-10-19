@@ -11,6 +11,7 @@ import {
   Pin,
   ScrollText,
   SlidersHorizontal,
+  Sparkles,
   SquareTerminal,
   type LucideIcon,
 } from 'lucide-react';
@@ -75,6 +76,12 @@ export const NAV: NavGroup[] = [
       { to: '/polls', title: 'Опросы', icon: ClipboardList, description: 'Создание анкет, итоги, ответы по людям, CSV.' },
       { to: '/sticky', title: 'Липкие сообщения', icon: Pin, description: 'Сообщения, которые всегда внизу канала.' },
       { to: '/autoclean', title: 'Автоочистка', icon: Eraser, description: 'Удаление старых сообщений в выбранных каналах.' },
+      {
+        to: '/sveta',
+        title: 'Света',
+        icon: Sparkles,
+        description: 'ИИ-персонаж в выбранных каналах: характер, модель Gemini, потолки ответов.',
+      },
     ],
   },
 ];
