@@ -238,6 +238,13 @@ test('Gemini: лимит исчерпан — «перерыв» и час ти�
   await onMessage(message('Света, скажи гадость'), deps);
   assert.equal(replies.at(-1)?.content, 'Не-не, такое я обсуждать не буду 😅');
 
+  configure();
+  geminiAnswer = async () => {
+    throw new GeminiError('unavailable', 'The operation was aborted due to timeout');
+  };
+  await onMessage(message('Света, ты тут?'), deps);
+  assert.equal(replies.at(-1)?.content, 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', 'Google не ответил — позвавший не ждёт в тишине');
+
   configure({ randomPercent: 20 });
   roll = 0.01;
   await onMessage(message('кто-нибудь знает, когда патч выйдет?'), deps);

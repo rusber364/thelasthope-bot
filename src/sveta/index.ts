@@ -159,6 +159,10 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       if (trigger !== 'random') await message.reply({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
     } else {
       noteError(error.kind === 'unavailable' ? `${ERROR_TEXT.unavailable}: ${error.message}` : ERROR_TEXT[error.kind], now);
+      // Google не ответил вовремя — позвавший не должен ждать в тишине.
+      if (error.kind === 'unavailable' && trigger !== 'random') {
+        await message.reply({ content: 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', allowedMentions: quiet });
+      }
     }
   } finally {
     if (requests) countRequests(dayKey(now), requests);
