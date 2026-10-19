@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CircleAlert, CircleCheck, ExternalLink, ShieldAlert, Trash2 } from 'lucide-react';
+import { ChevronRight, CircleAlert, CircleCheck, ExternalLink, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { Settings, SvetaPerson, SvetaStatus } from '@api';
@@ -31,6 +31,8 @@ import { useOptions } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
 
 const PERSONA_MAX = 4000;
+const LORE_MAX = 50;
+const STORY_MAX = 1000;
 const CHANNELS_MAX = 10;
 
 /** Шаг подключения: галочка или восклицательный знак и что сделать. */
@@ -319,6 +321,62 @@ export function SvetaPage() {
                 {draft.sveta.persona.length} / {PERSONA_MAX}
               </FieldDescription>
             </Field>
+          </SectionCard>
+
+          <SectionCard
+            title="Истории о людях"
+            description="Что Света знает о людях гильдии: привычки, мемы, старые истории. Историю она вспоминает, когда человека называют в разговоре или он сам пишет, — и может шутить по её мотивам прямо в чате. Пиши только то, над чем людям нормально посмеяться. Света эти истории только читает."
+          >
+            {draft.sveta.lore.length === 0 && <p className="text-sm text-muted-foreground">Историй пока нет.</p>}
+            {draft.sveta.lore.map((entry, index) => {
+              const change = (next: Partial<typeof entry>) =>
+                set({ lore: draft.sveta.lore.map((e, i) => (i === index ? { ...e, ...next } : e)) });
+              return (
+                <div key={index} className="flex flex-col gap-3 rounded-xl border p-3">
+                  <div className="flex items-end gap-2">
+                    <Field className="flex-1">
+                      <FieldLabel htmlFor={`lore-names-${index}`}>Кто</FieldLabel>
+                      <Input
+                        id={`lore-names-${index}`}
+                        placeholder="Имя и другие ники через запятую: Эльын, Нобухидзе"
+                        value={entry.names.join(',')}
+                        onChange={(event) => change({ names: event.target.value.split(',') })}
+                      />
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Удалить историю"
+                      onClick={() => set({ lore: draft.sveta.lore.filter((_, i) => i !== index) })}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                  <Field>
+                    <FieldLabel htmlFor={`lore-story-${index}`}>История</FieldLabel>
+                    <Textarea
+                      id={`lore-story-${index}`}
+                      rows={3}
+                      maxLength={STORY_MAX}
+                      value={entry.story}
+                      onChange={(event) => change({ story: event.target.value })}
+                    />
+                    <FieldDescription>
+                      {entry.story.length} / {STORY_MAX}
+                    </FieldDescription>
+                  </Field>
+                </div>
+              );
+            })}
+            <div>
+              <Button
+                variant="outline"
+                disabled={draft.sveta.lore.length >= LORE_MAX}
+                onClick={() => set({ lore: [...draft.sveta.lore, { names: [], story: '' }] })}
+              >
+                <Plus /> Добавить историю
+              </Button>
+            </div>
           </SectionCard>
 
           <SectionCard title="Модель и потолки" description="Один ответ — один запрос к Gemini. Потолки берегут бесплатный лимит Google.">

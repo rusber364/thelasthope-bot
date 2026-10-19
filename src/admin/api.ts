@@ -363,6 +363,13 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           userCooldownSeconds: num(sveta.userCooldownSeconds),
           perHour: num(sveta.perHour),
           perDay: num(sveta.perDay),
+          // Пустые строки формы отбрасываем; имена — через запятую, без пробелов по краям и без повторов.
+          lore: arr(sveta.lore)
+            .map((raw) => {
+              const entry = obj(raw);
+              return { names: [...new Set(arr(entry.names).map(text).filter(Boolean))], story: text(entry.story) };
+            })
+            .filter((entry) => entry.names.length || entry.story),
         };
       },
     },

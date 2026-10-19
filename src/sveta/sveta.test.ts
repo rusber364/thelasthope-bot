@@ -435,3 +435,40 @@ test('упоминание роли Светы (Discord предлагает е�
   await onMessage(message('ну ты и морда', { userId: 'u2' }), deps);
   assert.equal(requests.length, 1, 'без упоминания и имени — молчит');
 });
+
+// --- Истории о людях ---
+
+test('истории: узнаются по имени и нику с окончаниями, но не внутри других слов; в инструкции — только названные', async () => {
+  const { matchLore, loreText } = await import('./lore.ts');
+  const lore = [
+    { names: ['Эльын', 'Нобухидзе'], story: 'Живёт у леса с медведями и лосями.' },
+    { names: ['Кембэл'], story: 'Любит медовуху.' },
+    { names: ['Орф'], story: 'В чёрном списке.' },
+  ];
+  const names = (texts: string[]) => matchLore(lore, texts).map((e) => e.names[0]);
+  assert.deepEqual(names(['Вася: а где Эльына носит?']), ['Эльын'], 'с окончанием');
+  assert.deepEqual(names(['Вася: нобухидзе опять на паладине']), ['Эльын'], 'по нику, без учёта регистра');
+  assert.deepEqual(names(['Кембэл: Света, налей']), ['Кембэл'], 'собеседник сам пишет');
+  assert.deepEqual(names(['Вася: орфография хромает']), [], 'не внутри других слов');
+  assert.equal(loreText(matchLore(lore, ['Эльын'])), '- Эльын / Нобухидзе: Живёт у леса с медведями и лосями.');
+
+  configure({ lore });
+  await onMessage(message('Света, а что Эльын?'), deps);
+  const system = requests.at(-1)!.system;
+  assert.match(system, /Истории о людях гильдии[^\n]*\n- Эльын \/ Нобухидзе: Живёт у леса/);
+  assert.doesNotMatch(system, /медовуху/, 'о Кембэле не спрашивали — его истории в запросе нет');
+
+  configure({ lore: [] });
+  await onMessage(message('Света, а что Эльын?'), deps);
+  assert.doesNotMatch(requests.at(-1)!.system, /Истории о людях/, 'нет историй — нет и раздела');
+});
+
+test('истории в настройках: кто и текст обязательны, длина и количество ограничены', () => {
+  const s = structuredClone(getSettings());
+  s.sveta = { ...s.sveta, lore: [{ names: [], story: 'без имени' }, { names: ['Кембэл'], story: '' }, { names: ['К'], story: 'а'.repeat(1001) }] };
+  const errors = validateSettings(s).join('\n');
+  assert.match(errors, /история 1: укажи, о ком/);
+  assert.match(errors, /история 2 \(«Кембэл»\): текст истории не может быть пустым/);
+  assert.match(errors, /история 3 \(«К»\): имя — от 2/);
+  assert.match(errors, /история 3 \(«К»\): не длиннее 1000/);
+});

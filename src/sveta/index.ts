@@ -18,6 +18,7 @@ import { GeminiError, generate, type GeminiReply } from './gemini.ts';
 import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
 import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
+import { loreText, matchLore } from './lore.ts';
 import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
 
@@ -146,6 +147,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     now: formatNow(now),
     summary: guildSummary(message.guildId),
     people: dossiers(people),
+    // Истории — только о тех, кого назвали в разговоре или кто в нём пишет.
+    lore: loreText(matchLore(s.lore, lines.map((line) => `${line.name}: ${line.text}`))),
   });
   const author = { guildId: message.guildId, userId: message.author.id, name: authorName };
   let writes = 0;

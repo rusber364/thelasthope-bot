@@ -22,6 +22,13 @@ export const LOG_LABELS: Record<LogCategory, { title: string; hint: string }> = 
   raids: { title: 'лог-рейдов', hint: 'запись на реги, смена спека, «под вопросом», отписки' },
 };
 
+/** История о человеке (или о чём-то в гильдии) для Светы: по каким именам узнавать и что рассказывать. */
+export interface LoreEntry {
+  /** Имя и другие ники, твинки — Света вспоминает историю, когда их называют в разговоре. */
+  names: string[];
+  story: string;
+}
+
 export interface SvetaSettings {
   enabled: boolean;
   /** Каналы, где Света читает и отвечает. Остальные каналы в Gemini не уходят. */
@@ -38,6 +45,8 @@ export interface SvetaSettings {
   userCooldownSeconds: number;
   perHour: number;
   perDay: number;
+  /** Истории о людях гильдии от офицеров — Света их только читает. */
+  lore: LoreEntry[];
 }
 
 export interface Onboarding {
@@ -189,7 +198,7 @@ export interface BotSettings {
   };
 }
 
-export const LIMITS = { svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -260,6 +269,7 @@ function defaults(): BotSettings {
       userCooldownSeconds: 15,
       perHour: 40,
       perDay: 300,
+      lore: [],
     },
   };
 }
@@ -427,6 +437,15 @@ export function validateSettings(s: BotSettings): string[] {
   for (const [name, value, min, max] of svetaRanges) {
     if (!Number.isInteger(value) || value < min || value > max) errors.push(`${name}: целое число от ${min} до ${max}.`);
   }
+  if (sveta.lore.length > LIMITS.lore) errors.push(`Света: историй — не больше ${LIMITS.lore}.`);
+  sveta.lore.forEach((entry, index) => {
+    const name = `Света: история ${index + 1}${entry.names[0] ? ` («${entry.names[0]}»)` : ''}`;
+    if (!entry.names.length) errors.push(`${name}: укажи, о ком она (имя или ник).`);
+    if (entry.names.length > LIMITS.loreNames) errors.push(`${name}: не больше ${LIMITS.loreNames} имён.`);
+    if (entry.names.some((n) => n.length < 2 || n.length > LIMITS.loreName)) errors.push(`${name}: имя — от 2 до ${LIMITS.loreName} символов.`);
+    if (!entry.story.trim()) errors.push(`${name}: текст истории не может быть пустым.`);
+    else if (entry.story.length > LIMITS.loreStory) errors.push(`${name}: не длиннее ${LIMITS.loreStory} символов.`);
+  });
 
   if (!Number.isInteger(s.sticky.intervalSeconds) || s.sticky.intervalSeconds < LIMITS.stickyMin || s.sticky.intervalSeconds > LIMITS.stickyMax) {
     errors.push(`Липкие сообщения: переставлять не чаще раза в ${LIMITS.stickyMin}–${LIMITS.stickyMax} секунд.`);

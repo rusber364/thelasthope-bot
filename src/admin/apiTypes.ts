@@ -114,6 +114,8 @@ export interface Settings {
     userCooldownSeconds: number;
     perHour: number;
     perDay: number;
+    /** Истории о людях: по каким именам узнавать и что рассказывать. */
+    lore: { names: string[]; story: string }[];
   };
 }
 
