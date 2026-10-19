@@ -5,14 +5,16 @@ import {
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  Download,
   ExternalLink,
   Plus,
   Search,
   Settings2,
   ShieldAlert,
   Trash2,
+  Upload,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import type { Settings, SvetaPerson, SvetaStatus } from '@api';
@@ -40,7 +42,8 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, todayInKyiv } from '@/lib/format';
+import { loreFile, mergeLore, parseLoreFile } from '@/lib/lore';
 import { useOptions, useSettings } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
 
@@ -293,6 +296,34 @@ function LoreEditor({ lore, onChange }: { lore: Lore; onChange: (lore: Lore) => 
       ({ entry }) => !query || !entry.names.join('').trim() || `${entry.names.join(' ')} ${entry.story}`.toLowerCase().includes(query),
     );
   const change = (index: number, next: Partial<Lore[number]>) => onChange(lore.map((e, i) => (i === index ? { ...e, ...next } : e)));
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  /** Скачать то, что сейчас на вкладке, — файлом sveta-lore-<дата>.json. */
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([loreFile(lore)], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sveta-lore-${todayInKyiv()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** Загрузить файл: новые люди — в конец, совпало имя — история обновится. Сохраняется общей кнопкой. */
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    const incoming = parseLoreFile(await file.text());
+    if (!incoming) {
+      toast.error('Это не файл историй Светы.');
+      return;
+    }
+    const { lore: next, added, updated } = mergeLore(lore, incoming);
+    if (!added && !updated) {
+      toast.info('Все истории из файла уже есть.');
+      return;
+    }
+    onChange(next);
+    toast.success(`Из файла: новых — ${added}, обновлено — ${updated}. Проверь и нажми «Сохранить».`);
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -305,6 +336,22 @@ function LoreEditor({ lore, onChange }: { lore: Lore; onChange: (lore: Lore) => 
         <Button disabled={lore.length >= LORE_MAX} onClick={() => onChange([{ names: [], story: '' }, ...lore])}>
           <Plus /> Добавить человека
         </Button>
+        <Button variant="outline" disabled={!lore.length} onClick={download}>
+          <Download /> Скачать истории
+        </Button>
+        <Button variant="outline" onClick={() => fileInput.current?.click()}>
+          <Upload /> Загрузить истории
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".json,application/json"
+          className="hidden"
+          onChange={(event) => {
+            void upload(event.target.files?.[0]);
+            event.target.value = ''; // тот же файл можно выбрать ещё раз
+          }}
+        />
         {lore.length > 4 && (
           <div className="relative min-w-48 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
