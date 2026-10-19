@@ -5,7 +5,7 @@ import type { GeminiReply, GeminiRequest } from './gemini.ts';
 process.env.BOT_DB_PATH = ':memory:';
 const { callsByName, triggerOf } = await import('./triggers.ts');
 const { buildContents, cleanReply, lineText } = await import('./context.ts');
-const { FALLBACK_MODEL, GeminiError, RETRY_DELAY_MS, generate, generateSteady, parseResponse, requestBody } = await import('./gemini.ts');
+const { FALLBACK_MODEL, GeminiError, ModelRest, RETRY_DELAY_MS, generate, generateSteady, parseResponse, readyModels, requestBody, restMs } = await import('./gemini.ts');
 const { onMessage, resetSveta, svetaInviteUrl } = await import('./index.ts');
 const { TOOLS, guildSummary, runTool } = await import('./tools.ts');
 const { newsText } = await import('./news.ts');
@@ -95,6 +95,25 @@ test('ответ Gemini: текст без «мыслей»; 429 — лимит,
   assert.equal(kind(404, { error: { message: 'models/x is not found' } }), 'model');
   assert.equal(kind(200, { promptFeedback: { blockReason: 'SAFETY' } }), 'blocked');
   assert.equal(kind(200, { candidates: [{ finishReason: 'SAFETY' }] }), 'blocked');
+  // 429: в минуту или в день — по имени квоты; дневной тоже присылает «повтори через N секунд».
+  const limit = (quotaId: string, retryDelay: string) => ({
+    error: {
+      status: 'RESOURCE_EXHAUSTED',
+      message: 'You exceeded your current quota.',
+      details: [
+        { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId }] },
+        { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay },
+      ],
+    },
+  });
+  assert.equal(kind(429, limit('GenerateRequestsPerMinutePerProjectPerModel-FreeTier', '37s')), 'rate');
+  assert.equal(kind(429, limit('GenerateRequestsPerDayPerProjectPerModel-FreeTier', '6s')), 'quota');
+  assert.equal(kind(429, { error: { message: 'Resource exhausted. Please retry in 12.5s.' } }), 'rate');
+  try {
+    parseResponse(429, limit('GenerateRequestsPerMinutePerProjectPerModel-FreeTier', '37.2s'));
+  } catch (error) {
+    assert.equal((error as InstanceType<typeof GeminiError>).retryMs, 37_200);
+  }
   assert.equal(kind(500, {}), 'busy');
   assert.equal(kind(503, { error: { status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } }), 'busy', 'перегрузка');
   assert.equal(kind(400, { error: { message: 'Invalid argument' } }), 'unavailable');
@@ -237,9 +256,14 @@ test('Gemini: лимит исчерпан — «перерыв» и час ти�
   };
   await onMessage(message('Света, привет'), deps);
   assert.deepEqual(replies.map((r) => r.content), ['Я на перерыве 💤 Загляну попозже.']);
+  assert.deepEqual(requests.map((r) => r.model), ['gemini-flash-latest', FALLBACK_MODEL], 'у лёгкой модели свой лимит — попробовала и её');
   clock += 30 * 60 * 1000;
   await onMessage(message('Света, ау', { userId: 'u2' }), deps);
-  assert.equal(requests.length, 1, 'полчаса спустя — всё ещё на перерыве, в Gemini не стучимся');
+  assert.equal(requests.length, 2, 'полчаса спустя — всё ещё на перерыве, в Gemini не стучимся');
+  clock += 31 * 60 * 1000;
+  geminiAnswer = async () => say('Я тут!');
+  await onMessage(message('Света, ау', { userId: 'u3' }), deps);
+  assert.equal(replies.at(-1)?.content, 'Я тут!', 'через час пробует снова');
 
   configure();
   geminiAnswer = async () => {
@@ -332,37 +356,63 @@ test('инструменты не бесконечны: после двух кр
   assert.equal(replies.at(-1)?.content, 'Вот что есть 📜');
 });
 
-test('сбой Google: перегрузка — повтор через 2 с, потом лёгкая модель; таймаут — сразу лёгкая; лимит и фильтр — без повторов', async () => {
-  const run = async (errors: (string | null)[], model = 'gemini-flash-latest') => {
+test('сбой Google: перегрузка — повтор через 2 с, потом лёгкая модель; таймаут и лимит — сразу лёгкая; ключ и фильтр — без повторов', async () => {
+  const run = async (errors: (string | null)[], model = 'gemini-flash-latest', rest = new ModelRest(), now = 0) => {
     const tried: string[] = [];
     const paused: number[] = [];
     const queue = [...errors];
     const steady = {
       generate: async (request: GeminiRequest) => {
         const kind = queue.shift();
-        if (kind) throw new GeminiError(kind as 'busy', kind);
+        if (kind) throw new GeminiError(kind as 'busy', kind, kind === 'rate' ? 30_000 : null);
         return say(`ответила ${request.model}`);
       },
       wait: async (ms: number) => void paused.push(ms),
+      now: () => now,
+      rest,
       onAttempt: (m: string) => void tried.push(m),
+      onFailure: () => {},
     };
     try {
-      const { reply, model: used, retried } = await generateSteady({ apiKey: 'k', model, system: 's', contents: [] }, steady);
-      return { result: reply.text, used, retried, tried, paused };
+      const { reply, model: used } = await generateSteady({ apiKey: 'k', model, system: 's', contents: [] }, steady);
+      return { result: reply.text, used, tried, paused };
     } catch (error) {
       return { result: `ошибка ${(error as InstanceType<typeof GeminiError>).kind}`, tried, paused };
     }
   };
   const main = 'gemini-flash-latest';
+  const lite = FALLBACK_MODEL;
 
-  assert.deepEqual(await run([]), { result: `ответила ${main}`, used: main, retried: false, tried: [main], paused: [] });
-  assert.deepEqual(await run(['busy']), { result: `ответила ${main}`, used: main, retried: true, tried: [main, main], paused: [RETRY_DELAY_MS] });
-  assert.deepEqual(await run(['busy', 'busy']), { result: `ответила ${FALLBACK_MODEL}`, used: FALLBACK_MODEL, retried: true, tried: [main, main, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] });
-  assert.deepEqual(await run(['unavailable']), { result: `ответила ${FALLBACK_MODEL}`, used: FALLBACK_MODEL, retried: false, tried: [main, FALLBACK_MODEL], paused: [] }, 'после таймаута основную второй раз не ждём');
-  assert.deepEqual(await run(['busy', 'busy', 'busy']), { result: 'ошибка busy', tried: [main, main, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] }, 'лёгкая тоже лежит — сдаёмся');
-  assert.deepEqual(await run(['busy', 'busy'], FALLBACK_MODEL), { result: 'ошибка busy', tried: [FALLBACK_MODEL, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] }, 'основная и есть лёгкая — только повтор');
-  assert.deepEqual(await run(['quota']), { result: 'ошибка quota', tried: [main], paused: [] });
+  assert.deepEqual(await run([]), { result: `ответила ${main}`, used: main, tried: [main], paused: [] });
+  assert.deepEqual(await run(['busy']), { result: `ответила ${main}`, used: main, tried: [main, main], paused: [RETRY_DELAY_MS] });
+  assert.deepEqual(await run(['busy', 'busy']), { result: `ответила ${lite}`, used: lite, tried: [main, main, lite], paused: [RETRY_DELAY_MS] });
+  assert.deepEqual(await run(['unavailable']), { result: `ответила ${lite}`, used: lite, tried: [main, lite], paused: [] }, 'после таймаута основную второй раз не ждём');
+  assert.deepEqual(await run(['rate']), { result: `ответила ${lite}`, used: lite, tried: [main, lite], paused: [] }, 'лимит у каждой модели свой');
+  assert.deepEqual(await run(['quota']), { result: `ответила ${lite}`, used: lite, tried: [main, lite], paused: [] });
+  assert.deepEqual(
+    await run(['busy', 'busy', 'busy', 'busy']),
+    { result: 'ошибка busy', tried: [main, main, lite, lite], paused: [RETRY_DELAY_MS, RETRY_DELAY_MS] },
+    'лёгкая тоже лежит (и её повтор) — сдаёмся',
+  );
+  assert.deepEqual(await run(['busy', 'busy'], lite), { result: 'ошибка busy', tried: [lite, lite], paused: [RETRY_DELAY_MS] }, 'основная и есть лёгкая — только повтор');
+  assert.deepEqual(await run(['auth']), { result: 'ошибка auth', tried: [main], paused: [] });
   assert.deepEqual(await run(['blocked']), { result: 'ошибка blocked', tried: [main], paused: [] });
+
+  // Модель, которая подвела, отдыхает: следующие запросы сразу к другой, лимит и время зря не тратятся.
+  const busy = new ModelRest();
+  await run(['busy', 'busy'], main, busy, 0);
+  assert.deepEqual((await run([], main, busy, 60_000)).tried, [lite], 'перегружена — 5 минут сразу к лёгкой');
+  assert.deepEqual((await run([], main, busy, 5 * 60_000)).tried, [main], 'через 5 минут — снова основная');
+  const rate = new ModelRest();
+  await run(['rate'], main, rate, 0);
+  assert.deepEqual((await run([], main, rate, 20_000)).tried, [lite], 'лимит в минуту — ждём, сколько сказал Google (30 с)');
+  assert.deepEqual((await run([], main, rate, 30_000)).tried, [main]);
+  const daily = new ModelRest();
+  await run(['quota', 'quota'], main, daily, 0);
+  assert.deepEqual(readyModels(main, daily, 59 * 60_000), [], 'дневной лимит у обеих — час тишины');
+  assert.deepEqual(await run([], main, daily, 59 * 60_000), { result: 'ошибка rate', tried: [], paused: [] }, 'все отдыхают — в Gemini не стучимся');
+  assert.deepEqual(readyModels(main, daily, 60 * 60_000), [main, lite]);
+  assert.equal(restMs(new GeminiError('rate', 'x', 999_000)), 5 * 60_000, 'больше 5 минут на лимит в минуту не ждём');
 });
 
 test('Gemini перегружен: Света отвечает лёгкой моделью, второй круг инструментов — к ней же; запросы считаются все', async () => {
@@ -386,6 +436,16 @@ test('Gemini перегружен: Света отвечает лёгкой мо
   assert.deepEqual(waits, [RETRY_DELAY_MS]);
   assert.equal(replies.at(-1)?.content, 'Сборов пока нет 📜');
   assert.equal(requestsOn(dayKey(clock)), 4);
+
+  // Пока основная отдыхает (5 минут) — сразу лёгкая: без повторов и пауз, запрос один.
+  requests.length = 0;
+  clock += 60_000;
+  geminiAnswer = async () => say('Привет-привет!');
+  await onMessage(message('Света, привет', { userId: 'u2' }), deps);
+  assert.deepEqual(requests.map((r) => r.model), [FALLBACK_MODEL]);
+  clock += 5 * 60_000;
+  await onMessage(message('Света, привет', { userId: 'u3' }), deps);
+  assert.equal(requests.at(-1)?.model, 'gemini-flash-latest', 'через 5 минут — снова основная');
 });
 
 test('новости о сборах: заготовленные фразы со ссылкой на регу; при отмене — без ссылки', () => {

@@ -1,11 +1,11 @@
 // Потолки Светы: пауза для одного человека, ответы в час и в день (счётчик за день — в базе, переживает перезапуск),
-// «перерыв», когда Google сказал, что лимит исчерпан. Бесплатный лимит Gemini так тратится только на живые разговоры.
+// «перерыв», когда все модели Gemini отдыхают после лимита или сбоя (gemini.ts::ModelRest). Бесплатный лимит Gemini так тратится только на живые разговоры.
 import { db } from '../db.ts';
 import { settings as constants } from '../settings.ts';
 import type { Trigger } from './triggers.ts';
 
 /** ok — можно отвечать; cooldown — этот человек только что получил ответ; quiet — «встрять самой» слишком рано;
- *  hour / day — потолок ответов; paused — Google ответил «лимит исчерпан». */
+ *  hour / day — потолок ответов; paused — все модели Gemini отдыхают после лимита или сбоя (решает index.ts). */
 export type Verdict = 'ok' | 'cooldown' | 'quiet' | 'hour' | 'day' | 'paused';
 
 export interface LimitSettings {
@@ -46,11 +46,9 @@ export class Limiter {
   private readonly userLast = new Map<string, number>();
   private readonly channelLast = new Map<string, number>();
   private hourly: number[] = [];
-  private pausedUntil = 0;
   private readonly noticeAt = new Map<string, number>();
 
   check(trigger: Trigger, userId: string, channelId: string, now: number, limits: LimitSettings): Verdict {
-    if (now < this.pausedUntil) return 'paused';
     if (repliesOn(dayKey(now)) >= limits.perDay) return 'day';
     this.hourly = this.hourly.filter((at) => now - at < HOUR);
     if (this.hourly.length >= limits.perHour) return 'hour';
@@ -65,11 +63,6 @@ export class Limiter {
     this.channelLast.set(channelId, now);
     this.hourly.push(now);
     countReply(dayKey(now));
-  }
-
-  /** Google сказал «лимит исчерпан» — не стучимся час. */
-  pause(now: number): void {
-    this.pausedUntil = now + HOUR;
   }
 
   /** Сказать в канале «я на перерыве» — не чаще раза в час. */

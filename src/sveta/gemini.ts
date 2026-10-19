@@ -49,16 +49,19 @@ export interface GeminiReply {
 }
 
 /**
- * quota — исчерпан лимит (429); auth — неверный ключ; model — нет такой модели; blocked — ответ отфильтрован;
- * busy — Google перегружен или упал (5xx); unavailable — не ответил вовремя, сеть или непонятный ответ.
+ * quota — дневной лимит (429); rate — лимит в минуту (429); auth — неверный ключ; model — нет такой модели;
+ * blocked — ответ отфильтрован; busy — Google перегружен или упал (5xx); unavailable — не ответил вовремя, сеть или непонятный ответ.
  */
-export type GeminiErrorKind = 'quota' | 'auth' | 'model' | 'blocked' | 'busy' | 'unavailable';
+export type GeminiErrorKind = 'quota' | 'rate' | 'auth' | 'model' | 'blocked' | 'busy' | 'unavailable';
 
 export class GeminiError extends Error {
   readonly kind: GeminiErrorKind;
-  constructor(kind: GeminiErrorKind, message: string) {
+  /** Через сколько Google советует повторить (у 429). */
+  readonly retryMs: number | null;
+  constructor(kind: GeminiErrorKind, message: string, retryMs: number | null = null) {
     super(message);
     this.kind = kind;
+    this.retryMs = retryMs;
   }
 }
 
@@ -86,17 +89,33 @@ interface ResponseJson {
   candidates?: { content?: { role?: string; parts?: GeminiPart[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
   usageMetadata?: { totalTokenCount?: number };
-  error?: { message?: string; status?: string; details?: { reason?: string }[] };
+  error?: {
+    message?: string;
+    status?: string;
+    // ErrorInfo (reason), QuotaFailure (violations[].quotaId), RetryInfo (retryDelay: "37s").
+    details?: { reason?: string; retryDelay?: string; violations?: { quotaId?: string }[] }[];
+  };
 }
 
 const BLOCKED = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII', 'RECITATION']);
+
+/** 429: какой лимит кончился. Дневной тоже присылает «повтори через N секунд» — поэтому сначала смотрим на имя квоты. */
+function limitError(message: string, details: NonNullable<NonNullable<ResponseJson['error']>['details']>): GeminiError {
+  const quotaIds = details.flatMap((detail) => detail.violations ?? []).map((violation) => violation.quotaId ?? '');
+  const delay = details.find((detail) => detail.retryDelay)?.retryDelay ?? /retry in ([\d.]+\s*s)/i.exec(message)?.[1];
+  const seconds = Number.parseFloat(delay ?? '');
+  const retryMs = Number.isFinite(seconds) ? Math.ceil(seconds * 1000) : null;
+  const daily = quotaIds.some((id) => /PerDay/i.test(id));
+  const perMinute = quotaIds.some((id) => /PerMinute/i.test(id)) || retryMs !== null;
+  return new GeminiError(!daily && perMinute ? 'rate' : 'quota', message, retryMs);
+}
 
 /** Разбор ответа (чистая функция): текст или понятная ошибка. */
 export function parseResponse(status: number, json: ResponseJson): GeminiReply {
   if (status !== 200) {
     const message = json.error?.message ?? `HTTP ${status}`;
     const reason = json.error?.details?.map((d) => d.reason).join(' ') ?? '';
-    if (status === 429 || json.error?.status === 'RESOURCE_EXHAUSTED') throw new GeminiError('quota', message);
+    if (status === 429 || json.error?.status === 'RESOURCE_EXHAUSTED') throw limitError(message, json.error?.details ?? []);
     if (status === 401 || status === 403 || /API_KEY/.test(reason)) throw new GeminiError('auth', message);
     if (status === 400 && /api key/i.test(message)) throw new GeminiError('auth', message);
     if (status === 404) throw new GeminiError('model', message);
@@ -134,46 +153,81 @@ export async function generate(request: GeminiRequest): Promise<GeminiReply> {
   return parseResponse(response.status, json);
 }
 
-/** Запасная модель, когда основная перегружена: лёгкая, быстрая и со своим бесплатным лимитом. */
+/** Запасная модель: лёгкая, быстрая и со своим бесплатным лимитом (лимиты у Google — на каждую модель отдельно). */
 export const FALLBACK_MODEL = 'gemini-flash-lite-latest';
 export const RETRY_DELAY_MS = 2_000;
+
+const MINUTE = 60_000;
+
+/** Какие модели сейчас отдыхают после сбоя или лимита: пока отдыхает — запросы сразу к другой, лимит зря не тратится. */
+export class ModelRest {
+  private readonly until = new Map<string, number>();
+
+  ready(model: string, now: number): boolean {
+    return (this.until.get(model) ?? 0) <= now;
+  }
+
+  rest(model: string, until: number): void {
+    this.until.set(model, until);
+  }
+}
+
+/** Сколько модель отдыхает: лимит в минуту — сколько сказал Google; дневной — час (потом пробуем снова); сбой — 5 минут. */
+export function restMs(error: GeminiError): number {
+  if (error.kind === 'rate') return Math.min(Math.max(error.retryMs ?? MINUTE, 10_000), 5 * MINUTE);
+  if (error.kind === 'quota') return 60 * MINUTE;
+  return 5 * MINUTE;
+}
+
+/** Модели по порядку — выбранная, потом запасная, — кроме тех, что отдыхают. */
+export function readyModels(model: string, rest: ModelRest, now: number): string[] {
+  return [...new Set([model, FALLBACK_MODEL])].filter((m) => rest.ready(m, now));
+}
+
+/** Сбои, после которых стоит попробовать другую модель. Ключ, фильтр, нет модели — другая не поможет. */
+const RECOVERABLE = new Set<GeminiErrorKind>(['busy', 'unavailable', 'rate', 'quota']);
 
 export interface SteadyDeps {
   generate: typeof generate;
   wait: (ms: number) => Promise<void>;
+  now: () => number;
+  rest: ModelRest;
   /** Перед каждой попыткой (считаем запросы, обновляем «печатает…»). */
   onAttempt: (model: string) => void;
+  /** Модель не ответила (для лога). */
+  onFailure: (model: string, error: GeminiError) => void;
 }
 
 export interface SteadyReply {
   reply: GeminiReply;
   /** Какая модель ответила — следующие круги того же ответа идут к ней же. */
   model: string;
-  /** Был повтор после перегрузки. */
-  retried: boolean;
 }
 
 /**
- * Запрос с запасом на сбои Google. Перегрузка (5xx) — ещё раз той же моделью через 2 секунды;
- * снова не вышло или Google не ответил вовремя — лёгкая модель. Лимит, ключ, фильтр — сразу наверх.
+ * Запрос с запасом на сбои Google. Перегрузка (5xx) — ещё раз той же моделью через 2 секунды; снова не вышло,
+ * Google не ответил вовремя или кончился лимит модели — она отдыхает, а запрос идёт к другой. Ключ, фильтр — сразу наверх.
  */
 export async function generateSteady(request: GeminiRequest, deps: SteadyDeps): Promise<SteadyReply> {
-  let model = request.model;
-  let retried = false;
-  for (;;) {
-    deps.onAttempt(model);
-    try {
-      return { reply: await deps.generate({ ...request, model }), model, retried };
-    } catch (error) {
-      if (!(error instanceof GeminiError) || (error.kind !== 'busy' && error.kind !== 'unavailable')) throw error;
-      // Перегрузка обычно проходит за секунды. После таймаута (30 с) ту же модель второй раз не ждём.
-      if (error.kind === 'busy' && !retried && model === request.model) {
-        retried = true;
-        await deps.wait(RETRY_DELAY_MS);
-        continue;
+  let failure: GeminiError | null = null;
+  for (const model of readyModels(request.model, deps.rest, deps.now())) {
+    for (let attempt = 1; ; attempt++) {
+      deps.onAttempt(model);
+      try {
+        return { reply: await deps.generate({ ...request, model }), model };
+      } catch (error) {
+        if (!(error instanceof GeminiError) || !RECOVERABLE.has(error.kind)) throw error;
+        failure = error;
+        deps.onFailure(model, error);
+        // Перегрузка обычно проходит за секунды. После таймаута (30 с) ту же модель второй раз не ждём.
+        if (error.kind === 'busy' && attempt === 1) {
+          await deps.wait(RETRY_DELAY_MS);
+          continue;
+        }
+        deps.rest.rest(model, deps.now() + restMs(error));
+        break;
       }
-      if (model === FALLBACK_MODEL) throw error;
-      model = FALLBACK_MODEL;
     }
   }
+  throw failure ?? new GeminiError('rate', 'Все модели отдыхают после сбоя или лимита.');
 }

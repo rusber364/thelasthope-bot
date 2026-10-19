@@ -14,7 +14,7 @@ import { getSettings } from '../botSettings.ts';
 import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
-import { FALLBACK_MODEL, GeminiError, generate, generateSteady, type GeminiReply } from './gemini.ts';
+import { GeminiError, ModelRest, generate, generateSteady, readyModels, type GeminiErrorKind, type GeminiReply } from './gemini.ts';
 import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
 import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
@@ -55,11 +55,13 @@ const MAX_TOOL_ROUNDS = 2;
 
 let client: Client | null = null;
 let limiter = new Limiter();
+let rest = new ModelRest();
 let lastError: { at: number; text: string } | null = null;
 
 /** Сбросить состояние (для тестов). */
 export function resetSveta(): void {
   limiter = new Limiter();
+  rest = new ModelRest();
   lastError = null;
 }
 
@@ -75,6 +77,18 @@ const ERROR_TEXT = {
   busy: 'Gemini перегружен',
   unavailable: 'Gemini не ответил',
 } as const;
+
+/** Почему модель не ответила — для строки в «Логе бота». */
+const FAILURE_LABEL: Partial<Record<GeminiErrorKind, string>> = {
+  busy: 'перегружена',
+  unavailable: 'не ответила',
+  rate: 'лимит в минуту',
+  quota: 'дневной лимит',
+};
+
+/** «a, a, b» → «a ×2, b». */
+const countList = (items: string[]) =>
+  [...Map.groupBy(items, (item) => item)].map(([item, all]) => (all.length > 1 ? `${item} ×${all.length}` : item)).join(', ');
 
 const formatNow = (now: number) =>
   new Intl.DateTimeFormat('ru-RU', { timeZone: constants.timeZone, day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).format(now);
@@ -120,7 +134,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     return;
   }
 
-  const verdict = limiter.check(trigger, message.author.id, message.channelId, now, s);
+  // Все модели отдыхают после лимита или сбоя — в Gemini не стучимся, позвавшему раз в час «перерыв».
+  const verdict = readyModels(s.model, rest, now).length ? limiter.check(trigger, message.author.id, message.channelId, now, s) : 'paused';
   if (verdict !== 'ok') {
     // Позвали, а ответить нельзя: один раз в час говорим, что на перерыве; в остальных случаях молчим.
     const breakKind = verdict === 'hour' || verdict === 'day' || verdict === 'paused' ? verdict : null;
@@ -164,13 +179,20 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   const used: string[] = [];
   let requests = 0;
   let model = s.model;
-  let retried = false;
-  // Перед каждой попыткой — заново «печатает…»: повтор и запасная модель могут занять время.
+  const failures: string[] = [];
   const steady = {
     generate: deps.generate,
     wait: deps.wait,
+    now: deps.now,
+    rest,
+    // Перед каждой попыткой — заново «печатает…»: повтор и запасная модель могут занять время.
     onAttempt: () => {
       if (requests++) void message.channel.sendTyping().catch(() => {});
+    },
+    onFailure: (failed: string, error: GeminiError) => {
+      failures.push(`${failed} — ${FAILURE_LABEL[error.kind] ?? error.kind}`);
+      // Лимит — редкое событие: ответ Google целиком в лог, там видно, какой лимит и у какой модели.
+      if (error.kind === 'rate' || error.kind === 'quota') noteError(`${failed}, ${FAILURE_LABEL[error.kind]}: ${error.message.slice(0, 300)}`, deps.now());
     },
   };
   try {
@@ -182,7 +204,6 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       const answer = await generateSteady({ apiKey, model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
       // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
       ({ reply, model } = answer);
-      retried ||= answer.retried;
       if (!reply.calls.length) break;
       used.push(...reply.calls.map((call) => call.name));
       // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.
@@ -201,17 +222,16 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     const details = [
       TRIGGER_LABEL[trigger],
       `запросов: ${requests}`,
-      retried ? 'Gemini был перегружен — повтор' : '',
-      model !== s.model ? `ответила запасная модель ${FALLBACK_MODEL}` : '',
+      failures.length ? `сбои: ${countList(failures)}` : '',
+      model !== s.model ? `ответила ${model}` : '',
       used.length ? `инструменты: ${[...new Set(used)].join(', ')}` : '',
       reply.tokens ? `токенов: ${reply.tokens}` : '',
     ];
     console.log(`💬 Света ответила в ${channel} (${details.filter(Boolean).join(', ')}).`);
   } catch (error) {
     if (!(error instanceof GeminiError)) throw error;
-    if (error.kind === 'quota') {
-      limiter.pause(now);
-      noteError('Gemini сказал, что бесплатный лимит исчерпан — молчу час.', now);
+    if (error.kind === 'quota' || error.kind === 'rate') {
+      // Лимит у всех моделей: они отдыхают (ModelRest), текст Google уже в логе.
       if (trigger !== 'random' && limiter.shouldNotice(message.channelId, now)) await message.reply({ content: BREAK_LINES.paused, allowedMentions: quiet });
     } else if (error.kind === 'blocked') {
       if (trigger !== 'random') await message.reply({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
