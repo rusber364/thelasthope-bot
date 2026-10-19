@@ -189,7 +189,11 @@ function message(content: string, { userId = 'u1', channelId = 'C', bot = false,
     },
     channel: { name: 'таверна', sendTyping: async () => {}, messages: { fetch: async () => earlier } },
     inGuild: () => true,
-    reply: async (payload: (typeof replies)[number]) => void replies.push(payload),
+    // Света отвечает и на уже удалённое сообщение — без привязки (failIfNotExists: false), а не с ошибкой Discord.
+    reply: async ({ failIfNotExists, ...payload }: (typeof replies)[number] & { failIfNotExists?: boolean }) => {
+      assert.equal(failIfNotExists, false);
+      replies.push(payload);
+    },
   };
   return msg as never;
 }

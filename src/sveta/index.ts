@@ -9,6 +9,7 @@ import {
   PermissionFlagsBits,
   PermissionsBitField,
   type Message,
+  type MessageReplyOptions,
 } from 'discord.js';
 import { getSettings } from '../botSettings.ts';
 import { config } from '../config.ts';
@@ -119,17 +120,19 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   if (!apiKey) return noteError('нет ключа: впиши GEMINI_API_KEY в .env и перезапусти бота.', now);
 
   const quiet = { parse: [] as never[], repliedUser: false };
+  // Сообщение могли удалить, пока Света думала (например, фильтр мата), — тогда ответ уходит без привязки, а не с ошибкой.
+  const respond = (payload: MessageReplyOptions) => message.reply({ ...payload, failIfNotExists: false });
   const authorName = message.member?.displayName ?? message.author.displayName;
 
   // «Что ты обо мне помнишь» и «забудь меня» — отвечает код: точно, без запроса к Gemini и без лимитов.
   const command = trigger === 'random' ? null : memoryCommand(message.content);
   if (command === 'ask') {
-    await message.reply({ content: memoryReport(getPerson(message.guildId, message.author.id)), allowedMentions: quiet });
+    await respond({ content: memoryReport(getPerson(message.guildId, message.author.id)), allowedMentions: quiet });
     return;
   }
   if (command === 'forget') {
     const forgotten = forgetPerson(message.guildId, message.author.id);
-    await message.reply({ content: forgotten ? FORGOTTEN : NOTHING_TO_FORGET, allowedMentions: quiet });
+    await respond({ content: forgotten ? FORGOTTEN : NOTHING_TO_FORGET, allowedMentions: quiet });
     if (forgotten) console.log(`🧹 Света стёрла память по просьбе: ${authorName}.`);
     return;
   }
@@ -140,7 +143,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     // Позвали, а ответить нельзя: один раз в час говорим, что на перерыве; в остальных случаях молчим.
     const breakKind = verdict === 'hour' || verdict === 'day' || verdict === 'paused' ? verdict : null;
     if (trigger !== 'random' && breakKind && limiter.shouldNotice(message.channelId, now)) {
-      await message.reply({ content: BREAK_LINES[breakKind], allowedMentions: quiet });
+      await respond({ content: BREAK_LINES[breakKind], allowedMentions: quiet });
     }
     return;
   }
@@ -217,7 +220,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     const text = cleanReply(reply.text);
     if (!text) return;
     // Кто позвал — получит уведомление об ответе; если встряла сама — без уведомления.
-    await message.reply({ content: text, allowedMentions: { parse: [], repliedUser: trigger !== 'random' } });
+    await respond({ content: text, allowedMentions: { parse: [], repliedUser: trigger !== 'random' } });
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
     const details = [
       TRIGGER_LABEL[trigger],
@@ -232,16 +235,16 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     if (!(error instanceof GeminiError)) throw error;
     if (error.kind === 'quota' || error.kind === 'rate') {
       // Лимит у всех моделей: они отдыхают (ModelRest), текст Google уже в логе.
-      if (trigger !== 'random' && limiter.shouldNotice(message.channelId, now)) await message.reply({ content: BREAK_LINES.paused, allowedMentions: quiet });
+      if (trigger !== 'random' && limiter.shouldNotice(message.channelId, now)) await respond({ content: BREAK_LINES.paused, allowedMentions: quiet });
     } else if (error.kind === 'blocked') {
-      if (trigger !== 'random') await message.reply({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
+      if (trigger !== 'random') await respond({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
     } else {
       // Сюда сбой Google доходит, только когда не помогли ни повтор, ни запасная модель.
       const outage = error.kind === 'busy' || error.kind === 'unavailable';
       noteError(outage ? `${ERROR_TEXT[error.kind]}: ${error.message}` : ERROR_TEXT[error.kind], now);
       // Google не ответил — позвавший не должен ждать в тишине.
       if (outage && trigger !== 'random') {
-        await message.reply({ content: 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', allowedMentions: quiet });
+        await respond({ content: 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', allowedMentions: quiet });
       }
     }
   } finally {
