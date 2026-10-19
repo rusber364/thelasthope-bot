@@ -5,7 +5,7 @@ import type { GeminiReply, GeminiRequest } from './gemini.ts';
 process.env.BOT_DB_PATH = ':memory:';
 const { callsByName, triggerOf } = await import('./triggers.ts');
 const { buildContents, cleanReply, lineText } = await import('./context.ts');
-const { GeminiError, generate, parseResponse, requestBody } = await import('./gemini.ts');
+const { FALLBACK_MODEL, GeminiError, RETRY_DELAY_MS, generate, generateSteady, parseResponse, requestBody } = await import('./gemini.ts');
 const { onMessage, resetSveta, svetaInviteUrl } = await import('./index.ts');
 const { TOOLS, guildSummary, runTool } = await import('./tools.ts');
 const { newsText } = await import('./news.ts');
@@ -95,7 +95,9 @@ test('ответ Gemini: текст без «мыслей»; 429 — лимит,
   assert.equal(kind(404, { error: { message: 'models/x is not found' } }), 'model');
   assert.equal(kind(200, { promptFeedback: { blockReason: 'SAFETY' } }), 'blocked');
   assert.equal(kind(200, { candidates: [{ finishReason: 'SAFETY' }] }), 'blocked');
-  assert.equal(kind(500, {}), 'unavailable');
+  assert.equal(kind(500, {}), 'busy');
+  assert.equal(kind(503, { error: { status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } }), 'busy', 'перегрузка');
+  assert.equal(kind(400, { error: { message: 'Invalid argument' } }), 'unavailable');
 });
 
 test('generate: ключ — в заголовке, а не в адресе; модель — в адресе', async () => {
@@ -134,6 +136,7 @@ const say = (text: string): Answer => ({ text, tokens: 42, calls: [], content: {
 let geminiAnswer: () => Promise<Answer> = async () => say('Света: Привет, Морозко! 👋');
 let clock = Date.UTC(2026, 9, 19, 18, 0);
 let roll = 0.99;
+const waits: number[] = [];
 const deps = {
   generate: async (request: GeminiRequest) => {
     requests.push(request);
@@ -142,6 +145,7 @@ const deps = {
   now: () => clock,
   random: () => roll,
   apiKey: () => 'key' as string | undefined,
+  wait: async (ms: number) => void waits.push(ms),
 };
 
 const earlier = new Map([['m0', { id: 'm0', author: { id: 'S', displayName: 'Света' }, member: null, cleanContent: 'Кто сегодня танкует?', attachments: { size: 0 }, stickers: { size: 0 } }]]);
@@ -178,6 +182,7 @@ function configure(patch: Partial<ReturnType<typeof getSettings>['sveta']> = {})
   resetSveta();
   replies.length = 0;
   requests.length = 0;
+  waits.length = 0;
   geminiAnswer = async () => say('Света: Привет, Морозко! 👋');
   clock += 24 * 60 * 60 * 1000; // новый день — дневной счётчик с нуля
 }
@@ -248,6 +253,7 @@ test('Gemini: лимит исчерпан — «перерыв» и час ти�
     throw new GeminiError('unavailable', 'The operation was aborted due to timeout');
   };
   await onMessage(message('Света, ты тут?'), deps);
+  assert.deepEqual(requests.map((r) => r.model), ['gemini-flash-latest', FALLBACK_MODEL], 'сначала попробовала лёгкую модель');
   assert.equal(replies.at(-1)?.content, 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', 'Google не ответил — позвавший не ждёт в тишине');
 
   configure({ randomPercent: 20 });
@@ -324,6 +330,62 @@ test('инструменты не бесконечны: после двух кр
   await onMessage(message('Света, что по сборам?'), deps);
   assert.deepEqual(requests.map((r) => r.toolMode), ['AUTO', 'AUTO', 'NONE']);
   assert.equal(replies.at(-1)?.content, 'Вот что есть 📜');
+});
+
+test('сбой Google: перегрузка — повтор через 2 с, потом лёгкая модель; таймаут — сразу лёгкая; лимит и фильтр — без повторов', async () => {
+  const run = async (errors: (string | null)[], model = 'gemini-flash-latest') => {
+    const tried: string[] = [];
+    const paused: number[] = [];
+    const queue = [...errors];
+    const steady = {
+      generate: async (request: GeminiRequest) => {
+        const kind = queue.shift();
+        if (kind) throw new GeminiError(kind as 'busy', kind);
+        return say(`ответила ${request.model}`);
+      },
+      wait: async (ms: number) => void paused.push(ms),
+      onAttempt: (m: string) => void tried.push(m),
+    };
+    try {
+      const { reply, model: used, retried } = await generateSteady({ apiKey: 'k', model, system: 's', contents: [] }, steady);
+      return { result: reply.text, used, retried, tried, paused };
+    } catch (error) {
+      return { result: `ошибка ${(error as InstanceType<typeof GeminiError>).kind}`, tried, paused };
+    }
+  };
+  const main = 'gemini-flash-latest';
+
+  assert.deepEqual(await run([]), { result: `ответила ${main}`, used: main, retried: false, tried: [main], paused: [] });
+  assert.deepEqual(await run(['busy']), { result: `ответила ${main}`, used: main, retried: true, tried: [main, main], paused: [RETRY_DELAY_MS] });
+  assert.deepEqual(await run(['busy', 'busy']), { result: `ответила ${FALLBACK_MODEL}`, used: FALLBACK_MODEL, retried: true, tried: [main, main, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] });
+  assert.deepEqual(await run(['unavailable']), { result: `ответила ${FALLBACK_MODEL}`, used: FALLBACK_MODEL, retried: false, tried: [main, FALLBACK_MODEL], paused: [] }, 'после таймаута основную второй раз не ждём');
+  assert.deepEqual(await run(['busy', 'busy', 'busy']), { result: 'ошибка busy', tried: [main, main, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] }, 'лёгкая тоже лежит — сдаёмся');
+  assert.deepEqual(await run(['busy', 'busy'], FALLBACK_MODEL), { result: 'ошибка busy', tried: [FALLBACK_MODEL, FALLBACK_MODEL], paused: [RETRY_DELAY_MS] }, 'основная и есть лёгкая — только повтор');
+  assert.deepEqual(await run(['quota']), { result: 'ошибка quota', tried: [main], paused: [] });
+  assert.deepEqual(await run(['blocked']), { result: 'ошибка blocked', tried: [main], paused: [] });
+});
+
+test('Gemini перегружен: Света отвечает лёгкой моделью, второй круг инструментов — к ней же; запросы считаются все', async () => {
+  configure();
+  const queue: (Answer | 'busy')[] = [
+    'busy',
+    'busy',
+    { text: '', tokens: 1, calls: [{ name: 'upcoming_raids', args: {} }], content: { role: 'model', parts: [{ functionCall: { name: 'upcoming_raids', args: {} } }] } },
+    say('Сборов пока нет 📜'),
+  ];
+  geminiAnswer = async () => {
+    const next = queue.shift()!;
+    if (next === 'busy') throw new GeminiError('busy', 'This model is currently experiencing high demand.');
+    return next;
+  };
+  await onMessage(message('Света, что по сборам?'), deps);
+  assert.deepEqual(
+    requests.map((r) => r.model),
+    ['gemini-flash-latest', 'gemini-flash-latest', FALLBACK_MODEL, FALLBACK_MODEL],
+  );
+  assert.deepEqual(waits, [RETRY_DELAY_MS]);
+  assert.equal(replies.at(-1)?.content, 'Сборов пока нет 📜');
+  assert.equal(requestsOn(dayKey(clock)), 4);
 });
 
 test('новости о сборах: заготовленные фразы со ссылкой на регу; при отмене — без ссылки', () => {

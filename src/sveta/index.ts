@@ -14,7 +14,7 @@ import { getSettings } from '../botSettings.ts';
 import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
-import { GeminiError, generate, type GeminiReply } from './gemini.ts';
+import { FALLBACK_MODEL, GeminiError, generate, generateSteady, type GeminiReply } from './gemini.ts';
 import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
 import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
@@ -45,9 +45,10 @@ export interface SvetaDeps {
   now: () => number;
   random: () => number;
   apiKey: () => string | undefined;
+  wait: (ms: number) => Promise<void>;
 }
 
-const DEFAULT_DEPS: SvetaDeps = { generate, now: Date.now, random: Math.random, apiKey: () => config.geminiApiKey };
+const DEFAULT_DEPS: SvetaDeps = { generate, now: Date.now, random: Math.random, apiKey: () => config.geminiApiKey, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) };
 const HOUR = 60 * 60 * 1000;
 /** Сколько раз за ответ модель может попросить инструменты (каждый круг — ещё один запрос к Gemini). */
 const MAX_TOOL_ROUNDS = 2;
@@ -71,6 +72,7 @@ function noteError(text: string, now: number): void {
 const ERROR_TEXT = {
   auth: 'Gemini не принял ключ — проверь GEMINI_API_KEY в .env.',
   model: 'Такой модели у Gemini нет — поправь модель на странице «Света».',
+  busy: 'Gemini перегружен',
   unavailable: 'Gemini не ответил',
 } as const;
 
@@ -161,14 +163,26 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   let contents = buildContents(lines);
   const used: string[] = [];
   let requests = 0;
+  let model = s.model;
+  let retried = false;
+  // Перед каждой попыткой — заново «печатает…»: повтор и запасная модель могут занять время.
+  const steady = {
+    generate: deps.generate,
+    wait: deps.wait,
+    onAttempt: () => {
+      if (requests++) void message.channel.sendTyping().catch(() => {});
+    },
+  };
   try {
     // Модель может попросить инструменты (состав реги, расписание): бот выполняет их и спрашивает ещё раз.
     // Не больше MAX_TOOL_ROUNDS кругов, на последнем — только текст.
     let reply: GeminiReply;
     for (let round = 0; ; round++) {
       const last = round >= MAX_TOOL_ROUNDS;
-      requests++;
-      reply = await deps.generate({ apiKey, model: s.model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' });
+      const answer = await generateSteady({ apiKey, model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
+      // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
+      ({ reply, model } = answer);
+      retried ||= answer.retried;
       if (!reply.calls.length) break;
       used.push(...reply.calls.map((call) => call.name));
       // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.
@@ -184,7 +198,14 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     // Кто позвал — получит уведомление об ответе; если встряла сама — без уведомления.
     await message.reply({ content: text, allowedMentions: { parse: [], repliedUser: trigger !== 'random' } });
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
-    const details = [TRIGGER_LABEL[trigger], `запросов: ${requests}`, used.length ? `инструменты: ${[...new Set(used)].join(', ')}` : '', reply.tokens ? `токенов: ${reply.tokens}` : ''];
+    const details = [
+      TRIGGER_LABEL[trigger],
+      `запросов: ${requests}`,
+      retried ? 'Gemini был перегружен — повтор' : '',
+      model !== s.model ? `ответила запасная модель ${FALLBACK_MODEL}` : '',
+      used.length ? `инструменты: ${[...new Set(used)].join(', ')}` : '',
+      reply.tokens ? `токенов: ${reply.tokens}` : '',
+    ];
     console.log(`💬 Света ответила в ${channel} (${details.filter(Boolean).join(', ')}).`);
   } catch (error) {
     if (!(error instanceof GeminiError)) throw error;
@@ -195,9 +216,11 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     } else if (error.kind === 'blocked') {
       if (trigger !== 'random') await message.reply({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
     } else {
-      noteError(error.kind === 'unavailable' ? `${ERROR_TEXT.unavailable}: ${error.message}` : ERROR_TEXT[error.kind], now);
-      // Google не ответил вовремя — позвавший не должен ждать в тишине.
-      if (error.kind === 'unavailable' && trigger !== 'random') {
+      // Сюда сбой Google доходит, только когда не помогли ни повтор, ни запасная модель.
+      const outage = error.kind === 'busy' || error.kind === 'unavailable';
+      noteError(outage ? `${ERROR_TEXT[error.kind]}: ${error.message}` : ERROR_TEXT[error.kind], now);
+      // Google не ответил — позвавший не должен ждать в тишине.
+      if (outage && trigger !== 'random') {
         await message.reply({ content: 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', allowedMentions: quiet });
       }
     }
