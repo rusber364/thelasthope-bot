@@ -4,8 +4,8 @@
 
 Что понадобится:
 
-- **VPS** на Ubuntu 24.04 (хватит самого простого: 1 ядро, 1 ГБ памяти). Подойдёт любой хостинг: Hetzner, DigitalOcean, Aeza и т. п.
-- **Домен** или поддомен для админки, например `admin.thelasthope.ru`.
+- **VPS** на Ubuntu 24.04 или новее (хватит самого простого: 1 ядро, 1 ГБ памяти — бот занимает около 100 МБ). Подойдёт любой хостинг: Hetzner, DigitalOcean, Aeza и т. п. Бесплатно — Oracle Cloud, см. [раздел ниже](#бесплатный-сервер-в-oracle-cloud).
+- **Домен** или поддомен для админки, например `admin.thelasthope.ru`. Бесплатно — [DuckDNS](https://www.duckdns.org): адрес вида `имя.duckdns.org`, в поле current ip — IP сервера.
 - Доступ к серверу по SSH.
 
 > ⚠️ **Бот должен работать в одном месте.** Если запустить его и дома, и на сервере, каждое событие обработается дважды: двойные приветствия и напоминания, две реги. Перед запуском на сервере останови бота дома.
@@ -34,10 +34,16 @@ curl -fsSL https://deb.nodesource.com/setup_26.x | sudo -E bash - && sudo apt in
 node -v
 ```
 
-pnpm встроен в Node — его нужно только включить:
+pnpm (с Node 25 он больше не входит в Node через corepack) — версию возьми из `packageManager` в `package.json`:
 
 ```bash
-sudo corepack enable
+sudo npm install -g pnpm@12.11.2
+```
+
+На сервере с 1 ГБ памяти добавь файл подкачки на 2 ГБ — с ним спокойно собирается админка:
+
+```bash
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 ```
 
 Отдельный пользователь для бота: так у бота нет доступа к остальному серверу.
@@ -151,6 +157,8 @@ sudo journalctl -u thelasthope-bot -f
    sudo ufw allow OpenSSH && sudo ufw allow 80 && sudo ufw allow 443 && sudo ufw enable
    ```
 
+   На **Oracle Cloud** ufw не используй — там свои правила iptables; порты открываются по-другому, см. [раздел про Oracle](#бесплатный-сервер-в-oracle-cloud).
+
 Теперь админка открывается по `https://admin.твой-домен`, вход — через Discord, как и раньше. Войти могут только те, у кого на сервере есть право «Управлять сервером».
 
 ## 5. Резервные копии базы
@@ -198,3 +206,27 @@ sudo systemctl restart thelasthope-bot
 ```bash
 cd /opt/thelasthope-bot && sudo -u tlh pnpm deploy
 ```
+
+## Бесплатный сервер в Oracle Cloud
+
+Так бот работает с 19.10.2026: Oracle Cloud Always Free, Франкфурт, AMD `VM.Standard.E2.1.Micro` (1 ГБ памяти + файл подкачки), Ubuntu 26.04, адрес админки — поддомен DuckDNS.
+
+1. **Регистрация** — [signup.cloud.oracle.com](https://signup.cloud.oracle.com), «Sign Up for Free Cloud Tier». Страна — та, где выпущена карта. **Home Region** выбирается один раз: бери Европу (например, Germany Central (Frankfurt)) — там работает Gemini для Светы. Карта нужна только для проверки: временно блокируется 1 $, платы нет, пока не нажмёшь **Upgrade** (не нажимай; для него нужна блокировка 100 $). Виртуальные и предоплаченные карты Oracle не принимает.
+2. **Сервер** — ☰ → Compute → Instances → **Create instance**:
+   - Image: **Canonical Ubuntu** 24.04 или 26.04 (не Minimal).
+   - Shape: `VM.Standard.A1.Flex` (Ampere, 1 OCPU, 6 GB) или `VM.Standard.E2.1.Micro` (AMD, 1 GB) — только с пометкой **Always Free-eligible**. Micro создаётся не во всех Availability Domain — консоль подсказывает, в каком.
+   - Networking: **Create new virtual cloud network** + **Create new public subnet**. Переключатель публичного IP при новой сети может быть серым — тогда создавай без него и добавь IP после (шаг 3).
+   - SSH keys: **Paste public key** — открытый ключ с компьютера, откуда будешь подключаться (`ssh-keygen -t ed25519 -f ~/.ssh/thelasthope_oracle`, вставить содержимое `.pub`). «Generate a key pair for me» не бери.
+3. **Публичный IP**, если его нет: страница сервера → Networking → Attached VNICs → основной VNIC → **IP administration** → строка `10.0.0.x` → ⋯ → **Edit** → **Ephemeral public IP** → Update.
+4. **Порты в облаке**: сеть (VCN) → Security → **Default Security List** → Security rules → **Add Ingress Rules** — два правила: Source CIDR `0.0.0.0/0`, TCP, Destination Port `80`, и такое же с `443`.
+5. **Порты внутри сервера**: в образах Oracle iptables по умолчанию закрывает всё, кроме SSH. Вместо ufw:
+
+   ```bash
+   sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT && sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT && sudo netfilter-persistent save
+   ```
+
+   Правила должны стоять **до** строки `REJECT` — проверь: `sudo iptables -S INPUT`.
+6. **DuckDNS** — впиши IP сервера в current ip и нажми **update ip**. Caddy получит сертификат, когда домен уже указывает на сервер; если он пробовал раньше, перезапусти его: `sudo systemctl restart caddy`.
+7. Дальше — разделы 1–5 этой инструкции (пользователь в образе Ubuntu — `ubuntu`: `ssh -i ~/.ssh/thelasthope_oracle ubuntu@IP`).
+
+> Oracle может забрать бесплатный сервер, который долго почти не нагружен. Бот сам делает копии базы раз в сутки; если хочешь хранить их и у себя — раздел 5.
