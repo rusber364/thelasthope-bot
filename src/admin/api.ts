@@ -361,6 +361,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           newsChannelId: checkChannel(guild, id(sveta.newsChannelId), 'Света: канал новостей о сборах', errors),
           persona: text(sveta.persona),
           model: text(sveta.model),
+          fallbackModel: text(sveta.fallbackModel),
           randomPercent: num(sveta.randomPercent),
           userCooldownSeconds: num(sveta.userCooldownSeconds),
           perHour: num(sveta.perHour),

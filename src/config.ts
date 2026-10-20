@@ -54,6 +54,10 @@ export const config = {
   get geminiApiKey(): string | undefined {
     return read('GEMINI_API_KEY');
   },
+  /** Ключ OpenRouter для моделей с «/» в имени (например, minimax/minimax-m3.1-flash:free): openrouter.ai/keys. */
+  get openrouterApiKey(): string | undefined {
+    return read('OPENROUTER_API_KEY');
+  },
 
   /** Адрес, по которому админку открывают в браузере. На VPS — https://твой-домен. */
   get adminUrl(): string {

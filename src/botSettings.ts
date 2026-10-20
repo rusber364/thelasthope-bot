@@ -38,8 +38,10 @@ export interface SvetaSettings {
   newsChannelId: string | null;
   /** Характер — начало системной инструкции; правила поведения добавляются к нему всегда. */
   persona: string;
-  /** Модель Gemini, например gemini-flash-latest. */
+  /** Основная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» в имени (minimax/minimax-m3.1-flash:free). */
   model: string;
+  /** Запасная модель, когда основная перегружена, не отвечает или упёрлась в лимит (пусто — без запасной). */
+  fallbackModel: string;
   /** Шанс встрять самой в разговор, % (0 — только когда зовут). */
   randomPercent: number;
   /** Пауза между ответами одному человеку, секунд. */
@@ -303,6 +305,7 @@ function defaults(): BotSettings {
       newsChannelId: null,
       persona: DEFAULT_PERSONA,
       model: 'gemini-flash-latest',
+      fallbackModel: 'gemini-flash-lite-latest',
       randomPercent: 2,
       userCooldownSeconds: 15,
       perHour: 40,
@@ -467,7 +470,12 @@ export function validateSettings(s: BotSettings): string[] {
   if (sveta.enabled && !sveta.channelIds.length) errors.push('Света: выбери хотя бы один канал, где она живёт.');
   if (!sveta.persona.trim()) errors.push('Света: характер не может быть пустым.');
   else if (sveta.persona.length > LIMITS.persona) errors.push(`Света: характер не длиннее ${LIMITS.persona} символов.`);
-  if (!/^[a-z0-9][a-z0-9.\-]{2,60}$/.test(sveta.model)) errors.push('Света: модель — латиница, цифры, точки и дефисы, например gemini-flash-latest.');
+  // Gemini: gemini-flash-latest; OpenRouter: vendor/model[:free], например minimax/minimax-m3.1-flash:free.
+  const modelId = /^[a-z0-9][a-z0-9._:/-]{2,100}$/;
+  if (!modelId.test(sveta.model)) {
+    errors.push('Света: основная модель — латиница, цифры, точки, дефисы, «/» и «:», например gemini-flash-latest или minimax/minimax-m3.1-flash:free.');
+  }
+  if (sveta.fallbackModel && !modelId.test(sveta.fallbackModel)) errors.push('Света: запасная модель — в том же виде, что и основная, или пусто.');
   const svetaRanges: [string, number, number, number][] = [
     ['Света: шанс встрять самой (%)', sveta.randomPercent, 0, LIMITS.randomPercent],
     ['Света: пауза для одного человека (секунд)', sveta.userCooldownSeconds, 0, LIMITS.svetaCooldown],

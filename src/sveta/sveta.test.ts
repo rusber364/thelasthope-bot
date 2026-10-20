@@ -164,6 +164,7 @@ const deps = {
   now: () => clock,
   random: () => roll,
   apiKey: () => 'key' as string | undefined,
+  openrouterKey: () => 'or-key' as string | undefined,
   wait: async (ms: number) => void waits.push(ms),
 };
 
@@ -376,6 +377,8 @@ test('сбой Google: перегрузка — повтор через 2 с, п
       rest,
       onAttempt: (m: string) => void tried.push(m),
       onFailure: () => {},
+      fallback: FALLBACK_MODEL,
+      keyFor: () => 'k',
     };
     try {
       const { reply, model: used } = await generateSteady({ apiKey: 'k', model, system: 's', contents: [] }, steady);
@@ -413,9 +416,9 @@ test('сбой Google: перегрузка — повтор через 2 с, п
   assert.deepEqual((await run([], main, rate, 30_000)).tried, [main]);
   const daily = new ModelRest();
   await run(['quota', 'quota'], main, daily, 0);
-  assert.deepEqual(readyModels(main, daily, 59 * 60_000), [], 'дневной лимит у обеих — час тишины');
+  assert.deepEqual(readyModels([main, lite], daily, 59 * 60_000), [], 'дневной лимит у обеих — час тишины');
   assert.deepEqual(await run([], main, daily, 59 * 60_000), { result: 'ошибка rate', tried: [], paused: [] }, 'все отдыхают — в Gemini не стучимся');
-  assert.deepEqual(readyModels(main, daily, 60 * 60_000), [main, lite]);
+  assert.deepEqual(readyModels([main, lite], daily, 60 * 60_000), [main, lite]);
   assert.equal(restMs(new GeminiError('rate', 'x', 999_000)), 5 * 60_000, 'больше 5 минут на лимит в минуту не ждём');
 });
 
@@ -597,4 +600,40 @@ test('истории в настройках: кто и текст обязат�
   assert.match(errors, /история 2 \(«Кембэл»\): текст истории не может быть пустым/);
   assert.match(errors, /история 3 \(«К»\): имя — от 2/);
   assert.match(errors, /история 3 \(«К»\): не длиннее 1000/);
+});
+
+test('модели: основная OpenRouter со своим ключом, при сбое — запасная Gemini; без ключа OpenRouter — сразу Gemini; без ключей — молчит', async () => {
+  const minimax = 'minimax/minimax-m3.1-flash:free';
+  configure({ model: minimax, fallbackModel: 'gemini-flash-latest' });
+  await onMessage(message('Света, привет'), deps);
+  assert.deepEqual(requests.map((r) => [r.model, r.apiKey]), [[minimax, 'or-key']], 'у каждой модели свой ключ');
+
+  configure({ model: minimax, fallbackModel: 'gemini-flash-latest' });
+  let n = 0;
+  geminiAnswer = async () => {
+    if (n++ < 2) throw new GeminiError('busy', 'Provider returned error');
+    return say('Я тут!');
+  };
+  await onMessage(message('Света, ау'), deps);
+  assert.deepEqual(requests.map((r) => [r.model, r.apiKey]), [[minimax, 'or-key'], [minimax, 'or-key'], ['gemini-flash-latest', 'key']]);
+  assert.equal(replies.at(-1)?.content, 'Я тут!');
+
+  configure({ model: minimax, fallbackModel: 'gemini-flash-latest' });
+  await onMessage(message('Света, привет'), { ...deps, openrouterKey: () => undefined });
+  assert.deepEqual(requests.map((r) => r.model), ['gemini-flash-latest'], 'без OPENROUTER_API_KEY — сразу запасная');
+
+  configure({ model: minimax, fallbackModel: '' });
+  await onMessage(message('Света, привет'), { ...deps, openrouterKey: () => undefined });
+  assert.equal(requests.length, 0, 'ни одной модели с ключом — в никуда не стучимся');
+  assert.equal(replies.length, 0);
+});
+
+test('настройки: модели OpenRouter (vendor/model:free) подходят, запасная может быть пустой; мусор — ошибка', () => {
+  const s = structuredClone(getSettings());
+  s.sveta = { ...s.sveta, model: 'minimax/minimax-m3.1-flash:free', fallbackModel: '' };
+  assert.ok(!validateSettings(s).some((e) => /модель/.test(e)));
+  s.sveta = { ...s.sveta, model: 'gemini flash', fallbackModel: 'а б' };
+  const errors = validateSettings(s).join('\n');
+  assert.match(errors, /основная модель/);
+  assert.match(errors, /запасная модель/);
 });

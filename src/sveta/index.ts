@@ -16,6 +16,7 @@ import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
 import { GeminiError, ModelRest, generate, generateSteady, readyModels, type GeminiErrorKind, type GeminiReply } from './gemini.ts';
+import { generateOpenRouter, isOpenRouterModel } from './openrouter.ts';
 import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
 import { systemPrompt } from './persona.ts';
 import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
@@ -45,11 +46,25 @@ export interface SvetaDeps {
   generate: typeof generate;
   now: () => number;
   random: () => number;
+  /** Ключ Gemini (модели без «/»). */
   apiKey: () => string | undefined;
+  /** Ключ OpenRouter (модели с «/», например minimax/minimax-m3.1-flash:free). */
+  openrouterKey: () => string | undefined;
   wait: (ms: number) => Promise<void>;
 }
 
-const DEFAULT_DEPS: SvetaDeps = { generate, now: Date.now, random: Math.random, apiKey: () => config.geminiApiKey, wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)) };
+const DEFAULT_DEPS: SvetaDeps = {
+  // Модель с «/» в имени — через OpenRouter, без — через Gemini.
+  generate: (request) => (isOpenRouterModel(request.model) ? generateOpenRouter(request) : generate(request)),
+  now: Date.now,
+  random: Math.random,
+  apiKey: () => config.geminiApiKey,
+  openrouterKey: () => config.openrouterApiKey,
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/** Какой ключ нужен модели и как он называется в .env. */
+const keyName = (model: string) => (isOpenRouterModel(model) ? 'OPENROUTER_API_KEY' : 'GEMINI_API_KEY');
 const HOUR = 60 * 60 * 1000;
 /** Сколько раз за ответ модель может попросить инструменты (каждый круг — ещё один запрос к Gemini). */
 const MAX_TOOL_ROUNDS = 2;
@@ -116,8 +131,10 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   if (!trigger) return;
 
   const now = deps.now();
-  const apiKey = deps.apiKey();
-  if (!apiKey) return noteError('нет ключа: впиши GEMINI_API_KEY в .env и перезапусти бота.', now);
+  const keyFor = (model: string) => (isOpenRouterModel(model) ? deps.openrouterKey() : deps.apiKey());
+  // Основная и запасная — только те, для которых есть ключ.
+  const models = [s.model, s.fallbackModel].filter((m) => m && keyFor(m));
+  if (!models.length) return noteError(`нет ключа: для ${s.model} впиши ${keyName(s.model)} в .env и перезапусти бота.`, now);
 
   const quiet = { parse: [] as never[], repliedUser: false };
   // Сообщение могли удалить, пока Света думала (например, фильтр мата), — тогда ответ уходит без привязки, а не с ошибкой.
@@ -137,8 +154,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     return;
   }
 
-  // Все модели отдыхают после лимита или сбоя — в Gemini не стучимся, позвавшему раз в час «перерыв».
-  const verdict = readyModels(s.model, rest, now).length ? limiter.check(trigger, message.author.id, message.channelId, now, s) : 'paused';
+  // Все модели отдыхают после лимита или сбоя — никуда не стучимся, позвавшему раз в час «перерыв».
+  const verdict = readyModels(models, rest, now).length ? limiter.check(trigger, message.author.id, message.channelId, now, s) : 'paused';
   if (verdict !== 'ok') {
     // Позвали, а ответить нельзя: один раз в час говорим, что на перерыве; в остальных случаях молчим.
     const breakKind = verdict === 'hour' || verdict === 'day' || verdict === 'paused' ? verdict : null;
@@ -188,6 +205,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     wait: deps.wait,
     now: deps.now,
     rest,
+    fallback: s.fallbackModel,
+    keyFor,
     // Перед каждой попыткой — заново «печатает…»: повтор и запасная модель могут занять время.
     onAttempt: () => {
       if (requests++) void message.channel.sendTyping().catch(() => {});
@@ -204,7 +223,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     let reply: GeminiReply;
     for (let round = 0; ; round++) {
       const last = round >= MAX_TOOL_ROUNDS;
-      const answer = await generateSteady({ apiKey, model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
+      const answer = await generateSteady({ apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
       // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
       ({ reply, model } = answer);
       if (!reply.calls.length) break;
@@ -286,6 +305,8 @@ export async function startSveta(): Promise<void> {
 export interface SvetaStatus {
   hasToken: boolean;
   hasKey: boolean;
+  /** Есть ли OPENROUTER_API_KEY (нужен моделям с «/» в имени). */
+  hasOpenRouterKey: boolean;
   connected: boolean;
   tag: string | null;
   inviteUrl: string | null;
@@ -314,6 +335,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
   return {
     hasToken: Boolean(config.svetaToken),
     hasKey: Boolean(config.geminiApiKey),
+    hasOpenRouterKey: Boolean(config.openrouterApiKey),
     connected: Boolean(ready),
     tag: ready?.user.tag ?? null,
     inviteUrl: ready ? svetaInviteUrl(ready.application.id) : null,

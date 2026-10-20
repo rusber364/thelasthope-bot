@@ -13,6 +13,8 @@ export interface GeminiPart {
 export interface GeminiContent {
   role: 'user' | 'model';
   parts: GeminiPart[];
+  /** Ответ модели OpenRouter целиком (с reasoning_details) — уходит обратно в переписку без изменений. */
+  raw?: Record<string, unknown>;
 }
 
 /** Описание инструмента для модели. */
@@ -153,7 +155,7 @@ export async function generate(request: GeminiRequest): Promise<GeminiReply> {
   return parseResponse(response.status, json);
 }
 
-/** Запасная модель: лёгкая, быстрая и со своим бесплатным лимитом (лимиты у Google — на каждую модель отдельно). */
+/** Запасная модель по умолчанию: лёгкая, быстрая и со своим бесплатным лимитом (лимиты у Google — на каждую модель отдельно). */
 export const FALLBACK_MODEL = 'gemini-flash-lite-latest';
 export const RETRY_DELAY_MS = 2_000;
 
@@ -179,9 +181,9 @@ export function restMs(error: GeminiError): number {
   return 5 * MINUTE;
 }
 
-/** Модели по порядку — выбранная, потом запасная, — кроме тех, что отдыхают. */
-export function readyModels(model: string, rest: ModelRest, now: number): string[] {
-  return [...new Set([model, FALLBACK_MODEL])].filter((m) => rest.ready(m, now));
+/** Модели по порядку (основная, потом запасная) — без пустых, повторов и тех, что отдыхают. */
+export function readyModels(models: (string | null | undefined)[], rest: ModelRest, now: number): string[] {
+  return [...new Set(models.filter((m): m is string => Boolean(m)))].filter((m) => rest.ready(m, now));
 }
 
 /** Сбои, после которых стоит попробовать другую модель. Ключ, фильтр, нет модели — другая не поможет. */
@@ -196,6 +198,10 @@ export interface SteadyDeps {
   onAttempt: (model: string) => void;
   /** Модель не ответила (для лога). */
   onFailure: (model: string, error: GeminiError) => void;
+  /** Запасная модель (пусто — без запасной). */
+  fallback: string;
+  /** Ключ для модели: у Gemini и OpenRouter свои; модели без ключа пропускаются. */
+  keyFor: (model: string) => string | undefined;
 }
 
 export interface SteadyReply {
@@ -205,16 +211,17 @@ export interface SteadyReply {
 }
 
 /**
- * Запрос с запасом на сбои Google. Перегрузка (5xx) — ещё раз той же моделью через 2 секунды; снова не вышло,
- * Google не ответил вовремя или кончился лимит модели — она отдыхает, а запрос идёт к другой. Ключ, фильтр — сразу наверх.
+ * Запрос с запасом на сбои. Перегрузка (5xx) — ещё раз той же моделью через 2 секунды; снова не вышло, модель не ответила
+ * вовремя или кончился её лимит — она отдыхает, а запрос идёт к запасной. Ключ, фильтр — сразу наверх.
  */
 export async function generateSteady(request: GeminiRequest, deps: SteadyDeps): Promise<SteadyReply> {
   let failure: GeminiError | null = null;
-  for (const model of readyModels(request.model, deps.rest, deps.now())) {
+  const models = [request.model, deps.fallback].filter((m) => m && deps.keyFor(m));
+  for (const model of readyModels(models, deps.rest, deps.now())) {
     for (let attempt = 1; ; attempt++) {
       deps.onAttempt(model);
       try {
-        return { reply: await deps.generate({ ...request, model }), model };
+        return { reply: await deps.generate({ ...request, model, apiKey: deps.keyFor(model) ?? '' }), model };
       } catch (error) {
         if (!(error instanceof GeminiError) || !RECOVERABLE.has(error.kind)) throw error;
         failure = error;

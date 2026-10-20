@@ -68,7 +68,12 @@ function Step({ done, children }: { done: boolean; children: ReactNode }) {
 
 const code = (text: string) => <code className="rounded bg-muted px-1 py-0.5 text-xs">{text}</code>;
 
-function StatusCard({ perDay }: { perDay: number }) {
+/** Модель OpenRouter — с «/» в имени (vendor/model), Gemini — без. */
+const isOpenRouter = (model: string) => model.includes('/');
+
+function StatusCard({ perDay, models }: { perDay: number; models: string[] }) {
+  const needsGemini = models.some((m) => m && !isOpenRouter(m));
+  const needsOpenRouter = models.some(isOpenRouter);
   const { data: status } = useQuery({
     queryKey: ['sveta-status'],
     queryFn: () => api.get<SvetaStatus>('/sveta/status'),
@@ -109,16 +114,30 @@ function StatusCard({ perDay }: { perDay: number }) {
                 )}
               </Step>
             )}
-            <Step done={status.hasKey}>
-              {status.hasKey ? (
-                <>Ключ Gemini есть ({code('GEMINI_API_KEY')}).</>
-              ) : (
-                <>
-                  Нет ключа Gemini: aistudio.google.com → Get API key, впиши в {code('.env')} строкой {code('GEMINI_API_KEY=…')} и
-                  перезапусти бота.
-                </>
-              )}
-            </Step>
+            {needsGemini && (
+              <Step done={status.hasKey}>
+                {status.hasKey ? (
+                  <>Ключ Gemini есть ({code('GEMINI_API_KEY')}).</>
+                ) : (
+                  <>
+                    Нет ключа Gemini: aistudio.google.com → Get API key, впиши в {code('.env')} строкой {code('GEMINI_API_KEY=…')} и
+                    перезапусти бота.
+                  </>
+                )}
+              </Step>
+            )}
+            {needsOpenRouter && (
+              <Step done={status.hasOpenRouterKey}>
+                {status.hasOpenRouterKey ? (
+                  <>Ключ OpenRouter есть ({code('OPENROUTER_API_KEY')}).</>
+                ) : (
+                  <>
+                    Нет ключа OpenRouter: openrouter.ai/keys → Create Key, впиши в {code('.env')} строкой {code('OPENROUTER_API_KEY=…')} и
+                    перезапусти бота.
+                  </>
+                )}
+              </Step>
+            )}
             {status.channelsWithoutAccess.length > 0 && (
               <Step done={false}>
                 В каналах {status.channelsWithoutAccess.map(channelName).join(', ')} у Светы нет прав видеть, читать историю или писать —
@@ -443,7 +462,7 @@ export function SvetaPage() {
               </TabsTrigger>
             </TabsList>
             <TabsContent value="settings" className="flex flex-col gap-6">
-              <StatusCard perDay={draft.sveta.perDay} />
+              <StatusCard perDay={draft.sveta.perDay} models={[draft.sveta.model, draft.sveta.fallbackModel]} />
 
               <SectionCard title="Где живёт" description="Света читает и отвечает только в этих каналах — остальные в Gemini не уходят.">
                 <Field orientation="horizontal" className="items-start">
@@ -502,17 +521,28 @@ export function SvetaPage() {
 
               <SectionCard
                 title="Модель и потолки"
-                description="Один ответ — один запрос к Gemini. Потолки берегут бесплатный лимит Google."
+                description="Один ответ — обычно один запрос к модели. Потолки берегут бесплатные лимиты Google и OpenRouter."
               >
                 <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                  <Field className="md:col-span-2">
-                    <FieldLabel htmlFor="sveta-model">Модель Gemini</FieldLabel>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-model">Основная модель</FieldLabel>
                     <Input id="sveta-model" value={draft.sveta.model} onChange={(event) => set({ model: event.target.value.trim() })} />
-                    <FieldDescription>
-                      Бесплатно доступны модели Flash: {code('gemini-flash-latest')} — умнее, {code('gemini-flash-lite-latest')} — больше
-                      запросов в день.
-                    </FieldDescription>
                   </Field>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-fallback">Запасная модель</FieldLabel>
+                    <Input
+                      id="sveta-fallback"
+                      placeholder="Без запасной"
+                      value={draft.sveta.fallbackModel}
+                      onChange={(event) => set({ fallbackModel: event.target.value.trim() })}
+                    />
+                  </Field>
+                  <FieldDescription className="md:col-span-2">
+                    Запасная отвечает, когда основная перегружена, не отвечает или упёрлась в лимит. Gemini (ключ {code('GEMINI_API_KEY')}):{' '}
+                    {code('gemini-flash-latest')} — умнее, {code('gemini-flash-lite-latest')} — больше запросов в день. OpenRouter (ключ{' '}
+                    {code('OPENROUTER_API_KEY')}) — имя с «/», например бесплатная {code('minimax/minimax-m3.1-flash:free')}; у бесплатных
+                    моделей OpenRouter общий небольшой дневной лимит на аккаунт.
+                  </FieldDescription>
                   <Field>
                     <FieldLabel htmlFor="sveta-random">Встревает сама</FieldLabel>
                     <NumberField

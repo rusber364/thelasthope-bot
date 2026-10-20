@@ -111,7 +111,9 @@ export interface Settings {
     channelIds: string[];
     newsChannelId: string | null;
     persona: string;
+    /** Основная и запасная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» (minimax/minimax-m3.1-flash:free). */
     model: string;
+    fallbackModel: string;
     randomPercent: number;
     userCooldownSeconds: number;
     perHour: number;
@@ -168,6 +170,7 @@ export interface SvetaPerson {
 export interface SvetaStatus {
   hasToken: boolean;
   hasKey: boolean;
+  hasOpenRouterKey: boolean;
   connected: boolean;
   tag: string | null;
   inviteUrl: string | null;
