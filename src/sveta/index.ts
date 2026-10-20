@@ -213,8 +213,9 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     },
     onFailure: (failed: string, error: GeminiError) => {
       failures.push(`${failed} — ${FAILURE_LABEL[error.kind] ?? error.kind}`);
-      // Лимит — редкое событие: ответ Google целиком в лог, там видно, какой лимит и у какой модели.
-      if (error.kind === 'rate' || error.kind === 'quota') noteError(`${failed}, ${FAILURE_LABEL[error.kind]}: ${error.message.slice(0, 300)}`, deps.now());
+      // Ответ модели целиком в лог (одинаковый — не чаще раза в час): видно, какой лимит или ошибка и у какой модели,
+      // даже если запасная потом ответила.
+      noteError(`${failed}, ${FAILURE_LABEL[error.kind] ?? error.kind}: ${error.message.slice(0, 300)}`, deps.now());
     },
   };
   try {

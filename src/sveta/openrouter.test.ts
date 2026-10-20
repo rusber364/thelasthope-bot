@@ -3,6 +3,9 @@ import { test } from 'node:test';
 import { GeminiError, type GeminiContent } from './gemini.ts';
 import { generateOpenRouter, isOpenRouterModel, openRouterBody, parseOpenRouter, toMessages } from './openrouter.ts';
 
+// Инструменты Светы читают базу — в тестах она в памяти (до их импорта ниже).
+process.env.BOT_DB_PATH = ':memory:';
+
 const MODEL = 'minimax/minimax-m3.1-flash:free';
 
 test('модель с «/» — OpenRouter, без — Gemini', () => {
@@ -37,7 +40,7 @@ test('тело запроса: короткие размышления, инст
   const body = openRouterBody({ model: MODEL, system: 's', contents: [], tools, toolMode: 'NONE' });
   assert.equal(body.model, MODEL);
   assert.deepEqual(body.reasoning, { effort: 'low' });
-  assert.deepEqual(body.tools, [{ type: 'function', function: tools[0] }]);
+  assert.deepEqual(body.tools, [{ type: 'function', function: { ...tools[0], parameters: { type: 'object', properties: {} } } }], 'без параметров — пустой объект: MiniMax иначе отказывает');
   assert.equal(body.tool_choice, 'none');
   assert.equal(openRouterBody({ model: MODEL, system: 's', contents: [], tools, toolMode: 'AUTO' }).tool_choice, 'auto');
   assert.ok(!('tools' in openRouterBody({ model: MODEL, system: 's', contents: [] })), 'без инструментов — без tools');
@@ -105,5 +108,16 @@ test('запрос: ключ в заголовке Authorization, модель �
     assert.deepEqual(seen, { url: 'https://openrouter.ai/api/v1/chat/completions', auth: 'Bearer or-secret', model: MODEL });
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test('схемы инструментов Светы уходят в JSON Schema: типы строчными, у каждого инструмента есть parameters', async () => {
+  const { TOOLS } = await import('./tools.ts');
+  const { MEMORY_TOOLS } = await import('./memory.ts');
+  const body = openRouterBody({ model: MODEL, system: 's', contents: [], tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: 'AUTO' });
+  const json = JSON.stringify(body.tools);
+  assert.doesNotMatch(json, /"type":"(OBJECT|STRING|INTEGER|NUMBER|BOOLEAN|ARRAY)"/);
+  for (const tool of body.tools as { function: { name: string; parameters?: { type?: string } } }[]) {
+    assert.equal(tool.function.parameters?.type, 'object', `у ${tool.function.name} есть parameters`);
   }
 });

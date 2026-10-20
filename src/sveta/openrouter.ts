@@ -44,6 +44,16 @@ export function toMessages(system: string, contents: GeminiContent[]): Message[]
   return messages;
 }
 
+/** Схема параметров в JSON Schema: типы Gemini (OBJECT, STRING, INTEGER) — строчными. */
+export function toJsonSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(toJsonSchema);
+  if (!schema || typeof schema !== 'object') return schema;
+  return Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, key === 'type' && typeof value === 'string' ? value.toLowerCase() : toJsonSchema(value)]));
+}
+
+/** Инструмент без параметров: MiniMax без поля parameters отвечает «function parameters is empty». */
+const NO_PARAMETERS = { type: 'object', properties: {} };
+
 /** Тело запроса. Размышления — короткие: для болтовни глубокие не нужны, а они тратят время и токены. */
 export function openRouterBody({ model, system, contents, tools, toolMode }: Omit<GeminiRequest, 'apiKey'>) {
   return {
@@ -53,7 +63,10 @@ export function openRouterBody({ model, system, contents, tools, toolMode }: Omi
     reasoning: { effort: 'low' },
     // Инструменты передаём и на последнем круге: в переписке уже есть их вызовы, по ним OpenRouter проверяет схему.
     ...(tools?.length
-      ? { tools: tools.map((fn) => ({ type: 'function', function: fn })), tool_choice: toolMode === 'NONE' ? 'none' : 'auto' }
+      ? {
+          tools: tools.map((fn) => ({ type: 'function', function: { ...fn, parameters: fn.parameters ? toJsonSchema(fn.parameters) : NO_PARAMETERS } })),
+          tool_choice: toolMode === 'NONE' ? 'none' : 'auto',
+        }
       : {}),
   };
 }
