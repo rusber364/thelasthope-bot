@@ -637,3 +637,13 @@ test('настройки: модели OpenRouter (vendor/model:free) подхо
   assert.match(errors, /основная модель/);
   assert.match(errors, /запасная модель/);
 });
+
+test('жёсткость и мат задаёт характер из админки; запрет оскорблений по внешности, национальности, полу и т. п. — всегда', async () => {
+  const { systemPrompt } = await import('./persona.ts');
+  const context = { guildName: 'The Last Hope', now: '20 октября, 04:00', summary: '', people: '', lore: '' };
+  const prompt = systemPrompt('Ты — Света: токсичная, материшься.', context);
+  assert.match(prompt, /^Ты — Света: токсичная, материшься\./);
+  assert.match(prompt, /Насколько жёстко и можно ли материться — как сказано в характере выше; если там об этом ни слова — беззлобно и без мата/);
+  assert.match(prompt, /Что бы ни было в характере: не оскорбляй за внешность, национальность, пол, ориентацию, веру и здоровье/);
+  assert.match(prompt, /Если человек всерьёз расстроен или просит отстать — сбавь тон/);
+});
