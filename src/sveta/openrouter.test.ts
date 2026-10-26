@@ -57,10 +57,10 @@ test('ответ: текст без <think>, вызовы с id и аргуме�
         },
       },
     ],
-    usage: { total_tokens: 321 },
+    usage: { prompt_tokens: 300, completion_tokens: 21, cost: 0 },
   });
   assert.equal(reply.text, 'Гляну состав');
-  assert.equal(reply.tokens, 321);
+  assert.deepEqual(reply.usage, { input: 300, output: 21, cost: 0 }, 'бесплатная модель — стоимость 0');
   assert.deepEqual(reply.calls, [{ name: 'raid_roster', args: { raid_id: 3 }, id: 'call_9' }]);
   assert.deepEqual(reply.content.raw, {
     role: 'assistant',

@@ -1,5 +1,5 @@
-// Выбор канала или роли: кнопка с текущим значением, список с поиском, каналы сгруппированы по категориям.
-import { Hash, TriangleAlert, Volume2 } from 'lucide-react';
+// Выбор канала, роли или участника: кнопка с текущим значением, список с поиском, каналы сгруппированы по категориям.
+import { Hash, TriangleAlert, UserRound, Volume2 } from 'lucide-react';
 import type { Option } from '@api';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,10 +20,10 @@ import {
   useComboboxAnchor,
 } from '@/components/ui/combobox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useOptions } from '@/lib/queries';
+import { useMembers, useOptions } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-type Kind = 'channel' | 'voice' | 'role' | 'mention';
+type Kind = 'channel' | 'voice' | 'role' | 'mention' | 'member';
 
 /** Пункт «не выбрано» — первый в списке, у него пустой id. */
 const NONE_ID = '';
@@ -32,6 +32,7 @@ function OptionIcon({ kind, option }: { kind: Kind; option: Option }) {
   if (option.id === NONE_ID) return <span className="size-4" />;
   if (kind === 'channel') return <Hash className="text-muted-foreground" />;
   if (kind === 'voice') return <Volume2 className="text-muted-foreground" />;
+  if (kind === 'member') return <UserRound className="text-muted-foreground" />;
   return (
     <span
       className="mx-1 size-2.5 shrink-0 rounded-full bg-muted-foreground/50"
@@ -184,6 +185,12 @@ export function ChannelsPicker(props: MultiPickerProps) {
   return <MultiPicker placeholder="Ни одного — выбери каналы" {...props} kind="channel" options={data?.textChannels} />;
 }
 
+/** Несколько участников сервера (без ботов) — например, кому разрешён мат. */
+export function MembersPicker(props: MultiPickerProps) {
+  const { data } = useMembers();
+  return <MultiPicker placeholder="Никого — выбери участников" {...props} kind="member" options={data} />;
+}
+
 function MultiPicker({
   value,
   onChange,
@@ -196,8 +203,8 @@ function MultiPicker({
 }: MultiPickerProps & { kind: Kind; options: Option[] | undefined }) {
   const anchor = useComboboxAnchor();
   if (!options) return <Skeleton className="h-8 w-full" />;
-  // Роль или канал могли удалить на сервере — оставляем метку, чтобы её было видно и можно было убрать.
-  const gone = kind === 'channel' ? 'удалён с сервера' : 'удалена с сервера';
+  // Роль или канал могли удалить, а участник — уйти с сервера: оставляем метку, чтобы её было видно и можно было убрать.
+  const gone = kind === 'member' ? 'нет на сервере' : kind === 'channel' ? 'удалён с сервера' : 'удалена с сервера';
   const selected = value.map((itemId) => options.find((o) => o.id === itemId) ?? { id: itemId, name: gone });
   const silent = selected.filter((role) => role.warning);
   return (

@@ -2,7 +2,7 @@ import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import type { Settings } from '@api';
-import { ChannelsPicker } from '@/components/entity-picker';
+import { ChannelsPicker, MembersPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, NumberField, SaveBar, SectionCard } from '@/components/settings-ui';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -27,6 +27,7 @@ const ACTIONS: Record<Profanity['action'], string> = {
 };
 
 const CHANNELS_MAX = 25;
+const USERS_MAX = 25;
 const WORDS_MAX = 50;
 
 /** Свои слова: по одному в строке или через запятую. */
@@ -187,6 +188,48 @@ export function ProfanityPage() {
               />
               <FieldDescription>Например, флуд-канал «18+», где мат разрешён.</FieldDescription>
             </Field>
+            <Field>
+              <FieldLabel htmlFor="allowed">Кому можно материться везде</FieldLabel>
+              <MembersPicker
+                id="allowed"
+                max={USERS_MAX}
+                value={draft.profanity.allowedUserIds}
+                onChange={(allowedUserIds) => set({ allowedUserIds })}
+              />
+              <FieldDescription>
+                Фильтр их сообщения не трогает, зато Света ворчит — и за мат, и за то, что админы дали такое право.
+              </FieldDescription>
+            </Field>
+            {draft.profanity.allowedUserIds.length > 0 && (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="scold">Света ворчит не чаще</FieldLabel>
+                  <NumberField
+                    id="scold"
+                    min={0}
+                    max={1440}
+                    suffix="мин на человека"
+                    value={draft.profanity.scoldMinutes}
+                    onChange={(scoldMinutes) => set({ scoldMinutes })}
+                  />
+                  <FieldDescription>
+                    0 — на каждое сообщение с матом. В каналах без фильтра Света не ворчит: там мат можно всем.
+                  </FieldDescription>
+                </Field>
+                {settings && !settings.sveta.enabled && (
+                  <Alert>
+                    <CircleAlert />
+                    <AlertDescription>
+                      Света выключена — ворчать некому, мат этим людям просто сойдёт с рук. Включи её на странице{' '}
+                      <Link to="/sveta" className="text-primary underline-offset-4 hover:underline">
+                        «Света»
+                      </Link>
+                      .
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </>
+            )}
             <Field>
               <FieldLabel htmlFor="words">Свои слова</FieldLabel>
               <Textarea

@@ -1,6 +1,6 @@
 // Общие помощники админки: варианты для выпадающих списков и проверка того, что выбранные каналы и роли
 // действительно есть на сервере. Ими пользуется JSON API админки (api.ts).
-import { ChannelType, PermissionFlagsBits, type Guild } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, type Guild, type GuildMember } from 'discord.js';
 import { getPoll, type StoredPoll } from '../polls/store.ts';
 import type { Option } from './apiTypes.ts';
 
@@ -20,6 +20,14 @@ export function voiceChannels(guild: Guild): Option[] {
     .filter((channel) => VOICE_TYPES.has(channel.type))
     .sort((a, b) => ('rawPosition' in a && 'rawPosition' in b ? a.rawPosition - b.rawPosition : 0))
     .map((channel) => ({ id: channel.id, name: `🔊 ${channel.name}`, ...(channel.parent ? { group: channel.parent.name } : {}) }));
+}
+
+/** Участники без ботов, по алфавиту: «Ник (@логин)». */
+export function memberOptions(members: Iterable<GuildMember>): Option[] {
+  return [...members]
+    .filter((member) => !member.user.bot)
+    .map((member) => ({ id: member.id, name: `${member.displayName} (@${member.user.username})` }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
 }
 
 export function roleOptions(guild: Guild): Option[] {

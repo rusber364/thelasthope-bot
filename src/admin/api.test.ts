@@ -12,6 +12,7 @@ const { createApp } = await import('./server.ts');
 const { getSettings } = await import('../botSettings.ts');
 const { createPoll, getPoll, saveResponse } = await import('../polls/store.ts');
 const { createRaid, listRaids, markAttendanceDone, saveAttendance, upsertSignup } = await import('../raids/store.ts');
+const { countSpend, dayKey } = await import('../sveta/limits.ts');
 
 // Подставной «Discord»: два текстовых канала, голосовой, канал для опросов и рег, роли.
 const channel = (id: string, name: string, type = ChannelType.GuildText) => ({ id, name, type, rawPosition: Number(id.slice(1)), parent: null, isSendable: () => false, isTextBased: () => false });
@@ -52,7 +53,17 @@ const guild = {
   channels: { cache: new Collection([channel('c1', 'приветствие'), channel('c2', 'лог-голос'), channel('c3', 'голос', ChannelType.GuildVoice), postChannel].map((c) => [c.id, c])) },
   roles: { cache: new Collection([role('g1', '@everyone', 0), role('r1', 'Гость', 1), role('r2', 'Офицер', 5, { editable: false, mentionable: true })].map((r) => [r.id, r])) },
   members: {
-    fetch: async (arg: string | { user: string[] }) => (typeof arg === 'string' ? member(arg) : new Collection(arg.user.map((id) => [id, member(id)]))),
+    // Без аргумента — все участники: двое людей и бот.
+    fetch: async (arg?: string | { user: string[] }) =>
+      arg === undefined
+        ? new Collection([
+            ['20', { ...member('20'), displayName: 'Яша', user: { username: 'yasha' } }],
+            ['21', { ...member('21'), displayName: 'Аня', user: { username: 'anya' } }],
+            ['22', { ...member('22'), displayName: 'Бот', user: { username: 'bot', bot: true } }],
+          ])
+        : typeof arg === 'string'
+          ? member(arg)
+          : new Collection(arg.user.map((id) => [id, member(id)])),
     cache: { filter: () => ({ map: () => [] }), get: () => undefined },
   },
   voiceStates: { cache: new Map() },
@@ -194,10 +205,28 @@ test('логи, оповещения, приветствие, личка и пр
   assert.equal(badAlerts.status, 400);
   assert.ok(badAlerts.json!.errors.some((e: string) => /такого голосового канала нет/.test(e)));
 
-  const profanity = { enabled: false, level: 'mat', action: 'report', strikesToMute: 2, strikeWindowMinutes: 5, muteMinutes: 30, warningSeconds: 0 };
-  const savedFilter = await put('profanity', { profanity: { ...profanity, ignoredChannelIds: ['c1', 'c1'], extraWords: [' Нуб ', 'нуб', '', 'Рак'] } });
+  const profanity = { enabled: false, level: 'mat', action: 'report', strikesToMute: 2, strikeWindowMinutes: 5, muteMinutes: 30, warningSeconds: 0, scoldMinutes: 5 };
+  const savedFilter = await put('profanity', {
+    profanity: { ...profanity, ignoredChannelIds: ['c1', 'c1'], allowedUserIds: ['123456789012345678', '123456789012345678', ''], extraWords: [' Нуб ', 'нуб', '', 'Рак'] },
+  });
   assert.equal(savedFilter.status, 200);
-  assert.deepEqual(getSettings().profanity, { ...profanity, ignoredChannelIds: ['c1'], extraWords: ['нуб', 'рак'] }, 'слова — в нижнем регистре, без пустых и повторов');
+  assert.deepEqual(
+    getSettings().profanity,
+    { ...profanity, ignoredChannelIds: ['c1'], allowedUserIds: ['123456789012345678'], extraWords: ['нуб', 'рак'] },
+    'слова — в нижнем регистре, без пустых и повторов; участники — без повторов',
+  );
+  const badUsers = await put('profanity', { profanity: { ...profanity, allowedUserIds: ['Вася'] } });
+  assert.ok(badUsers.json!.errors.some((e: string) => /«Вася» — это не участник Discord/.test(e)));
+  const members = await call('GET', '/members');
+  assert.deepEqual(members.json, [
+    { id: '21', name: 'Аня (@anya)' },
+    { id: '20', name: 'Яша (@yasha)' },
+  ], 'для выбора — люди по алфавиту, без ботов');
+
+  // Расход Светы по моделям за 7 дней — для страницы «Света».
+  countSpend(dayKey(Date.now()), 'vendor/free-model', { requests: 2, input: 10, output: 5, cost: 0 });
+  const status = await call('GET', '/sveta/status');
+  assert.deepEqual(status.json!.spend, [{ day: dayKey(Date.now()), model: 'vendor/free-model', requests: 2, input: 10, output: 5, cost: 0 }]);
   const badFilter = await put('profanity', { profanity: { ...profanity, level: 'soft', ignoredChannelIds: ['c3'] } });
   assert.equal(badFilter.status, 400);
   assert.ok(badFilter.json!.errors.some((e: string) => /неизвестный уровень/.test(e)));

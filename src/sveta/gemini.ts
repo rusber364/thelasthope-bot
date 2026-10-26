@@ -40,10 +40,17 @@ export interface FunctionCall {
   id?: string;
 }
 
+/** Расход одного запроса: токены на вход и на выход (с «мыслями»), стоимость — если сервис её прислал (OpenRouter, в долларах). */
+export interface Usage {
+  input: number;
+  output: number;
+  cost: number | null;
+}
+
 export interface GeminiReply {
   text: string;
-  /** Сколько токенов ушло на запрос (для журнала). */
-  tokens: number | null;
+  /** Сколько ушло на запрос (журнал и расход по моделям в админке); null — сервис не сообщил. */
+  usage: Usage | null;
   /** Инструменты, которые модель попросила вызвать. */
   calls: FunctionCall[];
   /** Ответ модели целиком — его возвращают в переписку вместе с результатами инструментов (с подписями мыслей). */
@@ -90,7 +97,7 @@ export function requestBody({ model, system, contents, tools, toolMode }: Omit<G
 interface ResponseJson {
   candidates?: { content?: { role?: string; parts?: GeminiPart[] }; finishReason?: string }[];
   promptFeedback?: { blockReason?: string };
-  usageMetadata?: { totalTokenCount?: number };
+  usageMetadata?: { promptTokenCount?: number; totalTokenCount?: number };
   error?: {
     message?: string;
     status?: string;
@@ -136,7 +143,10 @@ export function parseResponse(status: number, json: ResponseJson): GeminiReply {
   const calls = parts.flatMap((part) =>
     part.functionCall ? [{ name: part.functionCall.name, args: part.functionCall.args ?? {}, ...(part.functionCall.id ? { id: part.functionCall.id } : {}) }] : [],
   );
-  return { text, tokens: json.usageMetadata?.totalTokenCount ?? null, calls, content: { role: 'model', parts } };
+  // Выход — всё, кроме запроса: ответ, «мысли» Gemini 3 (их тоже считают выходом) и прочее.
+  const meta = json.usageMetadata;
+  const usage = meta?.totalTokenCount ? { input: meta.promptTokenCount ?? 0, output: meta.totalTokenCount - (meta.promptTokenCount ?? 0), cost: null } : null;
+  return { text, usage, calls, content: { role: 'model', parts } };
 }
 
 export async function generate(request: GeminiRequest): Promise<GeminiReply> {

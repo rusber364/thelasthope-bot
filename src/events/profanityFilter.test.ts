@@ -13,7 +13,7 @@ const guild = { id: 'G', channels: { cache: new Map([['INC', incidents]]) }, mem
 function configure(patch: Partial<ReturnType<typeof getSettings>['profanity']>) {
   const s = structuredClone(getSettings());
   s.alerts.incidentChannelId = 'INC';
-  s.profanity = { ...s.profanity, enabled: true, level: 'rude', action: 'delete', warningSeconds: 0, ignoredChannelIds: [], extraWords: [], ...patch };
+  s.profanity = { ...s.profanity, enabled: true, level: 'rude', action: 'delete', warningSeconds: 0, ignoredChannelIds: [], allowedUserIds: [], extraWords: [], ...patch };
   saveSettings(s);
   cards.length = 0;
 }
@@ -50,6 +50,14 @@ test('выключен или канал-исключение — ничего; 
   assert.equal(await checkProfanity(message('ну ты и сука', { channelId: 'FLOOD' }).msg), 'none');
   assert.equal(await checkProfanity(message('всем привет, идём в рейд').msg), 'none');
   assert.equal(cards.length, 0);
+});
+
+test('кому мат разрешён — того фильтр не трогает: не удаляет, не мутит, карточек нет; остальных ловит как обычно', async () => {
+  configure({ action: 'mute', strikesToMute: 1, allowedUserIds: ['ALLOWED'] });
+  const allowed = message('да ну нахуй', { userId: 'ALLOWED' });
+  assert.equal(await checkProfanity(allowed.msg), 'none');
+  assert.deepEqual([allowed.log.deleted, allowed.log.mutedFor, cards.length], [false, 0, 0]);
+  assert.equal(await checkProfanity(message('да ну нахуй', { userId: 'u9' }).msg), 'muted');
 });
 
 test('уровень «только мат»: «сука» и «мудак» пропускаются, мат ловится; свои слова — на любом уровне', async () => {

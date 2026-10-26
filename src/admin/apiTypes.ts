@@ -131,6 +131,9 @@ export interface Settings {
     muteMinutes: number;
     warningSeconds: number;
     ignoredChannelIds: string[];
+    /** Кому мат разрешён везде (фильтр не трогает, Света ворчит не чаще раза в scoldMinutes). */
+    allowedUserIds: string[];
+    scoldMinutes: number;
     extraWords: string[];
   };
 }
@@ -178,6 +181,8 @@ export interface SvetaStatus {
   channelsWithoutAccess: string[];
   today: number;
   requestsToday: number;
+  /** Расход по моделям за 7 дней: запросы, токены на вход и выход, стоимость в долларах (null — сервис не сообщает, как Gemini). */
+  spend: { day: string; model: string; requests: number; input: number; output: number; cost: number | null }[];
   lastError: { at: number; text: string } | null;
 }
 

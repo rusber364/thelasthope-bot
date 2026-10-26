@@ -39,6 +39,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
@@ -70,6 +71,71 @@ const code = (text: string) => <code className="rounded bg-muted px-1 py-0.5 tex
 
 /** Модель OpenRouter — с «/» в имени (vendor/model), Gemini — без. */
 const isOpenRouter = (model: string) => model.includes('/');
+
+type Spend = SvetaStatus['spend'][number];
+const tokenCount = new Intl.NumberFormat('ru-RU');
+/** Стоимость в долларах: null — сервис её не сообщает (Gemini), 0 — бесплатно. */
+const costText = (cost: number | null) => (cost === null ? '—' : cost === 0 ? 'бесплатно' : `$${Number(cost.toPrecision(3))}`);
+
+/** Расход по моделям за все дни из ответа (7 дней) и запросы за сегодня; самые занятые модели — сверху. */
+function spendByModel(spend: Spend[], today: string) {
+  const models = new Map<string, Spend & { today: number }>();
+  for (const row of spend) {
+    const sum = models.get(row.model) ?? { day: today, model: row.model, today: 0, requests: 0, input: 0, output: 0, cost: null };
+    models.set(row.model, {
+      ...sum,
+      today: sum.today + (row.day === today ? row.requests : 0),
+      requests: sum.requests + row.requests,
+      input: sum.input + row.input,
+      output: sum.output + row.output,
+      cost: sum.cost === null && row.cost === null ? null : (sum.cost ?? 0) + (row.cost ?? 0),
+    });
+  }
+  return [...models.values()].sort((a, b) => b.requests - a.requests);
+}
+
+/** Сколько запросов, токенов и денег ушло на каждую модель — чтобы попробовать новую и увидеть, во что она обходится. */
+function SpendTable({ spend }: { spend: Spend[] }) {
+  const rows = spendByModel(spend, todayInKyiv());
+  return (
+    // w-0 min-w-full: ширина таблицы не распирает страницу — на узком экране она прокручивается внутри своего блока.
+    <div className="flex w-0 min-w-full flex-col gap-2">
+      <h3 className="text-sm font-medium">Расход по моделям за 7 дней</h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Запросов к моделям ещё не было.</p>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Модель</TableHead>
+              <TableHead className="text-right whitespace-normal">Запросов: сегодня / 7 дней</TableHead>
+              <TableHead className="text-right whitespace-normal">Токенов: вход → выход</TableHead>
+              <TableHead className="text-right">Стоимость</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.model}>
+                <TableCell className="font-mono text-xs whitespace-normal wrap-anywhere">{row.model}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {row.today} / {row.requests}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {tokenCount.format(row.input)} → {tokenCount.format(row.output)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{costText(row.cost)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Дни — по Киеву; неудачные запросы тоже считаются. Стоимость в долларах присылает OpenRouter, у бесплатных моделей — «бесплатно».
+        Gemini стоимость не сообщает — там «—»: бесплатный тариф Google ничего не стоит, а платный считай по его ценам за токены.
+      </p>
+    </div>
+  );
+}
 
 function StatusCard({ perDay, models }: { perDay: number; models: string[] }) {
   const needsGemini = models.some((m) => m && !isOpenRouter(m));
@@ -153,9 +219,10 @@ function StatusCard({ perDay, models }: { perDay: number; models: string[] }) {
             )}
             <span className="text-sm text-muted-foreground">
               Сегодня ответов: <span className="font-medium text-foreground tabular-nums">{status.today}</span> из {perDay}, запросов к
-              Gemini: <span className="font-medium text-foreground tabular-nums">{status.requestsToday}</span>
+              моделям: <span className="font-medium text-foreground tabular-nums">{status.requestsToday}</span>
             </span>
           </div>
+          <SpendTable spend={status.spend} />
           {status.lastError && (
             <Alert variant="destructive">
               <ShieldAlert />

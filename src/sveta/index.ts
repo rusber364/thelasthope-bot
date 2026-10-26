@@ -17,12 +17,13 @@ import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
 import { GeminiError, ModelRest, generate, generateSteady, readyModels, type GeminiErrorKind, type GeminiReply } from './gemini.ts';
 import { generateOpenRouter, isOpenRouterModel } from './openrouter.ts';
-import { BREAK_LINES, Limiter, countRequests, dayKey, repliesOn, requestsOn } from './limits.ts';
+import { BREAK_LINES, Limiter, NO_SPEND, addSpend, countRequests, countSpend, dayKey, repliesOn, requestsOn, spendSince, type Spend } from './limits.ts';
 import { systemPrompt } from './persona.ts';
 import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
 import { loreText, matchLore } from './lore.ts';
 import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
+import { ScoldTimer, scoldLine, swearsWithPermission } from './swearing.ts';
 
 /** Права Светы: только читать и писать. Банить, кикать, трогать роли и каналы Discord ей не даст. */
 export const SVETA_PERMISSIONS = [
@@ -72,13 +73,22 @@ const MAX_TOOL_ROUNDS = 2;
 let client: Client | null = null;
 let limiter = new Limiter();
 let rest = new ModelRest();
+let scolds = new ScoldTimer();
 let lastError: { at: number; text: string } | null = null;
 
 /** Сбросить состояние (для тестов). */
 export function resetSveta(): void {
   limiter = new Limiter();
   rest = new ModelRest();
+  scolds = new ScoldTimer();
   lastError = null;
+}
+
+/** Может ли Света ответить в этом канале: ворчит она и вне своих каналов, а права там могут быть не у неё. */
+function canReply(message: Message<true>): boolean {
+  const me = message.guild.members.me;
+  const send = message.channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages;
+  return Boolean(me && message.channel.permissionsFor(me)?.has([send, PermissionFlagsBits.ReadMessageHistory]));
 }
 
 /** Ошибку пишем в «Лог бота» не чаще раза в час на каждый вид — и показываем в админке. */
@@ -115,7 +125,15 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   const me = message.client.user?.id;
   if (!s.enabled || !me || !message.inGuild()) return;
 
-  const trigger = triggerOf(
+  const now = deps.now();
+  const profanity = getSettings().profanity;
+  const scoldKey = `${message.guildId}:${message.author.id}`;
+  // Мат от того, кому админы его разрешили: Света ворчит (не чаще раза в scoldMinutes), даже если её не звали.
+  const scold =
+    !message.author.bot &&
+    swearsWithPermission(profanity, message.author.id, message.channelId, message.content) &&
+    scolds.due(scoldKey, now, profanity.scoldMinutes);
+  const called = triggerOf(
     {
       authorIsBot: message.author.bot,
       channelId: message.channelId,
@@ -128,21 +146,35 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     s.randomPercent,
     deps.random(),
   );
+  // Не звали, но есть за что поворчать, — отвечает и вне своих каналов, если там можно писать.
+  const trigger = called ?? (scold && canReply(message) ? 'swear' : null);
   if (!trigger) return;
+  // Обратились к ней (а не встряла сама или ворчит) — тогда объясняет, почему не может ответить, и уведомляет об ответе.
+  const addressed = trigger !== 'random' && trigger !== 'swear';
 
-  const now = deps.now();
   const keyFor = (model: string) => (isOpenRouterModel(model) ? deps.openrouterKey() : deps.apiKey());
   // Основная и запасная — только те, для которых есть ключ.
   const models = [s.model, s.fallbackModel].filter((m) => m && keyFor(m));
-  if (!models.length) return noteError(`нет ключа: для ${s.model} впиши ${keyName(s.model)} в .env и перезапусти бота.`, now);
 
   const quiet = { parse: [] as never[], repliedUser: false };
   // Сообщение могли удалить, пока Света думала (например, фильтр мата), — тогда ответ уходит без привязки, а не с ошибкой.
   const respond = (payload: MessageReplyOptions) => message.reply({ ...payload, failIfNotExists: false });
   const authorName = message.member?.displayName ?? message.author.displayName;
+  // Поворчать можно и без модели — заготовленной фразой.
+  const scoldByLine = async () => {
+    scolds.record(scoldKey, now);
+    await respond({ content: scoldLine(deps.random()), allowedMentions: quiet });
+    console.log(`🤬 Света поворчала заготовкой на мат: ${authorName}.`);
+  };
+
+  if (!models.length) {
+    noteError(`нет ключа: для ${s.model} впиши ${keyName(s.model)} в .env и перезапусти бота.`, now);
+    if (scold) await scoldByLine();
+    return;
+  }
 
   // «Что ты обо мне помнишь» и «забудь меня» — отвечает код: точно, без запроса к Gemini и без лимитов.
-  const command = trigger === 'random' ? null : memoryCommand(message.content);
+  const command = addressed ? memoryCommand(message.content) : null;
   if (command === 'ask') {
     await respond({ content: memoryReport(getPerson(message.guildId, message.author.id)), allowedMentions: quiet });
     return;
@@ -157,14 +189,16 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   // Все модели отдыхают после лимита или сбоя — никуда не стучимся, позвавшему раз в час «перерыв».
   const verdict = readyModels(models, rest, now).length ? limiter.check(trigger, message.author.id, message.channelId, now, s) : 'paused';
   if (verdict !== 'ok') {
+    if (scold) return scoldByLine();
     // Позвали, а ответить нельзя: один раз в час говорим, что на перерыве; в остальных случаях молчим.
     const breakKind = verdict === 'hour' || verdict === 'day' || verdict === 'paused' ? verdict : null;
-    if (trigger !== 'random' && breakKind && limiter.shouldNotice(message.channelId, now)) {
+    if (addressed && breakKind && limiter.shouldNotice(message.channelId, now)) {
       await respond({ content: BREAK_LINES[breakKind], allowedMentions: quiet });
     }
     return;
   }
   limiter.record(message.author.id, message.channelId, now);
+  if (scold) scolds.record(scoldKey, now);
 
   await message.channel.sendTyping().catch(() => {});
   const earlier = await message.channel.messages.fetch({ limit: HISTORY - 1, before: message.id }).catch(() => null);
@@ -186,6 +220,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     people: dossiers(people),
     // Истории — только о тех, кого назвали в разговоре или кто в нём пишет.
     lore: loreText(matchLore(s.lore, lines.map((line) => `${line.name}: ${line.text}`))),
+    scold,
   });
   const author = { guildId: message.guildId, userId: message.author.id, name: authorName };
   let writes = 0;
@@ -200,6 +235,9 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   let requests = 0;
   let model = s.model;
   const failures: string[] = [];
+  // Расход этого ответа по моделям: попытки (и неудачные) и токены — для страницы «Света» и строки в логе.
+  const spend = new Map<string, Spend>();
+  const addTo = (name: string, more: Spend) => spend.set(name, addSpend(spend.get(name) ?? NO_SPEND, more));
   const steady = {
     generate: deps.generate,
     wait: deps.wait,
@@ -208,7 +246,8 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     fallback: s.fallbackModel,
     keyFor,
     // Перед каждой попыткой — заново «печатает…»: повтор и запасная модель могут занять время.
-    onAttempt: () => {
+    onAttempt: (attempted: string) => {
+      addTo(attempted, { ...NO_SPEND, requests: 1 });
       if (requests++) void message.channel.sendTyping().catch(() => {});
     },
     onFailure: (failed: string, error: GeminiError) => {
@@ -227,6 +266,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       const answer = await generateSteady({ apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
       // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
       ({ reply, model } = answer);
+      if (reply.usage) addTo(model, { requests: 0, ...reply.usage });
       if (!reply.calls.length) break;
       used.push(...reply.calls.map((call) => call.name));
       // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.
@@ -238,39 +278,52 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       contents = [...contents, reply.content, { role: 'user', parts: results }];
     }
     const text = cleanReply(reply.text);
-    if (!text) return;
-    // Кто позвал — получит уведомление об ответе; если встряла сама — без уведомления.
-    await respond({ content: text, allowedMentions: { parse: [], repliedUser: trigger !== 'random' } });
+    if (!text) {
+      if (scold) await scoldByLine();
+      return;
+    }
+    // Кто позвал — получит уведомление об ответе; если встряла сама или ворчит — без уведомления.
+    await respond({ content: text, allowedMentions: { parse: [], repliedUser: addressed } });
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
+    const total = [...spend.values()].reduce(addSpend, NO_SPEND);
     const details = [
       TRIGGER_LABEL[trigger],
+      scold && trigger !== 'swear' ? TRIGGER_LABEL.swear : '',
       `запросов: ${requests}`,
       failures.length ? `сбои: ${countList(failures)}` : '',
       model !== s.model ? `ответила ${model}` : '',
       used.length ? `инструменты: ${[...new Set(used)].join(', ')}` : '',
-      reply.tokens ? `токенов: ${reply.tokens}` : '',
+      total.input || total.output ? `токенов: ${total.input} → ${total.output}` : '',
+      total.cost !== null ? `стоимость: ${formatCost(total.cost)}` : '',
     ];
     console.log(`💬 Света ответила в ${channel} (${details.filter(Boolean).join(', ')}).`);
   } catch (error) {
     if (!(error instanceof GeminiError)) throw error;
+    // Ворчит заготовкой — тогда объяснять, почему модель не ответила, не нужно.
+    if (scold) await scoldByLine();
+    const explain = addressed && !scold;
     if (error.kind === 'quota' || error.kind === 'rate') {
       // Лимит у всех моделей: они отдыхают (ModelRest), текст Google уже в логе.
-      if (trigger !== 'random' && limiter.shouldNotice(message.channelId, now)) await respond({ content: BREAK_LINES.paused, allowedMentions: quiet });
+      if (explain && limiter.shouldNotice(message.channelId, now)) await respond({ content: BREAK_LINES.paused, allowedMentions: quiet });
     } else if (error.kind === 'blocked') {
-      if (trigger !== 'random') await respond({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
+      if (explain) await respond({ content: 'Не-не, такое я обсуждать не буду 😅', allowedMentions: quiet });
     } else {
       // Сюда сбой Google доходит, только когда не помогли ни повтор, ни запасная модель.
       const outage = error.kind === 'busy' || error.kind === 'unavailable';
       noteError(outage ? `${ERROR_TEXT[error.kind]}: ${error.message}` : ERROR_TEXT[error.kind], now);
       // Google не ответил — позвавший не должен ждать в тишине.
-      if (outage && trigger !== 'random') {
+      if (outage && explain) {
         await respond({ content: 'Что-то я задумалась 🤔 Спроси ещё раз чуть позже.', allowedMentions: quiet });
       }
     }
   } finally {
     if (requests) countRequests(dayKey(now), requests);
+    for (const [name, used] of spend) countSpend(dayKey(now), name, used);
   }
 }
+
+/** Доллары коротко для лога: 0 — «бесплатно», иначе три значащие цифры ($0.00123). */
+const formatCost = (cost: number) => (cost === 0 ? 'бесплатно' : `$${Number(cost.toPrecision(3))}`);
 
 /** Канал, куда Света может написать (для новостей о сборах). null — Света не подключена или канала не видит. */
 export function svetaChannel(channelId: string) {
@@ -318,8 +371,13 @@ export interface SvetaStatus {
   today: number;
   /** Запросов к Gemini сегодня — именно их считает бесплатный лимит Google. */
   requestsToday: number;
+  /** Расход по моделям за последние SPEND_DAYS дней (с сегодняшним), свежие дни сверху. */
+  spend: ({ day: string; model: string } & Spend)[];
   lastError: { at: number; text: string } | null;
 }
+
+/** Сколько дней расхода показывать в админке. */
+const SPEND_DAYS = 7;
 
 /** Состояние для страницы «Света» в админке. */
 export function svetaStatus(guildId: string): SvetaStatus {
@@ -344,6 +402,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
     channelsWithoutAccess,
     today: repliesOn(dayKey(Date.now())),
     requestsToday: requestsOn(dayKey(Date.now())),
+    spend: spendSince(dayKey(Date.now() - (SPEND_DAYS - 1) * 24 * HOUR)),
     lastError,
   };
 }

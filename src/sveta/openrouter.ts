@@ -73,7 +73,8 @@ export function openRouterBody({ model, system, contents, tools, toolMode }: Omi
 
 interface ResponseJson {
   choices?: { message?: { content?: string | null; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] } & Record<string, unknown>; finish_reason?: string }[];
-  usage?: { total_tokens?: number };
+  /** cost — в кредитах OpenRouter (= долларах); у бесплатных моделей 0. */
+  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
   error?: { code?: number; message?: string; metadata?: { raw?: unknown } };
 }
 
@@ -109,7 +110,9 @@ export function parseOpenRouter(status: number, json: ResponseJson): GeminiReply
   const parts = [...(text ? [{ text }] : []), ...calls.map((call) => ({ functionCall: call }))];
   return {
     text,
-    tokens: json.usage?.total_tokens ?? null,
+    usage: json.usage
+      ? { input: json.usage.prompt_tokens ?? 0, output: json.usage.completion_tokens ?? 0, cost: typeof json.usage.cost === 'number' ? json.usage.cost : null }
+      : null,
     calls,
     // С вызовами — сохраняем сообщение модели (вызовы как есть и reasoning_details), чтобы вернуть его на следующем круге.
     content: {

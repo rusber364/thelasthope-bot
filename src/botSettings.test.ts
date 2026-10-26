@@ -146,4 +146,13 @@ test('фильтр мата: по умолчанию — как раньше (м
   assert.match(errors, /нарушений до мута: целое число от 1 до 20/);
   assert.match(errors, /мут \(минут\): целое число от 1 до 10080/);
   assert.match(errors, /«два слова» — слово от 2 до 30 символов без пробелов/);
+
+  const allowed = structuredClone(getSettings());
+  assert.deepEqual([allowed.profanity.allowedUserIds, allowed.profanity.scoldMinutes], [[], 10], 'по умолчанию мат никому не разрешён, Света ворчит раз в 10 мин');
+  allowed.profanity = { ...allowed.profanity, allowedUserIds: ['123456789012345678', 'Вася'], scoldMinutes: -1 };
+  const allowedErrors = validateSettings(allowed).join('\n');
+  assert.match(allowedErrors, /«Вася» — это не участник Discord/);
+  assert.match(allowedErrors, /Света ворчит не чаще \(минут\): целое число от 0 до 1440/);
+  allowed.profanity = { ...allowed.profanity, allowedUserIds: Array.from({ length: 26 }, (_, i) => `1234567890123456${String(i).padStart(2, '0')}`), scoldMinutes: 0 };
+  assert.match(validateSettings(allowed).join(), /не больше чем 25 участникам/);
 });

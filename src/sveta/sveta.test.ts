@@ -9,8 +9,9 @@ const { FALLBACK_MODEL, GeminiError, ModelRest, RETRY_DELAY_MS, generate, genera
 const { onMessage, resetSveta, svetaInviteUrl } = await import('./index.ts');
 const { TOOLS, guildSummary, runTool } = await import('./tools.ts');
 const { newsText } = await import('./news.ts');
+const { SCOLD_LINES } = await import('./swearing.ts');
 const { createRaid, upsertSignup, setTentative } = await import('../raids/store.ts');
-const { requestsOn, dayKey } = await import('./limits.ts');
+const { requestsOn, dayKey, spendSince } = await import('./limits.ts');
 const { getSettings, saveSettings, validateSettings } = await import('../botSettings.ts');
 
 test('по имени Света отзывается на обращение, но не на «свет погас» и «мало света»', () => {
@@ -69,10 +70,10 @@ test('запрос к Gemini: характер в systemInstruction, мягки�
 test('ответ Gemini: текст без «мыслей»; 429 — лимит, неверный ключ, нет модели, фильтр — понятные ошибки', () => {
   const ok = parseResponse(200, {
     candidates: [{ content: { parts: [{ text: 'думаю…', thought: true }, { text: 'Привет, ' }, { text: 'рейдер!' }] }, finishReason: 'STOP' }],
-    usageMetadata: { totalTokenCount: 77 },
+    usageMetadata: { promptTokenCount: 60, totalTokenCount: 77 },
   });
   assert.equal(ok.text, 'Привет, рейдер!');
-  assert.equal(ok.tokens, 77);
+  assert.deepEqual(ok.usage, { input: 60, output: 17, cost: null }, 'выход — всё, кроме запроса (с «мыслями»)');
   assert.deepEqual(ok.calls, []);
 
   // Вызов инструмента: имя, аргументы, id — и ответ модели целиком (с подписью мыслей) для следующего запроса.
@@ -151,7 +152,7 @@ test('настройки: включённой Свете нужен канал,
 const replies: { content: string; allowedMentions: { repliedUser?: boolean } }[] = [];
 const requests: GeminiRequest[] = [];
 type Answer = GeminiReply;
-const say = (text: string): Answer => ({ text, tokens: 42, calls: [], content: { role: 'model', parts: [{ text }] } });
+const say = (text: string): Answer => ({ text, usage: { input: 30, output: 12, cost: null }, calls: [], content: { role: 'model', parts: [{ text }] } });
 let geminiAnswer: () => Promise<Answer> = async () => say('Света: Привет, Морозко! 👋');
 let clock = Date.UTC(2026, 9, 19, 18, 0);
 let roll = 0.99;
@@ -169,7 +170,7 @@ const deps = {
 };
 
 const earlier = new Map([['m0', { id: 'm0', author: { id: 'S', displayName: 'Света' }, member: null, cleanContent: 'Кто сегодня танкует?', attachments: { size: 0 }, stickers: { size: 0 } }]]);
-function message(content: string, { userId = 'u1', channelId = 'C', bot = false, mention = false, roleMention = false, guildId = 'T' } = {}) {
+function message(content: string, { userId = 'u1', channelId = 'C', bot = false, mention = false, roleMention = false, guildId = 'T', canWrite = true } = {}) {
   const msg = {
     id: `m${Math.random()}`,
     content,
@@ -179,7 +180,7 @@ function message(content: string, { userId = 'u1', channelId = 'C', bot = false,
     client: { user: { id: 'S' } },
     author: { id: userId, bot, displayName: 'Морозко' },
     member: { displayName: 'Морозко' },
-    guild: { name: 'The Last Hope' },
+    guild: { name: 'The Last Hope', members: { me: { id: 'S' } } },
     attachments: { size: 0 },
     stickers: { size: 0 },
     mentions: {
@@ -188,7 +189,14 @@ function message(content: string, { userId = 'u1', channelId = 'C', bot = false,
       roles: { some: (fn: (role: { tags?: { botId?: string } }) => boolean) => (roleMention ? [{ tags: { botId: 'S' } }] : []).some(fn) },
       repliedUser: null,
     },
-    channel: { name: 'таверна', sendTyping: async () => {}, messages: { fetch: async () => earlier } },
+    channel: {
+      name: 'таверна',
+      sendTyping: async () => {},
+      messages: { fetch: async () => earlier },
+      isThread: () => false,
+      // Права Светы в канале: писать и читать историю (нужно, чтобы ворчать вне её каналов).
+      permissionsFor: () => ({ has: () => canWrite }),
+    },
     inGuild: () => true,
     // Света отвечает и на уже удалённое сообщение — без привязки (failIfNotExists: false), а не с ошибкой Discord.
     reply: async ({ failIfNotExists, ...payload }: (typeof replies)[number] & { failIfNotExists?: boolean }) => {
@@ -333,7 +341,7 @@ test('инструменты: состав по ролям со спеками, 
 test('Света спрашивает состав инструментом: ответ модели возвращается целиком, на вызов — результат с тем же id, запросов — 2', async () => {
   configure();
   const calls: Answer[] = [
-    { text: '', tokens: 10, calls: [{ name: 'raid_roster', args: { raid_id: raid.id }, id: 'call-1' }], content: { role: 'model', parts: [{ functionCall: { name: 'raid_roster', args: { raid_id: raid.id }, id: 'call-1' }, thoughtSignature: 'sig' }] } },
+    { text: '', usage: null, calls: [{ name: 'raid_roster', args: { raid_id: raid.id }, id: 'call-1' }], content: { role: 'model', parts: [{ functionCall: { name: 'raid_roster', args: { raid_id: raid.id }, id: 'call-1' }, thoughtSignature: 'sig' }] } },
     say('Танкует Проттоварыч, второй танк в запасе 🛡️'),
   ];
   geminiAnswer = async () => calls.shift()!;
@@ -353,7 +361,7 @@ test('Света спрашивает состав инструментом: о�
 
 test('инструменты не бесконечны: после двух кругов — запрос без инструментов, только текст', async () => {
   configure();
-  const loop: Answer = { text: '', tokens: 1, calls: [{ name: 'upcoming_raids', args: {} }], content: { role: 'model', parts: [{ functionCall: { name: 'upcoming_raids', args: {} } }] } };
+  const loop: Answer = { text: '', usage: null, calls: [{ name: 'upcoming_raids', args: {} }], content: { role: 'model', parts: [{ functionCall: { name: 'upcoming_raids', args: {} } }] } };
   let n = 0;
   geminiAnswer = async () => (++n < 3 ? loop : say('Вот что есть 📜'));
   await onMessage(message('Света, что по сборам?'), deps);
@@ -427,7 +435,7 @@ test('Gemini перегружен: Света отвечает лёгкой мо
   const queue: (Answer | 'busy')[] = [
     'busy',
     'busy',
-    { text: '', tokens: 1, calls: [{ name: 'upcoming_raids', args: {} }], content: { role: 'model', parts: [{ functionCall: { name: 'upcoming_raids', args: {} } }] } },
+    { text: '', usage: null, calls: [{ name: 'upcoming_raids', args: {} }], content: { role: 'model', parts: [{ functionCall: { name: 'upcoming_raids', args: {} } }] } },
     say('Сборов пока нет 📜'),
   ];
   geminiAnswer = async () => {
@@ -523,7 +531,7 @@ test('Света и память: «что помнишь» и «забудь м
   // Модель ответила текстом и сразу записала в память — второй запрос не нужен.
   geminiAnswer = async () => ({
     text: 'Ах так? Запомню 😤',
-    tokens: 5,
+    usage: null,
     calls: [
       { name: 'change_attitude', args: { change: -15, reason: 'назвал Свету железякой' }, id: 'a' },
       { name: 'set_nickname', args: { nickname: 'Обидчик' }, id: 'b' },
@@ -548,7 +556,7 @@ test('Света и память: «что помнишь» и «забудь м
   // Больше трёх записей за ответ — не выполняются.
   clock += 20_000;
   const spam = Array.from({ length: 5 }, (_, i) => ({ name: 'remember', args: { note: `факт ${i}` }, id: `r${i}` }));
-  geminiAnswer = async () => ({ text: 'Запомнила!', tokens: 1, calls: spam, content: { role: 'model', parts: [] } });
+  geminiAnswer = async () => ({ text: 'Запомнила!', usage: null, calls: spam, content: { role: 'model', parts: [] } });
   await onMessage(message('Света, запомни всё', { userId: 'u7' }), deps);
   assert.equal(memory.getPerson('T', 'u7')!.notes.filter((n) => n.text.startsWith('факт')).length, 3);
 
@@ -646,4 +654,111 @@ test('жёсткость и мат задаёт характер из админ
   assert.match(prompt, /Насколько жёстко и можно ли материться — как сказано в характере выше; если там об этом ни слова — беззлобно и без мата/);
   assert.match(prompt, /Что бы ни было в характере: не оскорбляй за внешность, национальность, пол, ориентацию, веру и здоровье/);
   assert.match(prompt, /Если человек всерьёз расстроен или просит отстать — сбавь тон/);
+});
+
+// --- Мат с разрешения админов: Света ворчит ---
+
+function allowSwearing(patch: Partial<ReturnType<typeof getSettings>['profanity']> = {}) {
+  const s = structuredClone(getSettings());
+  s.profanity = { ...s.profanity, enabled: true, level: 'rude', allowedUserIds: ['RUDE'], ignoredChannelIds: ['FLOOD'], scoldMinutes: 10, extraWords: [], ...patch };
+  saveSettings(s);
+}
+
+test('мат от того, кому его разрешили: Света ворчит в любом канале, где может писать, — без уведомления и не чаще раза в 10 минут', async () => {
+  configure();
+  allowSwearing();
+  await onMessage(message('Света, привет!'), deps);
+  assert.doesNotMatch(requests[0]!.system, /Админы разрешили/, 'обычный разговор — без ворчания');
+
+  geminiAnswer = async () => say('Опять матом, а админы и рады 🙄');
+  await onMessage(message('да ну нахуй этот рейд', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, 2, 'X — не её канал, но мат с разрешения');
+  assert.match(requests[1]!.system, /Админы разрешили этому человеку ругаться везде/);
+  assert.deepEqual(replies.at(-1), { content: 'Опять матом, а админы и рады 🙄', allowedMentions: { parse: [], repliedUser: false } });
+
+  clock += 60_000;
+  await onMessage(message('блять, опять вайп', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, 2, 'через минуту — молчит: пауза между ворчаниями');
+  clock += 10 * 60_000;
+  await onMessage(message('блять, опять вайп', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, 3, 'через 10 минут — снова ворчит');
+});
+
+test('не ворчит: Света выключена, мат без разрешения (его удалит фильтр), без мата, канал без фильтра, писать нельзя, бот, фильтр выключен', async () => {
+  configure({ enabled: false });
+  allowSwearing();
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'X' }), deps);
+  configure();
+  allowSwearing();
+  await onMessage(message('да ну нахуй', { userId: 'u7', channelId: 'X' }), deps);
+  await onMessage(message('всем привет, идём в рейд', { userId: 'RUDE', channelId: 'X' }), deps);
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'FLOOD' }), deps);
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'X', canWrite: false }), deps);
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'X', bot: true }), deps);
+  allowSwearing({ enabled: false });
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, 0);
+  assert.equal(replies.length, 0);
+});
+
+test('модель упёрлась в лимит — ворчит заготовкой; позвали с матом — один ответ и на вопрос, и с ворчанием; пауза 0 — на каждый мат', async () => {
+  configure();
+  allowSwearing();
+  geminiAnswer = async () => {
+    throw new GeminiError('quota', 'Quota exceeded');
+  };
+  await onMessage(message('да ну нахуй', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(replies.length, 1, 'вместо «перерыва» — ворчание');
+  assert.ok(SCOLD_LINES.includes(replies[0]!.content), 'заготовка');
+  assert.equal(replies[0]!.allowedMentions.repliedUser, false);
+  clock += 11 * 60_000;
+  const asked = requests.length;
+  await onMessage(message('блять', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, asked, 'модели отдыхают — в Gemini не стучится');
+  assert.ok(SCOLD_LINES.includes(replies[1]!.content), 'и всё равно ворчит заготовкой');
+
+  configure();
+  allowSwearing({ scoldMinutes: 0 });
+  geminiAnswer = async () => say('Рейд в 20:00, и язык попроще!');
+  await onMessage(message('Света, когда рейд, блять?', { userId: 'RUDE' }), deps);
+  assert.equal(requests.length, 1, 'один запрос на вопрос и ворчание');
+  assert.match(requests[0]!.system, /Админы разрешили/);
+  assert.deepEqual(replies, [{ content: 'Рейд в 20:00, и язык попроще!', allowedMentions: { parse: [], repliedUser: true } }]);
+  clock += 20_000;
+  await onMessage(message('блять', { userId: 'RUDE', channelId: 'X' }), deps);
+  assert.equal(requests.length, 2, 'пауза 0 — ворчит на каждый мат');
+});
+
+test('расход по моделям за день: попытки (и неудачные), токены всех кругов, стоимость OpenRouter; у Gemini стоимости нет', async () => {
+  const paid = 'vendor/paid-model';
+  configure({ model: paid, fallbackModel: 'gemini-flash-latest' });
+  const tool = { name: 'upcoming_raids', args: {} };
+  const answers: (() => Answer)[] = [
+    () => ({ text: '', usage: { input: 100, output: 10, cost: 0.25 }, calls: [tool], content: { role: 'model', parts: [{ functionCall: tool }] } }),
+    () => ({ ...say('Ближайший — Огненные Недра'), usage: { input: 200, output: 20, cost: 0.5 } }),
+  ];
+  geminiAnswer = async () => answers.shift()!();
+  const logs: string[] = [];
+  const realLog = console.log;
+  console.log = (line: string) => void logs.push(line);
+  try {
+    await onMessage(message('Света, когда рейд?'), deps);
+  } finally {
+    console.log = realLog;
+  }
+  assert.deepEqual(spendSince(dayKey(clock)), [{ day: dayKey(clock), model: paid, requests: 2, input: 300, output: 30, cost: 0.75 }]);
+  assert.match(logs.at(-1)!, /токенов: 300 → 30, стоимость: \$0\.75/, 'в логе — сумма обоих кругов');
+
+  // Основная перегружена дважды (запросы есть, токенов нет), отвечает запасная Gemini — без стоимости.
+  let n = 0;
+  geminiAnswer = async () => {
+    if (n++ < 2) throw new GeminiError('busy', 'Provider returned error');
+    return say('Я тут!');
+  };
+  clock += 20_000;
+  await onMessage(message('Света, ау'), deps);
+  assert.deepEqual(spendSince(dayKey(clock)), [
+    { day: dayKey(clock), model: paid, requests: 4, input: 300, output: 30, cost: 0.75 },
+    { day: dayKey(clock), model: 'gemini-flash-latest', requests: 1, input: 30, output: 12, cost: null },
+  ]);
 });

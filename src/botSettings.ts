@@ -223,11 +223,15 @@ export interface ProfanitySettings {
   warningSeconds: number;
   /** Каналы, где фильтр не работает. */
   ignoredChannelIds: string[];
+  /** Кому мат разрешён везде: фильтр их не трогает, зато Света ворчит (src/sveta/swearing.ts). */
+  allowedUserIds: string[];
+  /** Света ворчит на одного человека не чаще раза в столько минут (0 — на каждое сообщение с матом). */
+  scoldMinutes: number;
   /** Свои слова: ловятся как начало слова, на любом уровне. */
   extraWords: string[];
 }
 
-export const LIMITS = { profanityChannels: 25, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { profanityChannels: 25, profanityUsers: 25, scoldMinutes: 1440, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -272,6 +276,8 @@ function defaults(): BotSettings {
       muteMinutes: 10,
       warningSeconds: 8,
       ignoredChannelIds: [],
+      allowedUserIds: [],
+      scoldMinutes: 10,
       extraWords: [],
     },
     voiceRoles: [],
@@ -503,11 +509,15 @@ export function validateSettings(s: BotSettings): string[] {
     ['Фильтр мата: окно нарушений (минут)', profanity.strikeWindowMinutes, 1, LIMITS.strikeWindow],
     ['Фильтр мата: мут (минут)', profanity.muteMinutes, 1, LIMITS.muteMinutes],
     ['Фильтр мата: предупреждение (секунд)', profanity.warningSeconds, 0, LIMITS.warningSeconds],
+    ['Фильтр мата: Света ворчит не чаще (минут)', profanity.scoldMinutes, 0, LIMITS.scoldMinutes],
   ];
   for (const [name, value, min, max] of profanityRanges) {
     if (!Number.isInteger(value) || value < min || value > max) errors.push(`${name}: целое число от ${min} до ${max}.`);
   }
   if (profanity.ignoredChannelIds.length > LIMITS.profanityChannels) errors.push(`Фильтр мата: каналов-исключений не больше ${LIMITS.profanityChannels}.`);
+  if (profanity.allowedUserIds.length > LIMITS.profanityUsers) errors.push(`Фильтр мата: разрешить мат можно не больше чем ${LIMITS.profanityUsers} участникам.`);
+  const badUser = profanity.allowedUserIds.find((userId) => !/^\d{17,20}$/.test(userId));
+  if (badUser !== undefined) errors.push(`Фильтр мата: «${badUser}» — это не участник Discord.`);
   if (profanity.extraWords.length > LIMITS.profanityWords) errors.push(`Фильтр мата: своих слов не больше ${LIMITS.profanityWords}.`);
   const badWord = profanity.extraWords.find((word) => word.length < 2 || word.length > LIMITS.profanityWord || /\s/.test(word));
   if (badWord !== undefined) errors.push(`Фильтр мата: «${badWord}» — слово от 2 до ${LIMITS.profanityWord} символов без пробелов.`);

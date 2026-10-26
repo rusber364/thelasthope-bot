@@ -33,7 +33,7 @@ import { svetaStatus } from '../sveta/index.ts';
 import { forgetPerson, getPerson, listPeople, personInput, savePerson, type Person } from '../sveta/memory.ts';
 import type * as Api from './apiTypes.ts';
 import { readSession, type Session } from './auth.ts';
-import { channelName, checkChannel, checkRole, checkVoiceChannel, guildPoll, mentionRoles, messageUrl, roleOptions, textChannels, voiceChannels } from './forms.ts';
+import { channelName, checkChannel, checkRole, checkVoiceChannel, guildPoll, memberOptions, mentionRoles, messageUrl, roleOptions, textChannels, voiceChannels } from './forms.ts';
 
 type ApiEnv = { Variables: { session: Session; member: GuildMember; guild: Guild } };
 type C = Context<ApiEnv>;
@@ -142,6 +142,13 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
   api.get('/options', (c) => {
     const guild = c.get('guild');
     return c.json({ textChannels: textChannels(guild), voiceChannels: voiceChannels(guild), roles: roleOptions(guild), mentionRoles: mentionRoles(guild) } satisfies Api.OptionsResponse);
+  });
+
+  // Участники-люди — для выбора, например, кому разрешён мат. Всех видно благодаря Server Members Intent.
+  api.get('/members', async (c) => {
+    const guild = c.get('guild');
+    const members = guild.members.cache.size >= guild.memberCount ? guild.members.cache : await guild.members.fetch().catch(() => guild.members.cache);
+    return c.json(memberOptions(members.values()) satisfies Api.Option[]);
   });
 
   api.post('/branding/:part', async (c) => {
@@ -392,6 +399,9 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           muteMinutes: num(profanity.muteMinutes),
           warningSeconds: num(profanity.warningSeconds),
           ignoredChannelIds: [...new Set(channelIds)],
+          // Кто ушёл с сервера, остаётся в списке: вернётся — право при нём; админка покажет «нет на сервере».
+          allowedUserIds: [...new Set(arr(profanity.allowedUserIds).map(id).filter((userId): userId is string => userId !== null))],
+          scoldMinutes: num(profanity.scoldMinutes),
           // Свои слова — в нижнем регистре, без пустых и повторов.
           extraWords: [...new Set(arr(profanity.extraWords).map((word) => text(word).toLowerCase()).filter(Boolean))],
         };

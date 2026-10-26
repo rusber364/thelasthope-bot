@@ -110,6 +110,19 @@ db.exec(`
 // Сколько запросов к Gemini ушло за день (ответ с инструментами — несколько запросов).
 addColumn('sveta_usage', 'requests', 'INTEGER NOT NULL DEFAULT 0');
 
+// Расход Светы по моделям за день: запросы, токены, стоимость (null — сервис её не сообщает, как Gemini).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sveta_model_usage (
+    day           TEXT    NOT NULL,
+    model         TEXT    NOT NULL,
+    requests      INTEGER NOT NULL DEFAULT 0,
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost          REAL,
+    PRIMARY KEY (day, model)
+  );
+`);
+
 // Что Света помнит о людях: отношение (−100…+100), прозвище, короткие заметки (JSON [{ at, text }]).
 db.exec(`
   CREATE TABLE IF NOT EXISTS sveta_people (

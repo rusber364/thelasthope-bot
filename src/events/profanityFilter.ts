@@ -24,7 +24,8 @@ export type ProfanityOutcome = 'none' | 'reported' | 'deleted' | 'muted';
 export async function checkProfanity(message: Message | PartialMessage): Promise<ProfanityOutcome> {
   if (message.partial || !message.inGuild() || message.author.bot || message.system) return 'none';
   const settings = getSettings().profanity;
-  if (!settings.enabled || settings.ignoredChannelIds.includes(message.channelId)) return 'none';
+  // Кому админы разрешили мат везде — того фильтр не трогает, на них ворчит Света (sveta/swearing.ts).
+  if (!settings.enabled || settings.ignoredChannelIds.includes(message.channelId) || settings.allowedUserIds.includes(message.author.id)) return 'none';
   if (!findProfanity(message.content, settings.extraWords, settings.level)) return 'none';
   const text = `||${message.content.replaceAll('|', '¦').slice(0, 800)}||`;
 
