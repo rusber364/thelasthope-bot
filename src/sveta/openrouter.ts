@@ -94,6 +94,8 @@ export function parseOpenRouter(status: number, json: ResponseJson): GeminiReply
     const message = json.error?.message ?? `HTTP ${status}`;
     if (code === 429) throw new GeminiError(/per[- ]day/i.test(message) ? 'quota' : 'rate', message);
     if (code === 402) throw new GeminiError('quota', message);
+    // Дневной (недельный, месячный) лимит ключа из настроек OpenRouter — как дневная квота: модель отдыхает, отвечает запасная.
+    if (code === 403 && /key limit/i.test(message)) throw new GeminiError('quota', message);
     if (code === 401 || code === 403) throw new GeminiError('auth', message);
     if (code === 404 || (code === 400 && /not a valid model|model.*not (found|exist)/i.test(message))) throw new GeminiError('model', message);
     if (code >= 500) throw new GeminiError('busy', message);

@@ -87,6 +87,8 @@ test('ошибки OpenRouter — те же виды, что у Gemini: лими
   assert.equal(kind(429, { error: { code: 429, message: 'Rate limit exceeded: free-models-per-min.' } }), 'rate');
   assert.equal(kind(429, { error: { code: 429, message: 'Rate limit exceeded: free-models-per-day.' } }), 'quota');
   assert.equal(kind(402, { error: { code: 402, message: 'Insufficient credits' } }), 'quota');
+  assert.equal(kind(403, { error: { code: 403, message: 'Key limit exceeded' } }), 'quota', 'дневной лимит ключа — отдых и запасная модель, а не «неверный ключ»');
+  assert.equal(kind(401, { error: { code: 401, message: 'User not found.' } }), 'auth', 'ключ управления вместо обычного');
   assert.equal(kind(401, { error: { code: 401, message: 'No auth credentials found' } }), 'auth');
   assert.equal(kind(404, { error: { code: 404, message: 'No endpoints found' } }), 'model');
   assert.equal(kind(400, { error: { code: 400, message: 'minimax/nope is not a valid model ID' } }), 'model');
