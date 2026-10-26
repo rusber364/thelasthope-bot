@@ -40,6 +40,21 @@ export function buildContents(lines: ChatLine[]): GeminiContent[] {
   return contents;
 }
 
+/**
+ * Вызов инструмента, который модель написала текстом вместо настоящего вызова («change_attitude: {"change": -12}»,
+ * «remember({...})», просто «change_attitude») — так изредка делает Grok. null — обычный ответ.
+ */
+export function textToolCall(text: string, names: ReadonlySet<string>): { name: string; args: Record<string, unknown> } | null {
+  const match = /^\s*`*([a-z_]+)`*\s*[:(]?\s*(\{[\s\S]*\})?\s*\)?\s*$/.exec(text);
+  if (!match || !names.has(match[1]!)) return null;
+  try {
+    const args = match[2] ? (JSON.parse(match[2]) as unknown) : {};
+    return { name: match[1]!, args: args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {} };
+  } catch {
+    return { name: match[1]!, args: {} };
+  }
+}
+
 /** Ответ модели → сообщение в Discord: без «Света:» в начале, без живых @everyone/@here, не длиннее лимита. */
 export function cleanReply(text: string): string {
   const reply = text

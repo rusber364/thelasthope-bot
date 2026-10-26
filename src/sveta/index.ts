@@ -14,7 +14,7 @@ import {
 import { getSettings } from '../botSettings.ts';
 import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
-import { HISTORY, buildContents, cleanReply, lineText, type ChatLine } from './context.ts';
+import { HISTORY, buildContents, cleanReply, lineText, textToolCall, type ChatLine } from './context.ts';
 import { GeminiError, ModelRest, generate, generateSteady, readyModels, type GeminiErrorKind, type GeminiReply } from './gemini.ts';
 import { generateOpenRouter, isOpenRouterModel } from './openrouter.ts';
 import { BREAK_LINES, Limiter, NO_SPEND, addSpend, countRequests, countSpend, dayKey, repliesOn, requestsOn, spendSince, type Spend } from './limits.ts';
@@ -69,6 +69,7 @@ const keyName = (model: string) => (isOpenRouterModel(model) ? 'OPENROUTER_API_K
 const HOUR = 60 * 60 * 1000;
 /** Сколько раз за ответ модель может попросить инструменты (каждый круг — ещё один запрос к Gemini). */
 const MAX_TOOL_ROUNDS = 2;
+const TOOL_NAMES = new Set([...TOOLS, ...MEMORY_TOOLS].map((tool) => tool.name));
 
 let client: Client | null = null;
 let limiter = new Limiter();
@@ -207,7 +208,9 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     name: m.member?.displayName ?? m.author.displayName,
     text: lineText(m.cleanContent, m.attachments.size, m.stickers.size),
     fromSveta: m.author.id === me,
-  }));
+  }))
+    // Её прошлый сбой — вызов инструмента текстом — модели не показываем, иначе она повторит его как «свою манеру».
+    .filter((line) => !(line.fromSveta && textToolCall(line.text, TOOL_NAMES)));
   // Досье тех, кто в разговоре (люди, не боты), — Света видит, как к кому относится.
   const people = [...new Set(history.filter((m) => !m.author.bot).map((m) => m.author.id))]
     .map((userId) => getPerson(message.guildId, userId))
@@ -261,15 +264,27 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     // Модель может попросить инструменты (состав реги, расписание): бот выполняет их и спрашивает ещё раз.
     // Не больше MAX_TOOL_ROUNDS кругов, на последнем — только текст.
     let reply: GeminiReply;
+    let textOnly = false;
     for (let round = 0; ; round++) {
       const last = round >= MAX_TOOL_ROUNDS;
       const answer = await generateSteady(
-        { apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO', thinking: s.thinking },
+        { apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last || textOnly ? 'NONE' : 'AUTO', thinking: s.thinking },
         steady,
       );
       // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
       ({ reply, model } = answer);
       if (reply.usage) addTo(model, { requests: 0, ...reply.usage });
+      // Вызов инструмента, написанный текстом, в чат не отправляем: выполняем его (запись в память сработает)
+      // и просим ответить словами, уже без инструментов.
+      const written = reply.calls.length ? null : textToolCall(reply.text, TOOL_NAMES);
+      if (written) {
+        used.push(`${written.name} (текстом)`);
+        runCall(written);
+        reply = { ...reply, text: '' };
+        if (last || textOnly) break;
+        textOnly = true;
+        continue;
+      }
       if (!reply.calls.length) break;
       used.push(...reply.calls.map((call) => call.name));
       // Ответ модели возвращаем целиком (с подписями мыслей), а на каждый вызов — ровно один результат с тем же id.

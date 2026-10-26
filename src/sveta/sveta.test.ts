@@ -4,7 +4,7 @@ import type { GeminiReply, GeminiRequest } from './gemini.ts';
 
 process.env.BOT_DB_PATH = ':memory:';
 const { callsByName, triggerOf } = await import('./triggers.ts');
-const { buildContents, cleanReply, lineText } = await import('./context.ts');
+const { buildContents, cleanReply, lineText, textToolCall } = await import('./context.ts');
 const { FALLBACK_MODEL, GeminiError, ModelRest, RETRY_DELAY_MS, generate, generateSteady, parseResponse, readyModels, requestBody, restMs } = await import('./gemini.ts');
 const { onMessage, resetSveta, svetaInviteUrl } = await import('./index.ts');
 const { TOOLS, guildSummary, runTool } = await import('./tools.ts');
@@ -778,4 +778,40 @@ test('уровень обдумывания из админки уходит в 
   const s = structuredClone(getSettings());
   s.sveta = { ...s.sveta, thinking: 'max' as never };
   assert.match(validateSettings(s).join('\n'), /уровень обдумывания — низкий, средний или высокий/);
+});
+
+test('вызов инструмента текстом («change_attitude: {...}») узнаётся; обычная реплика — нет', () => {
+  const names = new Set(['change_attitude', 'remember', 'set_nickname']);
+  assert.deepEqual(textToolCall('change_attitude', names), { name: 'change_attitude', args: {} });
+  assert.deepEqual(textToolCall('change_attitude: {"change": -12, "reason": "Обозвал железякой"}', names), {
+    name: 'change_attitude',
+    args: { change: -12, reason: 'Обозвал железякой' },
+  });
+  assert.deepEqual(textToolCall('remember({"note": "танк"})', names), { name: 'remember', args: { note: 'танк' } });
+  assert.deepEqual(textToolCall('`set_nickname` {"nickname": "Пупс"}', names), { name: 'set_nickname', args: { nickname: 'Пупс' } });
+  assert.equal(textToolCall('Сам ты железяка, change_attitude тебе в карму', names), null);
+  assert.equal(textToolCall('unknown_tool: {}', names), null, 'чужое имя — обычный текст');
+  assert.equal(textToolCall('привет', names), null);
+});
+
+test('модель написала вызов текстом: в чат он не уходит, запись в память срабатывает, ответ — словами; прошлый такой сбой модели не показываем', async () => {
+  const memory = await import('./memory.ts');
+  configure();
+  const answers = [say('change_attitude: {"change": -12, "reason": "Обозвал железякой"}'), say('Сам ты железяка, Морозко!')];
+  geminiAnswer = async () => answers.shift()!;
+  const msg = message('Света, сиди молча, железяка', { userId: 'rude1' }) as unknown as { channel: { messages: { fetch: () => Promise<Map<string, unknown>> } } };
+  // В канале уже висит её прошлый сбой — «change_attitude» (сообщения приходят от новых к старым).
+  const line = (id: string, author: { id: string; displayName: string }, text: string) => ({ id, author, member: null, cleanContent: text, attachments: { size: 0 }, stickers: { size: 0 } });
+  msg.channel.messages.fetch = async () =>
+    new Map([
+      ['m2', line('m2', { id: 'S', displayName: 'Света' }, 'change_attitude')],
+      ['m1', line('m1', { id: 'rude1', displayName: 'Морозко' }, 'Света, ты бесполезная')],
+    ]);
+  await onMessage(msg as never, deps);
+
+  assert.equal(requests.length, 2, 'второй запрос — за словами');
+  assert.ok(!JSON.stringify(requests[0]!.contents).includes('change_attitude'), 'прошлый сбой модели не показан');
+  assert.equal(requests[1]!.toolMode, 'NONE', 'второй раз — без инструментов');
+  assert.deepEqual(replies.map((r) => r.content), ['Сам ты железяка, Морозко!']);
+  assert.equal(memory.getPerson('T', 'rude1')?.attitude, -12, 'отношение всё равно поменялось');
 });
