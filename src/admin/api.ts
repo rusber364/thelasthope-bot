@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { EmbedBuilder, PermissionFlagsBits, type Client, type Guild, type GuildMember } from 'discord.js';
 import { Hono, type Context } from 'hono';
 import { ARCHIVE_MODES, LOG_CATEGORIES, PLAYER_GROUP_KINDS, LOG_LABELS, getSettings, saveSettings, validateSettings, type ArchiveMode, type BotSettings } from '../botSettings.ts';
+import { config } from '../config.ts';
 import { sendWelcome } from '../events/guildMemberAdd.ts';
 import { runAutoClean } from '../lib/autoClean.ts';
 import { applyBranding, brandingError } from '../lib/branding.ts';
@@ -86,7 +87,9 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
     if (!session) return fail(c, ['Нужно войти через Discord.'], 401);
     const guild = adminGuild();
     const member = guild ? await guild.members.fetch(session.userId).catch(() => null) : null;
-    if (!guild || !member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    // Право «Управлять сервером» — или ID в ADMIN_USER_IDS (например, разработчик на чужом сервере); участником быть нужно всегда.
+    const allowed = member && (member.permissions.has(PermissionFlagsBits.ManageGuild) || config.adminUserIds.includes(member.id));
+    if (!guild || !allowed) {
       return fail(c, ['Админка открыта только тем, у кого на сервере есть право «Управлять сервером».'], 403);
     }
     if (c.req.method !== 'GET' && c.req.header('X-CSRF-Token') !== session.csrf) return fail(c, ['Страница устарела — обнови её.'], 403);

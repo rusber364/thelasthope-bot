@@ -43,6 +43,10 @@ export const config = {
   raidChannel2Id: read('RAID_CHANNEL_2_ID'),
 
   // Админка (src/admin). Без секретов она не запускается.
+  /** Discord ID тех, кого админка пускает и без права «Управлять сервером» (через запятую или пробел). */
+  get adminUserIds(): string[] {
+    return (read('ADMIN_USER_IDS') ?? '').split(/[\s,]+/).filter(Boolean);
+  },
   clientSecret: read('DISCORD_CLIENT_SECRET'),
   sessionSecret: read('SESSION_SECRET'),
   adminPort: Number(read('ADMIN_PORT') ?? 3000),

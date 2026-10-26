@@ -144,6 +144,16 @@ test('вход, права и CSRF', async () => {
   const me = await call('GET', '/me');
   assert.equal(me.status, 200);
   assert.deepEqual(me.json, { user: { id: ADMIN, name: 'Тестер', avatar: null }, guild: { id: 'g1', name: 'Тест', iconUrl: null }, csrf: 'token' });
+
+  // Без права «Управлять сервером», но в ADMIN_USER_IDS — пускает; остальных — нет.
+  process.env.ADMIN_USER_IDS = '55, 99';
+  try {
+    assert.equal((await call('GET', '/me', undefined, { userId: '99' })).status, 200, 'ID из списка');
+    assert.equal((await call('GET', '/me', undefined, { userId: '77' })).status, 403, 'не из списка');
+  } finally {
+    delete process.env.ADMIN_USER_IDS;
+  }
+  assert.equal((await call('GET', '/me', undefined, { userId: '99' })).status, 403, 'без списка — как раньше');
 });
 
 test('главная, варианты для списков и оформление бота', async () => {
