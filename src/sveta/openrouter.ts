@@ -54,13 +54,13 @@ export function toJsonSchema(schema: unknown): unknown {
 /** Инструмент без параметров: MiniMax без поля parameters отвечает «function parameters is empty». */
 const NO_PARAMETERS = { type: 'object', properties: {} };
 
-/** Тело запроса. Размышления — короткие: для болтовни глубокие не нужны, а они тратят время и токены. */
-export function openRouterBody({ model, system, contents, tools, toolMode }: Omit<GeminiRequest, 'apiKey'>) {
+/** Тело запроса. Размышления по умолчанию короткие: для болтовни глубокие не нужны, а они тратят время и токены. */
+export function openRouterBody({ model, system, contents, tools, toolMode, thinking = 'low' }: Omit<GeminiRequest, 'apiKey'>) {
   return {
     model,
     messages: toMessages(system, contents),
     max_tokens: 2048,
-    reasoning: { effort: 'low' },
+    reasoning: { effort: thinking },
     // Инструменты передаём и на последнем круге: в переписке уже есть их вызовы, по ним OpenRouter проверяет схему.
     ...(tools?.length
       ? {

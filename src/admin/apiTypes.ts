@@ -114,6 +114,10 @@ export interface Settings {
     /** Основная и запасная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» (minimax/minimax-m3.1-flash:free). */
     model: string;
     fallbackModel: string;
+    /** Модели, добавленные в админке: из них выбирают основную и запасную. */
+    models: string[];
+    /** Уровень обдумывания модели: low — быстро и дёшево, high — продуманнее, но медленнее и дороже. */
+    thinking: 'low' | 'medium' | 'high';
     randomPercent: number;
     userCooldownSeconds: number;
     perHour: number;

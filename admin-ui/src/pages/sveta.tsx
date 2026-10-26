@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
@@ -37,6 +38,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -71,6 +73,76 @@ const code = (text: string) => <code className="rounded bg-muted px-1 py-0.5 tex
 
 /** Модель OpenRouter — с «/» в имени (vendor/model), Gemini — без. */
 const isOpenRouter = (model: string) => model.includes('/');
+
+/** Значение «без запасной» в списке выбора: пустую строку Select за значение не считает. */
+const NO_FALLBACK = '—';
+const MODELS_MAX = 20;
+
+/** Список моделей: метки с видом (Gemini или OpenRouter), убрать ненужную, добавить новую по имени. */
+function ModelsEditor({ models, inUse, onChange }: { models: string[]; inUse: string[]; onChange: (models: string[]) => void }) {
+  const [name, setName] = useState('');
+  const id = name.trim().toLowerCase();
+  const canAdd = Boolean(id) && !models.includes(id) && models.length < MODELS_MAX;
+  const add = () => {
+    if (!canAdd) return;
+    onChange([...models, id]);
+    setName('');
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-wrap gap-2">
+        {models.map((model) => {
+          const used = inUse.includes(model);
+          return (
+            <li key={model} className="flex max-w-full items-center gap-1.5 rounded-md border bg-muted/40 py-0.5 pr-0.5 pl-2 text-xs">
+              <span className="truncate font-mono">{model}</span>
+              <Badge variant="outline">{isOpenRouter(model) ? 'OpenRouter' : 'Gemini'}</Badge>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`Убрать ${model}`}
+                title={used ? 'Выбрана основной или запасной — сначала выбери другую' : 'Убрать из списка'}
+                disabled={used}
+                onClick={() => onChange(models.filter((m) => m !== model))}
+              >
+                <X />
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex gap-2">
+        <Input
+          id="sveta-new-model"
+          className="font-mono text-xs"
+          placeholder="gemini-flash-latest или vendor/model"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              add();
+            }
+          }}
+        />
+        <Button variant="outline" disabled={!canAdd} onClick={add}>
+          <Plus /> Добавить
+        </Button>
+      </div>
+      <FieldDescription>
+        {models.includes(id) ? 'Эта модель уже в списке. ' : ''}До {MODELS_MAX} моделей. Имя — как у сервиса: Gemini без «/», OpenRouter —{' '}
+        {code('vendor/model')} со страницы модели на openrouter.ai.
+      </FieldDescription>
+    </div>
+  );
+}
+
+type Thinking = Settings['sveta']['thinking'];
+const THINKING: Record<Thinking, string> = {
+  low: 'Низкое — быстро и дёшево',
+  medium: 'Среднее',
+  high: 'Высокое — продуманнее, но медленнее и дороже',
+};
 
 type Spend = SvetaStatus['spend'][number];
 const tokenCount = new Intl.NumberFormat('ru-RU');
@@ -591,25 +663,82 @@ export function SvetaPage() {
                 description="Один ответ — обычно один запрос к модели. Потолки берегут бесплатные лимиты Google и OpenRouter."
               >
                 <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                  <Field className="md:col-span-2">
+                    <FieldLabel htmlFor="sveta-new-model">Модели</FieldLabel>
+                    <ModelsEditor
+                      models={draft.sveta.models}
+                      inUse={[draft.sveta.model, draft.sveta.fallbackModel]}
+                      onChange={(models) => set({ models })}
+                    />
+                  </Field>
                   <Field>
                     <FieldLabel htmlFor="sveta-model">Основная модель</FieldLabel>
-                    <Input id="sveta-model" value={draft.sveta.model} onChange={(event) => set({ model: event.target.value.trim() })} />
+                    <Select
+                      items={Object.fromEntries(draft.sveta.models.map((model) => [model, model]))}
+                      value={draft.sveta.model}
+                      onValueChange={(model: string | null) => model && set({ model })}
+                    >
+                      <SelectTrigger id="sveta-model" className="w-full font-mono text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {draft.sveta.models.map((model) => (
+                          <SelectItem key={model} value={model} className="font-mono text-xs">
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <Field>
                     <FieldLabel htmlFor="sveta-fallback">Запасная модель</FieldLabel>
-                    <Input
-                      id="sveta-fallback"
-                      placeholder="Без запасной"
-                      value={draft.sveta.fallbackModel}
-                      onChange={(event) => set({ fallbackModel: event.target.value.trim() })}
-                    />
+                    <Select
+                      items={{ [NO_FALLBACK]: 'Без запасной', ...Object.fromEntries(draft.sveta.models.map((model) => [model, model])) }}
+                      value={draft.sveta.fallbackModel || NO_FALLBACK}
+                      onValueChange={(model: string | null) => model && set({ fallbackModel: model === NO_FALLBACK ? '' : model })}
+                    >
+                      <SelectTrigger id="sveta-fallback" className="w-full font-mono text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_FALLBACK}>Без запасной</SelectItem>
+                        {draft.sveta.models.map((model) => (
+                          <SelectItem key={model} value={model} className="font-mono text-xs">
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </Field>
                   <FieldDescription className="md:col-span-2">
                     Запасная отвечает, когда основная перегружена, не отвечает или упёрлась в лимит. Gemini (ключ {code('GEMINI_API_KEY')}):{' '}
                     {code('gemini-flash-latest')} — умнее, {code('gemini-flash-lite-latest')} — больше запросов в день. OpenRouter (ключ{' '}
-                    {code('OPENROUTER_API_KEY')}) — имя с «/», например бесплатная {code('minimax/minimax-m3.1-flash:free')}; у бесплатных
-                    моделей OpenRouter общий небольшой дневной лимит на аккаунт.
+                    {code('OPENROUTER_API_KEY')}) — имя с «/», например {code('minimax/minimax-m3.1-flash')}; у бесплатных (с{' '}
+                    {code(':free')} на конце) общий дневной лимит на аккаунт.
                   </FieldDescription>
+                  <Field>
+                    <FieldLabel htmlFor="sveta-thinking">Обдумывание</FieldLabel>
+                    <Select
+                      items={THINKING}
+                      value={draft.sveta.thinking}
+                      onValueChange={(thinking: Thinking | null) => thinking && set({ thinking })}
+                    >
+                      <SelectTrigger id="sveta-thinking" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(Object.keys(THINKING) as Thinking[]).map((level) => (
+                          <SelectItem key={level} value={level}>
+                            {THINKING[level]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      Сколько модель думает перед ответом. Выше — продуманнее, но медленнее, а «мысли» оплачиваются как ответ: сколько стоит
+                      — видно в «Расходе по моделям».
+                    </FieldDescription>
+                  </Field>
                   <Field>
                     <FieldLabel htmlFor="sveta-random">Встревает сама</FieldLabel>
                     <NumberField

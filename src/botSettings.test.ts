@@ -156,3 +156,22 @@ test('фильтр мата: по умолчанию — как раньше (м
   allowed.profanity = { ...allowed.profanity, allowedUserIds: Array.from({ length: 26 }, (_, i) => `1234567890123456${String(i).padStart(2, '0')}`), scoldMinutes: 0 };
   assert.match(validateSettings(allowed).join(), /не больше чем 25 участникам/);
 });
+
+test('Света: список моделей — основная и запасная попадают в него сами (и у старых настроек), выбирать можно только из списка', () => {
+  // Настройки из версии без списка моделей: в нём окажутся умолчания плюс основная и запасная.
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('bot', ?)").run(JSON.stringify({ sveta: { model: 'vendor/old-model', fallbackModel: 'gemini-flash-lite-latest' } }));
+  resetSettingsCache();
+  assert.deepEqual(getSettings().sveta.models, ['gemini-flash-latest', 'gemini-flash-lite-latest', 'vendor/old-model']);
+
+  const s = structuredClone(getSettings());
+  assert.ok(!validateSettings(s).some((e) => /модел/.test(e)), 'нормальный список — без ошибок');
+  s.sveta = { ...s.sveta, models: ['gemini-flash-latest', 'плохое имя'], model: 'vendor/old-model', fallbackModel: 'vendor/gone' };
+  const errors = validateSettings(s).join('\n');
+  assert.match(errors, /«плохое имя» — не похоже на имя модели/);
+  assert.match(errors, /основная модель должна быть в списке моделей/);
+  assert.match(errors, /запасная модель должна быть в списке моделей/);
+  s.sveta = { ...s.sveta, models: Array.from({ length: 21 }, (_, i) => `vendor/model-${i}`), model: 'vendor/model-0', fallbackModel: '' };
+  assert.match(validateSettings(s).join(), /моделей в списке — не больше 20/);
+  db.prepare("DELETE FROM settings WHERE key = 'bot'").run();
+  resetSettingsCache();
+});

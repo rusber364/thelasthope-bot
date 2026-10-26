@@ -9,6 +9,7 @@ import { parseTime } from './lib/time.ts';
 import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
 import type { ProfanityLevel } from './lib/profanity.ts';
 import { DEFAULT_PERSONA } from './sveta/persona.ts';
+import { THINKING_LEVELS, type Thinking } from './sveta/gemini.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];
@@ -38,10 +39,14 @@ export interface SvetaSettings {
   newsChannelId: string | null;
   /** Характер — начало системной инструкции; правила поведения добавляются к нему всегда. */
   persona: string;
-  /** Основная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» в имени (minimax/minimax-m3.1-flash:free). */
+  /** Модели, добавленные в админке: из них выбирают основную и запасную. */
+  models: string[];
+  /** Основная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» в имени (minimax/minimax-m3.1-flash). */
   model: string;
   /** Запасная модель, когда основная перегружена, не отвечает или упёрлась в лимит (пусто — без запасной). */
   fallbackModel: string;
+  /** Насколько модель «думает» перед ответом: low — быстро и дёшево, high — продуманнее, но медленнее и дороже. */
+  thinking: Thinking;
   /** Шанс встрять самой в разговор, % (0 — только когда зовут). */
   randomPercent: number;
   /** Пауза между ответами одному человеку, секунд. */
@@ -231,7 +236,7 @@ export interface ProfanitySettings {
   extraWords: string[];
 }
 
-export const LIMITS = { profanityChannels: 25, profanityUsers: 25, scoldMinutes: 1440, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { profanityChannels: 25, profanityUsers: 25, scoldMinutes: 1440, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, svetaModels: 20, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -310,8 +315,10 @@ function defaults(): BotSettings {
       channelIds: [],
       newsChannelId: null,
       persona: DEFAULT_PERSONA,
+      models: ['gemini-flash-latest', 'gemini-flash-lite-latest'],
       model: 'gemini-flash-latest',
       fallbackModel: 'gemini-flash-lite-latest',
+      thinking: 'low',
       randomPercent: 2,
       userCooldownSeconds: 15,
       perHour: 40,
@@ -394,6 +401,8 @@ export function getSettings(): BotSettings {
     slots: template.slots ?? [],
   }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
+  // Основная и запасная модель всегда есть в списке — и у настроек, сохранённых до появления списка.
+  merged.sveta.models = [...new Set([...merged.sveta.models, merged.sveta.model, merged.sveta.fallbackModel].filter(Boolean))];
   // Канала авторизации больше нет: из стандартных текстов прошлых версий убираем шаг «пройди {auth}».
   merged.welcome.text = merged.welcome.text.replace(' и пройди {auth}', '');
   merged.welcomeDm.text = merged.welcomeDm.text.replace('\n2. Пройди {auth}.\n3. ', '\n2. ');
@@ -482,6 +491,12 @@ export function validateSettings(s: BotSettings): string[] {
     errors.push('Света: основная модель — латиница, цифры, точки, дефисы, «/» и «:», например gemini-flash-latest или minimax/minimax-m3.1-flash:free.');
   }
   if (sveta.fallbackModel && !modelId.test(sveta.fallbackModel)) errors.push('Света: запасная модель — в том же виде, что и основная, или пусто.');
+  if (sveta.models.length > LIMITS.svetaModels) errors.push(`Света: моделей в списке — не больше ${LIMITS.svetaModels}.`);
+  const badModel = sveta.models.find((id) => !modelId.test(id));
+  if (badModel !== undefined) errors.push(`Света: «${badModel}» — не похоже на имя модели (gemini-flash-latest или vendor/model).`);
+  if (!sveta.models.includes(sveta.model)) errors.push('Света: основная модель должна быть в списке моделей.');
+  if (sveta.fallbackModel && !sveta.models.includes(sveta.fallbackModel)) errors.push('Света: запасная модель должна быть в списке моделей.');
+  if (!THINKING_LEVELS.includes(sveta.thinking)) errors.push('Света: уровень обдумывания — низкий, средний или высокий.');
   const svetaRanges: [string, number, number, number][] = [
     ['Света: шанс встрять самой (%)', sveta.randomPercent, 0, LIMITS.randomPercent],
     ['Света: пауза для одного человека (секунд)', sveta.userCooldownSeconds, 0, LIMITS.svetaCooldown],

@@ -59,7 +59,9 @@ test('запрос к Gemini: характер в systemInstruction, мягки�
   assert.equal(body.systemInstruction.parts[0]!.text, 'Ты — Света');
   assert.ok(body.safetySettings.every((s) => s.threshold === 'BLOCK_ONLY_HIGH'));
   assert.deepEqual(body.generationConfig.thinkingConfig, { thinkingLevel: 'LOW' });
-  const old = requestBody({ model: 'gemini-2.5-flash', system: '', contents: [] });
+  const deep = requestBody({ model: 'gemini-flash-latest', system: '', contents: [], thinking: 'medium' });
+  assert.deepEqual(deep.generationConfig.thinkingConfig, { thinkingLevel: 'MEDIUM' }, 'уровень из админки');
+  const old = requestBody({ model: 'gemini-2.5-flash', system: '', contents: [], thinking: 'high' });
   assert.equal('thinkingConfig' in old.generationConfig, false);
   assert.equal('tools' in old, false, 'без инструментов — без tools');
   const withTools = requestBody({ model: 'gemini-flash-latest', system: '', contents: [], tools: TOOLS, toolMode: 'NONE' });
@@ -638,8 +640,8 @@ test('модели: основная OpenRouter со своим ключом, п
 
 test('настройки: модели OpenRouter (vendor/model:free) подходят, запасная может быть пустой; мусор — ошибка', () => {
   const s = structuredClone(getSettings());
-  s.sveta = { ...s.sveta, model: 'minimax/minimax-m3.1-flash:free', fallbackModel: '' };
-  assert.ok(!validateSettings(s).some((e) => /модель/.test(e)));
+  s.sveta = { ...s.sveta, models: [...s.sveta.models, 'minimax/minimax-m3.1-flash:free'], model: 'minimax/minimax-m3.1-flash:free', fallbackModel: '' };
+  assert.ok(!validateSettings(s).some((e) => /модел/.test(e)));
   s.sveta = { ...s.sveta, model: 'gemini flash', fallbackModel: 'а б' };
   const errors = validateSettings(s).join('\n');
   assert.match(errors, /основная модель/);
@@ -761,4 +763,19 @@ test('расход по моделям за день: попытки (и неу�
     { day: dayKey(clock), model: paid, requests: 4, input: 300, output: 30, cost: 0.75 },
     { day: dayKey(clock), model: 'gemini-flash-latest', requests: 1, input: 30, output: 12, cost: null },
   ]);
+});
+
+test('уровень обдумывания из админки уходит в запрос; по умолчанию низкий; неизвестный — ошибка настроек', async () => {
+  configure();
+  assert.equal(getSettings().sveta.thinking, 'low');
+  await onMessage(message('Света, привет'), deps);
+  assert.equal(requests[0]!.thinking, 'low');
+
+  configure({ thinking: 'high' });
+  await onMessage(message('Света, привет'), deps);
+  assert.equal(requests[0]!.thinking, 'high');
+
+  const s = structuredClone(getSettings());
+  s.sveta = { ...s.sveta, thinking: 'max' as never };
+  assert.match(validateSettings(s).join('\n'), /уровень обдумывания — низкий, средний или высокий/);
 });

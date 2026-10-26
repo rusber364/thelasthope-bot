@@ -32,7 +32,16 @@ export interface GeminiRequest {
   tools?: GeminiFunction[];
   /** NONE — инструменты не вызывать, только ответить текстом (последний круг). */
   toolMode?: 'AUTO' | 'NONE';
+  /** Насколько модель «думает» перед ответом; без него — низко. */
+  thinking?: Thinking;
 }
+
+/**
+ * Уровень обдумывания (страница «Света»): выше — продуманнее, но медленнее, а «мысли» оплачиваются как выход.
+ * Выключить его у Gemini 3 нельзя, а «минимальный» Gemini 3.8 Flash не принимает — поэтому три уровня, общие для Gemini и OpenRouter.
+ */
+export type Thinking = 'low' | 'medium' | 'high';
+export const THINKING_LEVELS: readonly Thinking[] = ['low', 'medium', 'high'];
 
 export interface FunctionCall {
   name: string;
@@ -82,14 +91,14 @@ const SAFETY = ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_C
   (category) => ({ category, threshold: 'BLOCK_ONLY_HIGH' }),
 );
 
-/** Тело запроса. У Gemini 3 «обдумывание» по умолчанию глубокое и медленное — для болтовни хватает низкого. */
-export function requestBody({ model, system, contents, tools, toolMode }: Omit<GeminiRequest, 'apiKey'>) {
+/** Тело запроса. У Gemini 3 «обдумывание» по умолчанию глубокое и медленное — уровень задаёт админка, для болтовни хватает низкого. */
+export function requestBody({ model, system, contents, tools, toolMode, thinking = 'low' }: Omit<GeminiRequest, 'apiKey'>) {
   const thinks = !/gemini-(1|2)\./.test(model); // у 2.x свой параметр, thinkingLevel им не подходит
   return {
     systemInstruction: { parts: [{ text: system }] },
     contents,
     safetySettings: SAFETY,
-    generationConfig: { maxOutputTokens: 1024, ...(thinks ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}) },
+    generationConfig: { maxOutputTokens: 1024, ...(thinks ? { thinkingConfig: { thinkingLevel: thinking.toUpperCase() } } : {}) },
     ...(tools?.length ? { tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: toolMode ?? 'AUTO' } } } : {}),
   };
 }

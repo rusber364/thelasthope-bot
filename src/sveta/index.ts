@@ -263,7 +263,10 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     let reply: GeminiReply;
     for (let round = 0; ; round++) {
       const last = round >= MAX_TOOL_ROUNDS;
-      const answer = await generateSteady({ apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO' }, steady);
+      const answer = await generateSteady(
+        { apiKey: '', model, system, contents, tools: [...TOOLS, ...MEMORY_TOOLS], toolMode: last ? 'NONE' : 'AUTO', thinking: s.thinking },
+        steady,
+      );
       // Перешли на запасную модель — остальные круги этого ответа тоже к ней.
       ({ reply, model } = answer);
       if (reply.usage) addTo(model, { requests: 0, ...reply.usage });

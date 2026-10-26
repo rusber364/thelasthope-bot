@@ -369,6 +369,9 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           persona: text(sveta.persona),
           model: text(sveta.model),
           fallbackModel: text(sveta.fallbackModel),
+          // Список моделей — без пустых и повторов; есть ли в нём основная и запасная, проверит validateSettings.
+          models: [...new Set(arr(sveta.models).map(text).filter(Boolean))],
+          thinking: text(sveta.thinking) as BotSettings['sveta']['thinking'],
           randomPercent: num(sveta.randomPercent),
           userCooldownSeconds: num(sveta.userCooldownSeconds),
           perHour: num(sveta.perHour),

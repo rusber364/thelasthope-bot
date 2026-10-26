@@ -39,7 +39,8 @@ test('тело запроса: короткие размышления, инст
   const tools = [{ name: 'upcoming_raids', description: 'Ближайшие сборы' }];
   const body = openRouterBody({ model: MODEL, system: 's', contents: [], tools, toolMode: 'NONE' });
   assert.equal(body.model, MODEL);
-  assert.deepEqual(body.reasoning, { effort: 'low' });
+  assert.deepEqual(body.reasoning, { effort: 'low' }, 'по умолчанию — низкое обдумывание');
+  assert.deepEqual(openRouterBody({ model: MODEL, system: 's', contents: [], thinking: 'high' }).reasoning, { effort: 'high' }, 'уровень из админки');
   assert.deepEqual(body.tools, [{ type: 'function', function: { ...tools[0], parameters: { type: 'object', properties: {} } } }], 'без параметров — пустой объект: MiniMax иначе отказывает');
   assert.equal(body.tool_choice, 'none');
   assert.equal(openRouterBody({ model: MODEL, system: 's', contents: [], tools, toolMode: 'AUTO' }).tool_choice, 'auto');
