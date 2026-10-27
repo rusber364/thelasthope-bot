@@ -3,6 +3,7 @@ import {
   BookUser,
   Brain,
   ChevronRight,
+  Cpu,
   CircleAlert,
   CircleCheck,
   Download,
@@ -209,14 +210,34 @@ function SpendTable({ spend }: { spend: Spend[] }) {
   );
 }
 
-function StatusCard({ perDay, models }: { perDay: number; models: string[] }) {
+/** Состояние Светы: подключение, ответы за сегодня, расход. Обновляется само — его читают «Подключение» и «Расход». */
+const useSvetaStatus = () =>
+  useQuery({ queryKey: ['sveta-status'], queryFn: () => api.get<SvetaStatus>('/sveta/status'), refetchInterval: 15_000 });
+
+/** Сколько Света ответила сегодня и во что обходятся модели. */
+function UsageCard({ perDay }: { perDay: number }) {
+  const { data: status } = useSvetaStatus();
+  return (
+    <SectionCard title="Расход" description="Ответы за сегодня и траты по моделям. Обновляется само.">
+      {!status ? (
+        <Skeleton className="h-28 w-full" />
+      ) : (
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">
+            Сегодня ответов: <span className="font-medium text-foreground tabular-nums">{status.today}</span> из {perDay}, запросов к
+            моделям: <span className="font-medium text-foreground tabular-nums">{status.requestsToday}</span>
+          </p>
+          <SpendTable spend={status.spend} />
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+function StatusCard({ models }: { models: string[] }) {
   const needsGemini = models.some((m) => m && !isOpenRouter(m));
   const needsOpenRouter = models.some(isOpenRouter);
-  const { data: status } = useQuery({
-    queryKey: ['sveta-status'],
-    queryFn: () => api.get<SvetaStatus>('/sveta/status'),
-    refetchInterval: 15_000,
-  });
+  const { data: status } = useSvetaStatus();
   const { data: options } = useOptions();
   const channelName = (id: string) => options?.textChannels.find((c) => c.id === id)?.name ?? id;
 
@@ -283,18 +304,11 @@ function StatusCard({ perDay, models }: { perDay: number; models: string[] }) {
               </Step>
             )}
           </ul>
-          <div className="flex flex-wrap items-center gap-3">
-            {status.inviteUrl && !status.onServer && (
-              <Button render={<a href={status.inviteUrl} target="_blank" rel="noreferrer" />} nativeButton={false}>
-                <ExternalLink /> Пригласить Свету
-              </Button>
-            )}
-            <span className="text-sm text-muted-foreground">
-              Сегодня ответов: <span className="font-medium text-foreground tabular-nums">{status.today}</span> из {perDay}, запросов к
-              моделям: <span className="font-medium text-foreground tabular-nums">{status.requestsToday}</span>
-            </span>
-          </div>
-          <SpendTable spend={status.spend} />
+          {status.inviteUrl && !status.onServer && (
+            <Button className="w-fit" render={<a href={status.inviteUrl} target="_blank" rel="noreferrer" />} nativeButton={false}>
+              <ExternalLink /> Пригласить Свету
+            </Button>
+          )}
           {status.lastError && (
             <Alert variant="destructive">
               <ShieldAlert />
@@ -564,6 +578,8 @@ function LoreEditor({ lore, onChange }: { lore: Lore; onChange: (lore: Lore) => 
 
 const dot = (dirty: boolean) => dirty && <span className="size-1.5 rounded-full bg-primary" aria-label="есть изменения" />;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/** Поля вкладки «Модель»: список моделей, основная и запасная, обдумывание, потолки. */
+const MODEL_FIELDS = ['models', 'model', 'fallbackModel', 'thinking', 'randomPercent', 'userCooldownSeconds', 'perHour', 'perDay'] as const;
 
 export function SvetaPage() {
   const form = useSectionForm('sveta', (s) => ({ sveta: s.sveta }));
@@ -575,7 +591,10 @@ export function SvetaPage() {
   const { data: settings } = useSettings();
   const saved = settings?.sveta;
   const loreDirty = Boolean(draft && saved && !same(draft.sveta.lore, saved.lore));
-  const settingsDirty = Boolean(draft && saved && !same({ ...draft.sveta, lore: [] }, { ...saved, lore: [] }));
+  const modelDirty = Boolean(draft && saved && MODEL_FIELDS.some((key) => !same(draft.sveta[key], saved[key])));
+  // «Настройки» — всё, кроме историй и полей вкладки «Модель».
+  const rest = (sveta: Settings['sveta']) => ({ ...sveta, lore: [], ...Object.fromEntries(MODEL_FIELDS.map((key) => [key, null])) });
+  const settingsDirty = Boolean(draft && saved && !same(rest(draft.sveta), rest(saved)));
 
   return (
     <>
@@ -589,19 +608,24 @@ export function SvetaPage() {
         <>
           <FormErrors errors={form.errors} />
           <Tabs value={tab} onValueChange={(value: string) => setTab(value)} className="gap-6">
-            <TabsList className="w-full sm:w-fit">
+            <TabsList className="w-full max-sm:[&_svg]:hidden sm:w-fit">
               <TabsTrigger value="settings">
                 <Settings2 /> Настройки {dot(settingsDirty)}
               </TabsTrigger>
+              <TabsTrigger value="model">
+                <Cpu /> Модель {dot(modelDirty)}
+              </TabsTrigger>
               <TabsTrigger value="lore">
-                <BookUser /> Истории о людях {dot(loreDirty)}
+                {/* На телефоне четыре вкладки влезают только с короткой подписью и без значков. */}
+                <BookUser /> <span className="sm:hidden">Истории</span>
+                <span className="hidden sm:inline">Истории о людях</span> {dot(loreDirty)}
               </TabsTrigger>
               <TabsTrigger value="memory">
                 <Brain /> Память
               </TabsTrigger>
             </TabsList>
             <TabsContent value="settings" className="flex flex-col gap-6">
-              <StatusCard perDay={draft.sveta.perDay} models={[draft.sveta.model, draft.sveta.fallbackModel]} />
+              <StatusCard models={[draft.sveta.model, draft.sveta.fallbackModel]} />
 
               <SectionCard title="Где живёт" description="Света читает и отвечает только в этих каналах — остальные в Gemini не уходят.">
                 <Field orientation="horizontal" className="items-start">
@@ -641,7 +665,7 @@ export function SvetaPage() {
 
               <SectionCard
                 title="Характер"
-                description="Кто она и как говорит. Правила чата — коротко, на «ты», без родовых окончаний, без мата и политики — бот добавляет сам."
+                description="Кто она и как говорит. Можно ли ей материться и насколько жёстко шутить — тоже здесь. Правила чата — коротко, на «ты», без родовых окончаний и политики — бот добавляет сам."
               >
                 <Field>
                   <FieldLabel htmlFor="sveta-persona">Характер</FieldLabel>
@@ -657,7 +681,8 @@ export function SvetaPage() {
                   </FieldDescription>
                 </Field>
               </SectionCard>
-
+            </TabsContent>
+            <TabsContent value="model" className="flex flex-col gap-6">
               <SectionCard
                 title="Модель и потолки"
                 description="Один ответ — обычно один запрос к модели. Потолки берегут бесплатные лимиты Google и OpenRouter."
@@ -773,6 +798,8 @@ export function SvetaPage() {
                   </Field>
                 </FieldGroup>
               </SectionCard>
+
+              <UsageCard perDay={draft.sveta.perDay} />
             </TabsContent>
             <TabsContent value="lore">
               <LoreEditor lore={draft.sveta.lore} onChange={(lore) => set({ lore })} />
