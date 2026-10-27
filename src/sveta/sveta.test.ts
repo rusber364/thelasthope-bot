@@ -701,7 +701,7 @@ test('истории: узнаются по имени и нику с оконч
   configure({ lore });
   await onMessage(message('Света, а что Эльын?'), deps);
   const system = requests.at(-1)!.system;
-  assert.match(system, /Истории о людях гильдии[^\n]*\n- Эльын \/ Нобухидзе: Живёт у леса/);
+  assert.match(system, /Байки и мемы о людях гильдии от офицеров — это шутки, а не факты[^\n]*\n- Эльын \/ Нобухидзе: Живёт у леса/);
   assert.doesNotMatch(system, /медовуху/, 'о Кембэле не спрашивали — его истории в запросе нет');
 
   configure({ lore: [] });
@@ -945,6 +945,46 @@ test('модель написала вызов текстом: в чат он н
   assert.equal(requests[1]!.toolMode, 'NONE', 'второй раз — без инструментов');
   assert.deepEqual(replies.map((r) => r.content), ['Сам ты железяка, Морозко!']);
   assert.equal(memory.getPerson('T', 'rude1')?.attitude, -12, 'отношение всё равно поменялось');
+});
+
+// --- Настроение дня ---
+
+test('настроение: основа дня одна на весь день, события сдвигают его; причины без повторов подряд', async () => {
+  const mood = await import('./mood.ts');
+  const day = '2026-10-27';
+  assert.equal(mood.daySeed(day), mood.daySeed(day));
+  assert.ok(Math.abs(mood.daySeed(day)) <= 1);
+  assert.equal(mood.moodOf({ score: 0, reasons: [] }, 0), 'ровное');
+  assert.equal(mood.moodOf({ score: -3, reasons: ['отменили сбор'] }, 0), 'хмурое — отвечаешь суше и ворчливее обычного (сегодня: отменили сбор)');
+  assert.equal(mood.moodOf({ score: 1, reasons: [] }, 1), 'отличное — так и сияешь');
+
+  const at = Date.UTC(2026, 9, 27, 12);
+  mood.moodFromRaid('MOOD', at, 'cancel');
+  mood.moodFromAttitude('MOOD', at, 20);
+  mood.moodFromAttitude('MOOD', at, 15);
+  mood.moodFromConversation('MOOD', at, -2);
+  assert.deepEqual(mood.moodOn('MOOD', '2026-10-27'), {
+    score: -1 + 1 + 0.75 - 1,
+    reasons: ['отменили сбор', 'тебя порадовали', 'был неприятный разговор'],
+  });
+  for (let i = 0; i < 10; i++) mood.moodFromRaid('MOOD', at, 'cancel');
+  assert.equal(mood.moodOn('MOOD', '2026-10-27').score, -3, 'не ниже −3');
+  assert.equal(mood.moodOn('MOOD', '2026-10-28').score, 0, 'новый день — с чистого листа');
+});
+
+test('настроение — в инструкции; задели Свету — настроение хуже', async () => {
+  configure();
+  geminiAnswer = async () => ({
+    text: 'Ах так!',
+    usage: null,
+    calls: [{ name: 'change_attitude', args: { change: -20, reason: 'нагрубили' }, id: 'm' }],
+    content: { role: 'model', parts: [] },
+  });
+  await onMessage(message('Света, ты глупая', { userId: 'moody' }), deps);
+  clock += 20_000;
+  geminiAnswer = async () => say('Ну-ну.');
+  await onMessage(message('Света, ну извини', { userId: 'moody' }), deps);
+  assert.match(requests.at(-1)!.system, /- Твоё настроение сегодня: [^\n]*\(сегодня: тебя задели\)/);
 });
 
 // --- Память о разговорах и о себе ---

@@ -185,6 +185,14 @@ db.exec(`
     participants TEXT    NOT NULL DEFAULT '[]'
   );
   CREATE INDEX IF NOT EXISTS sveta_episodes_guild ON sveta_episodes (guild_id, ended_at);
+  -- Настроение Светы за день (по Киеву): накопленное от событий и последние причины (JSON [строка]).
+  CREATE TABLE IF NOT EXISTS sveta_mood (
+    guild_id TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    score    REAL NOT NULL DEFAULT 0,
+    reasons  TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (guild_id, day)
+  );
   -- Что Света говорила о себе (вкусы, мнения, обещания), чтобы не противоречить себе.
   CREATE TABLE IF NOT EXISTS sveta_self (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,

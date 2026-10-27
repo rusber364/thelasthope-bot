@@ -7,6 +7,7 @@ import { textToolCall } from './context.ts';
 import { GeminiError, generateSteady, type GeminiRequest, type SteadyDeps } from './gemini.ts';
 import { NO_SPEND, addSpend, countRequests, countSpend, dayKey, type Spend } from './limits.ts';
 import { MEMORY, MEMORY_TOOLS, addNote, ago, cleanText, removeNote, getPerson, withNote, type Note } from './memory.ts';
+import { moodFromConversation } from './mood.ts';
 import { TOOLS } from './tools.ts';
 
 const MINUTE = 60_000;
@@ -452,8 +453,6 @@ export interface EpisodeIO {
   /** Последние сообщения канала (клиентом Светы); null — канала нет или он недоступен. */
   fetchChannel: (channelId: string) => Promise<{ guildName: string; channelName: string; messages: ChannelMessage[] } | null>;
   steady: MemorySteady;
-  /** Модель памяти ответила (для настроения дня — mood.ts). */
-  onResult?: (guildId: string, result: MemoryResult) => void;
 }
 
 const closing = new Set<string>();
@@ -480,7 +479,7 @@ export async function closeConversation(c: Conversation, io: EpisodeIO): Promise
       return;
     }
     const applied = applyEpisode(t, result, { guildId: c.guildId, channelId: c.channelId, channelName: channel.channelName, startedAt: c.startedAt, now });
-    io.onResult?.(c.guildId, result);
+    moodFromConversation(c.guildId, now, result.mood);
     finishConversation(c);
     console.log(
       `🧠 Света запомнила разговор в #${channel.channelName}: ${applied.episode ? 'пересказ' : 'без пересказа'}, фактов о людях — ${applied.facts}, о себе — ${applied.self}.`,

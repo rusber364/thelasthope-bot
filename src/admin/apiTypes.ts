@@ -216,6 +216,8 @@ export interface SvetaStatus {
   /** Расход по моделям за 7 дней: запросы, токены на вход и выход, стоимость в долларах (null — сервис не сообщает, как Gemini). */
   spend: { day: string; model: string; requests: number; input: number; output: number; cost: number | null }[];
   lastError: { at: number; text: string } | null;
+  /** Настроение Светы на сегодня словами. */
+  mood: string;
   /** Характер и примеры реплик по умолчанию — для кнопки «Характер по умолчанию». */
   defaultPersona: string;
   defaultExamples: { user: string; reply: string }[];

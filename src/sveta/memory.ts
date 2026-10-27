@@ -8,6 +8,7 @@ import { settings as constants } from '../settings.ts';
 import type { GeminiFunction } from './gemini.ts';
 import { dayKey } from './limits.ts';
 import { mentioned, norm } from './lore.ts';
+import { moodFromAttitude } from './mood.ts';
 
 export interface Note {
   at: number;
@@ -389,6 +390,7 @@ export function runMemoryTool(name: string, args: Record<string, unknown>, autho
     const delta = Number(args.change);
     if (!Number.isFinite(delta)) return { error: 'change — число.' };
     const person = changeAttitude(guildId, userId, authorName, delta, now, String(args.reason ?? ''));
+    moodFromAttitude(guildId, now, delta);
     return { ok: true, attitude: person.attitude };
   }
   if (name === 'set_nickname') {

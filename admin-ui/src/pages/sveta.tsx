@@ -308,6 +308,9 @@ function StatusCard({ models }: { models: string[] }) {
               </Step>
             )}
           </ul>
+          <p className="text-sm">
+            <span className="text-muted-foreground">Настроение сегодня:</span> {status.mood}
+          </p>
           {status.inviteUrl && !status.onServer && (
             <Button className="w-fit" render={<a href={status.inviteUrl} target="_blank" rel="noreferrer" />} nativeButton={false}>
               <ExternalLink /> Пригласить Свету

@@ -5,6 +5,7 @@ import { getSettings } from '../botSettings.ts';
 import { KINDS } from '../raids/kinds.ts';
 import type { Raid } from '../raids/store.ts';
 import { svetaChannel } from './index.ts';
+import { moodFromRaid } from './mood.ts';
 import { raidLink } from './tools.ts';
 
 export type RaidNews = 'open' | 'gather' | 'move' | 'cancel';
@@ -50,7 +51,10 @@ export function newsText(news: RaidNews, raid: Raid, roll: number): string {
 /** Рассказать о сборе в канале новостей Светы. Ошибки не мешают самим регам — только пишутся в лог. */
 export async function announceRaid(news: RaidNews, raid: Raid, roll = Math.random()): Promise<void> {
   const { enabled, newsChannelId } = getSettings().sveta;
-  if (!enabled || !newsChannelId) return;
+  if (!enabled) return;
+  // Сборы влияют на её настроение, даже если канала новостей нет.
+  moodFromRaid(raid.guildId, Date.now(), news);
+  if (!newsChannelId) return;
   const channel = svetaChannel(newsChannelId);
   if (!channel) return;
   try {

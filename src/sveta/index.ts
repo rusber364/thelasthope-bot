@@ -39,6 +39,7 @@ import {
   type Person,
 } from './memory.ts';
 import { loreText, matchLore } from './lore.ts';
+import { moodText } from './mood.ts';
 import {
   EPISODES,
   closeConversation,
@@ -272,6 +273,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       .map((episode) => episodeText(episode, now))
       .join('\n'),
     self: selfText(listSelf(message.guildId)),
+    mood: moodText(message.guildId, now),
     scold,
   });
   // Номера заметок в remember — те, что модель видела в досье автора.
@@ -502,6 +504,8 @@ export interface SvetaStatus {
   /** Расход по моделям за последние SPEND_DAYS дней (с сегодняшним), свежие дни сверху. */
   spend: ({ day: string; model: string } & Spend)[];
   lastError: { at: number; text: string } | null;
+  /** Настроение на сегодня словами (mood.ts). */
+  mood: string;
   /** Характер и примеры реплик по умолчанию — для кнопки «Характер по умолчанию» в админке. */
   defaultPersona: string;
   defaultExamples: SvetaExample[];
@@ -535,6 +539,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
     requestsToday: requestsOn(dayKey(Date.now())),
     spend: spendSince(dayKey(Date.now() - (SPEND_DAYS - 1) * 24 * HOUR)),
     lastError,
+    mood: moodText(guildId, Date.now()),
     defaultPersona: DEFAULT_PERSONA,
     defaultExamples: DEFAULT_EXAMPLES,
   };
