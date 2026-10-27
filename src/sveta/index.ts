@@ -41,6 +41,7 @@ import {
 } from './memory.ts';
 import { loreFor, loreText } from './lore.ts';
 import { moodText } from './mood.ts';
+import { BRIEF_SHARE, QuietTimer, habitsText, quietRequest, reactionFor, shortQuietRequest, speechHabits, typingMs, withoutHabits } from './manners.ts';
 import {
   EPISODES,
   closeConversation,
@@ -84,6 +85,8 @@ export interface SvetaDeps {
   /** Ключ OpenRouter (модели с «/», например minimax/minimax-m3.1-flash:free). */
   openrouterKey: () => string | undefined;
   wait: (ms: number) => Promise<void>;
+  /** Пауза «печатает…» перед длинным ответом; в тестах её нет. */
+  pause?: (ms: number) => Promise<void>;
 }
 
 const DEFAULT_DEPS: SvetaDeps = {
@@ -94,6 +97,7 @@ const DEFAULT_DEPS: SvetaDeps = {
   apiKey: () => config.geminiApiKey,
   openrouterKey: () => config.openrouterApiKey,
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  pause: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
 /** Какой ключ нужен модели и как он называется в .env. */
@@ -107,6 +111,8 @@ let client: Client | null = null;
 let limiter = new Limiter();
 let rest = new ModelRest();
 let scolds = new ScoldTimer();
+/** Кто просил её отстать: к ним она пару часов не встревает и отвечает коротко. */
+let backoffs = new QuietTimer();
 let lastError: { at: number; text: string } | null = null;
 
 /** Сбросить состояние (для тестов). */
@@ -114,6 +120,7 @@ export function resetSveta(): void {
   limiter = new Limiter();
   rest = new ModelRest();
   scolds = new ScoldTimer();
+  backoffs = new QuietTimer();
   lastError = null;
 }
 
@@ -180,7 +187,9 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     deps.random(),
   );
   // Не звали, но есть за что поворчать, — отвечает и вне своих каналов, если там можно писать.
-  const trigger = called ?? (scold && canReply(message) ? 'swear' : null);
+  // К тому, кто просил отстать, сама не встревает.
+  const joins = called === 'random' && backoffs.active(scoldKey, now) ? null : called;
+  const trigger = joins ?? (scold && canReply(message) ? 'swear' : null);
   if (!trigger) return;
   // Обратились к ней (а не встряла сама или ворчит) — тогда объясняет, почему не может ответить, и уведомляет об ответе.
   const addressed = trigger !== 'random' && trigger !== 'swear';
@@ -218,6 +227,22 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     await respond({ content: forgotten ? FORGOTTEN : NOTHING_TO_FORGET, allowedMentions: quiet });
     if (forgotten) console.log(`🧹 Света стёрла память по просьбе: ${authorName}.`);
     return;
+  }
+
+  // «Утихни» — отстаёт на пару часов (коротко — хватит реакции); «спасибо», смех, «ок», смайлик — реакция вместо слов.
+  // Без запроса к модели и без лимитов.
+  const react = async (emoji: string) => {
+    await message.react(emoji).catch(() => {});
+    console.log(`😊 Света ответила реакцией ${emoji}: ${authorName}.`);
+  };
+  if (addressed && !scold) {
+    if (quietRequest(message.content)) {
+      backoffs.ask(scoldKey, now);
+      if (shortQuietRequest(message.content)) return react('👌');
+    } else {
+      const reaction = reactionFor(message.content, message.stickers.size);
+      if (reaction) return react(reaction);
+    }
   }
 
   // Все модели отдыхают после лимита или сбоя — никуда не стучимся, позвавшему раз в час «перерыв».
@@ -260,6 +285,10 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     { exclude: speakers, ids: new Set(history.flatMap((m) => [...(m.mentions?.users.keys() ?? [])])) },
   );
 
+  // Её повторы в последних ответах, короткий ответ — по случаю или если просили отстать.
+  const habits = speechHabits(lines.filter((line) => line.fromSveta).map((line) => line.text));
+  const backedOff = backoffs.active(scoldKey, now);
+  const brief = backedOff || deps.random() < BRIEF_SHARE;
   const system = systemPrompt(s.persona, {
     examples: s.examples,
     guildName: message.guild.name,
@@ -282,6 +311,9 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       .join('\n'),
     self: selfText(listSelf(message.guildId)),
     mood: moodText(message.guildId, now),
+    habits: habitsText(habits),
+    brief,
+    backedOff,
     scold,
   });
   // Номера заметок в remember — те, что модель видела в досье автора.
@@ -367,12 +399,18 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
       if (last || (reply.calls.every((call) => MEMORY_TOOL_NAMES.has(call.name)) && cleanReply(reply.text))) break;
       contents = [...contents, reply.content, { role: 'user', parts: results }];
     }
-    const text = cleanReply(reply.text);
+    const text = withoutHabits(cleanReply(reply.text), habits);
     if (!text) {
       if (scold) await scoldByLine();
       return;
     }
     // Кто позвал — получит уведомление об ответе; если встряла сама или ворчит — без уведомления.
+    // Длинный ответ не прилетает мгновенно: «печатает…», сколько осталось после модели.
+    const typing = typingMs(text.length) - (deps.now() - now);
+    if (typing > 0 && deps.pause) {
+      void message.channel.sendTyping().catch(() => {});
+      await deps.pause(typing);
+    }
     await respond({ content: text, allowedMentions: { parse: [], repliedUser: addressed } });
     touchPerson(message.guildId, message.author.id, authorName, now);
     noteReply(message.guildId, message.channelId, now);

@@ -152,6 +152,7 @@ test('настройки: включённой Свете нужен канал,
 
 // --- Ответ в канале: подставное сообщение Discord и подставной Gemini ---
 
+const reactions: string[] = [];
 const replies: { content: string; allowedMentions: { repliedUser?: boolean } }[] = [];
 const requests: GeminiRequest[] = [];
 type Answer = GeminiReply;
@@ -201,6 +202,7 @@ function message(content: string, { userId = 'u1', channelId = 'C', bot = false,
       permissionsFor: () => ({ has: () => canWrite }),
     },
     inGuild: () => true,
+    react: async (emoji: string) => void reactions.push(emoji),
     // Света отвечает и на уже удалённое сообщение — без привязки (failIfNotExists: false), а не с ошибкой Discord.
     reply: async ({ failIfNotExists, ...payload }: (typeof replies)[number] & { failIfNotExists?: boolean }) => {
       assert.equal(failIfNotExists, false);
@@ -217,6 +219,7 @@ function configure(patch: Partial<ReturnType<typeof getSettings>['sveta']> = {})
   resetSveta();
   replies.length = 0;
   requests.length = 0;
+  reactions.length = 0;
   waits.length = 0;
   geminiAnswer = async () => say('Света: Привет, Морозко! 👋');
   clock += 24 * 60 * 60 * 1000; // новый день — дневной счётчик с нуля
@@ -1068,6 +1071,96 @@ test('настроение — в инструкции; задели Свету 
   geminiAnswer = async () => say('Ну-ну.');
   await onMessage(message('Света, ну извини', { userId: 'moody' }), deps);
   assert.match(requests.at(-1)!.system, /- Твоё настроение сегодня: [^\n]*\(сегодня: тебя задели\)/);
+});
+
+// --- Манеры: не повторяется, коротко, реакции, «отстань», «печатает» ---
+
+const manners = await import('./manners.ts');
+
+test('манеры: междометия и эмодзи, которые она повторяет, — в инструкцию и прочь из ответа', () => {
+  assert.equal(manners.opener('Ой, Музон, привет'), 'ой');
+  assert.equal(manners.opener('*Хмыкаю, протирая стакан* Ну конечно'), 'ну');
+  assert.equal(manners.opener('Музон, привет'), null, 'имя в начале — не привычка');
+  const habits = manners.speechHabits(['Ой, привет 😉', 'Ну да 😉', 'Ой-ой, опять вайп', 'Ой, снова 🤭']);
+  assert.deepEqual(habits, { openers: ['ой'], emoji: ['😉'] });
+  assert.deepEqual(manners.speechHabits(['Ну что, рейд?']).openers, ['ну'], 'с чего начала прошлую реплику — тоже');
+  assert.equal(manners.habitsText(habits), 'Не повторяй свою манеру из последних ответов: не начинай с «Ой» и обойдись без 😉.');
+  assert.equal(manners.habitsText({ openers: [], emoji: [] }), '');
+  assert.equal(manners.withoutHabits('Ой, Музон, ты опять 😉', habits), 'Музон, ты опять');
+  assert.equal(manners.withoutHabits('*Улыбаюсь* Ой, ладно, уговорил 😉!', habits), '*Улыбаюсь* Ладно, уговорил!');
+  assert.equal(manners.withoutHabits('Ой!', habits), 'Ой!', 'одно междометие не обрезаем в пустоту');
+  assert.equal(manners.withoutHabits('Ну конечно 😏', habits), 'Ну конечно 😏', 'не повторённое — не трогаем');
+});
+
+test('манеры: реакция вместо слов — спасибо, смех, «ок», смайлик; «отстань» узнаётся', () => {
+  for (const [text, emoji] of [
+    ['Света, спасибо!', '❤️'],
+    ['спасибо большое', '❤️'],
+    ['ахахах', '😂'],
+    ['хахаха, Света', '😂'],
+    ['ок', '👍'],
+    ['+', '👍'],
+    ['<:kekw:1143979763795505212>', '😊'],
+    ['😂😂', '😊'],
+  ] as const) {
+    assert.equal(manners.reactionFor(text, 0), emoji, text);
+  }
+  assert.equal(manners.reactionFor('', 1), '😊', 'стикер');
+  assert.equal(manners.reactionFor('спасибо, а когда рейд?', 0), null, 'есть вопрос — нужен ответ словами');
+  assert.equal(manners.reactionFor('Света, привет', 0), null);
+  assert.equal(manners.reactionFor('Света, ты лучшая!', 0), null);
+
+  assert.equal(manners.quietRequest('утихни'), true);
+  assert.equal(manners.quietRequest('Света, отстань уже'), true);
+  assert.equal(manners.quietRequest('в рейде было тихо'), false);
+  assert.equal(manners.shortQuietRequest('Света, утихни'), true);
+  assert.equal(manners.shortQuietRequest('Света, утихни и скажи, когда рейд?'), false);
+  assert.equal(manners.typingMs(0), 400);
+  assert.equal(manners.typingMs(1000), 4000, 'не дольше 4 секунд');
+});
+
+test('Света: на «спасибо» и смех — реакция без запроса к модели; «утихни» — отстаёт и отвечает коротко', async () => {
+  configure();
+  await onMessage(message('Света, спасибо!', { userId: 'calm' }), deps);
+  await onMessage(message('ахахах, Света', { userId: 'calm' }), deps);
+  assert.deepEqual(reactions, ['❤️', '😂']);
+  assert.equal(requests.length, 0, 'в модель ничего не ушло');
+  assert.equal(replies.length, 0);
+
+  await onMessage(message('Света, утихни', { userId: 'calm' }), deps);
+  assert.deepEqual(reactions.at(-1), '👌', 'короткое «утихни» — реакция');
+  roll = 0.001; // встряла бы сама — но этот человек просил отстать
+  await onMessage(message('обычная длинная болтовня про рейд и лут', { userId: 'calm' }), deps);
+  assert.equal(requests.length, 0, 'к нему сама не встревает');
+  roll = 0.99;
+  await onMessage(message('Света, а когда рейд?', { userId: 'calm' }), deps);
+  assert.equal(requests.length, 1, 'позвали — отвечает');
+  assert.match(requests[0]!.system, /недавно просил отстать: ответь коротко и спокойно/);
+  assert.match(requests[0]!.system, /Сейчас ответь совсем коротко/);
+});
+
+test('Света не повторяется: свои «Ой» и 😉 из прошлых реплик — в инструкции и убраны из ответа; иногда — одной фразой; «печатает» по длине', async () => {
+  configure();
+  const line = (id: string, text: string) => ({ id, author: { id: 'S', displayName: 'Света' }, member: null, cleanContent: text, attachments: { size: 0 }, stickers: { size: 0 } });
+  const msg = message('Света, как дела?') as unknown as { channel: { messages: { fetch: () => Promise<Map<string, unknown>> } } };
+  msg.channel.messages.fetch = async () =>
+    new Map([
+      ['s2', line('s2', 'Ой, ну началось 😉')],
+      ['s1', line('s1', 'Ой, привет-привет 😉')],
+    ]);
+  geminiAnswer = async () => say('Ой, Морозко, всё отлично 😉');
+  const paused: number[] = [];
+  await onMessage(msg as never, { ...deps, pause: async (ms: number) => void paused.push(ms) });
+  assert.match(requests.at(-1)!.system, /Не повторяй свою манеру из последних ответов: не начинай с «Ой» и обойдись без 😉/);
+  assert.equal(replies.at(-1)!.content, 'Морозко, всё отлично');
+  assert.deepEqual(paused, [manners.typingMs('Морозко, всё отлично'.length)], '«печатает…» перед ответом');
+  assert.doesNotMatch(requests.at(-1)!.system, /Сейчас ответь совсем коротко/, 'случай выпал на обычный ответ');
+
+  clock += 20_000;
+  roll = 0.1; // меньше BRIEF_SHARE — короткий ответ
+  await onMessage(message('Света, что нового?'), deps);
+  assert.match(requests.at(-1)!.system, /Сейчас ответь совсем коротко — одной фразой/);
+  roll = 0.99;
 });
 
 // --- Память о разговорах и о себе ---
