@@ -637,6 +637,69 @@ test('память без повторов: то же или часть стар
   assert.ok(!short.includes('отношение менялось') && !short.includes('1)'), short);
 });
 
+test('о других людях в карточку автора не пишем: имя или ник другого человека в заметке — отказ', async () => {
+  const G = 'OTH';
+  for (const id of ['o1', 'o2', 'o3']) memory.forgetPerson(G, id);
+  memory.addNote(G, 'o2', 'Мадекс', 'играет локом', 1);
+  const others = memory.otherNames(G, 'o1', 'Музон', [
+    { userId: 'o1', name: 'Музон' },
+    { userId: 'o3', name: 'Razor1ce' },
+  ]);
+  assert.deepEqual(others.sort(), ['Razor1ce', 'Мадекс'], 'все, кого Света помнит, и собеседники — кроме самого автора');
+  assert.equal(memory.aboutSomeoneElse('Мадекс собрал белые аксессуары', others), true);
+  assert.equal(memory.aboutSomeoneElse('дружит с Мадексом', others), true, 'с окончанием');
+  assert.equal(memory.aboutSomeoneElse('Razor1ce играет хуманом', others), true);
+  assert.equal(memory.aboutSomeoneElse('Музон держит в голове даты релиза', others), false, 'своё имя не мешает');
+  const author = { guildId: G, userId: 'o1', name: 'Музон', others };
+  assert.deepEqual(memory.runMemoryTool('remember', { note: 'Razor1ce играет хуманом' }, author, 2), {
+    error: 'Это о другом человеке. Запоминай только то, что тот, кто тебе пишет, рассказал о себе.',
+  });
+  assert.equal(memory.getPerson(G, 'o1'), null, 'ничего не записано');
+  assert.deepEqual(memory.runMemoryTool('remember', { note: 'держит в голове даты релиза' }, author, 2), { ok: true, notes: 1 });
+
+  // Пересказ разговора: факт с именем другого участника в карточку не идёт.
+  const transcript = {
+    lines: [],
+    people: [
+      { who: 1, userId: 'o1', name: 'Музон', notes: [] },
+      { who: 2, userId: 'o3', name: 'Razor1ce', notes: [] },
+    ],
+    endedAt: 3,
+  };
+  const applied = episodes.applyEpisode(
+    transcript,
+    { summary: '', people: [{ who: 1, add: ['Razor1ce расстроен из-за крита', 'ГМ гильдии'], replaces: {}, remove: [] }], self: [], mood: 0 },
+    { guildId: G, channelId: 'OC', channelName: 'таверна', startedAt: 0, now: 3 },
+  );
+  assert.equal(applied.facts, 1);
+  assert.deepEqual(memory.getPerson(G, 'o1')!.notes.map((n) => n.text), ['держит в голове даты релиза', 'ГМ гильдии']);
+});
+
+test('Света в разговоре: remember про другого собеседника не попадает в карточку автора', async () => {
+  configure();
+  memory.forgetPerson('T', 'w1');
+  geminiAnswer = async () => ({
+    text: 'Запомнила!',
+    usage: null,
+    calls: [
+      { name: 'remember', args: { note: 'Морозко любит паладинов' }, id: 'x' },
+      { name: 'remember', args: { note: 'любит рыбалку' }, id: 'y' },
+    ],
+    content: { role: 'model', parts: [] },
+  });
+  const msg = message('Света, запомни: Морозко любит паладинов, а я люблю рыбалку', { userId: 'w1' }) as unknown as {
+    author: { displayName: string };
+    member: { displayName: string };
+    channel: { messages: { fetch: () => Promise<Map<string, unknown>> } };
+  };
+  msg.author.displayName = msg.member.displayName = 'Грымза';
+  // В канале только что писал Морозко.
+  msg.channel.messages.fetch = async () =>
+    new Map([['m1', { id: 'm1', author: { id: 'u1', displayName: 'Морозко' }, member: null, cleanContent: 'всем привет', attachments: { size: 0 }, stickers: { size: 0 } }]]);
+  await onMessage(msg as never, deps);
+  assert.deepEqual(memory.getPerson('T', 'w1')!.notes.map((n) => n.text), ['любит рыбалку']);
+});
+
 test('названные: по нику, прозвищу, первому слову ника и через @; участники разговора не повторяются', () => {
   const base = { guildId: 'M', attitude: 0, nickname: null, notes: [], reasons: [], firstSeen: null, lastSeen: null, talks: 0, updatedAt: 0 };
   const people: Person[] = [

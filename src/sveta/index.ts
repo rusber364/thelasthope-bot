@@ -34,6 +34,7 @@ import {
   memoryCommand,
   memoryReport,
   mentionedPeople,
+  otherNames,
   runMemoryTool,
   touchPerson,
   type Person,
@@ -284,7 +285,19 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     scold,
   });
   // Номера заметок в remember — те, что модель видела в досье автора.
-  const author = { guildId: message.guildId, userId: message.author.id, name: authorName, notes: people.find((p) => p.userId === message.author.id)?.notes };
+  // Имена других людей: заметку о них в карточку автора remember не запишет.
+  const author = {
+    guildId: message.guildId,
+    userId: message.author.id,
+    name: authorName,
+    notes: people.find((p) => p.userId === message.author.id)?.notes,
+    others: otherNames(
+      message.guildId,
+      message.author.id,
+      authorName,
+      history.filter((m) => !m.author.bot).map((m) => ({ userId: m.author.id, name: m.member?.displayName ?? m.author.displayName })),
+    ),
+  };
   let writes = 0;
   // Инструменты сборов только читают; инструменты памяти пишут — только об авторе и не больше трёх раз за ответ.
   const runCall = (call: { name: string; args: Record<string, unknown> }) => {

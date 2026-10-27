@@ -265,9 +265,29 @@ export function dossiers(people: readonly Person[], { now, authorId }: { now: nu
 }
 
 /** По каким именам узнать человека в разговоре: ник, прозвище и первое слово ника («Эйн | Паладин» → «Эйн»). */
-function namesOf(p: Person): string[] {
+function namesOf(p: Pick<Person, 'name' | 'nickname'>): string[] {
   const first = p.name.split(/[^\p{L}\p{N}]+/u).find(Boolean) ?? '';
   return [p.name, p.nickname ?? '', first.length >= 3 ? first : ''].filter(Boolean);
+}
+
+/**
+ * Имена других людей — всех, кого Света помнит, и собеседников, — чтобы не записать о них в чужую карточку.
+ * Свои ник, прозвище и первое слово ника человеку не мешают.
+ */
+export function otherNames(guildId: string, userId: string, ownName: string, speakers: readonly { userId: string; name: string }[] = []): string[] {
+  const own = getPerson(guildId, userId);
+  const mine = new Set([...(own ? namesOf(own) : []), ...namesOf({ name: ownName, nickname: null })].map(norm));
+  const others = [
+    ...listPeople(guildId).filter((p) => p.userId !== userId),
+    ...speakers.filter((s) => s.userId !== userId).map((s) => ({ name: s.name, nickname: null })),
+  ].flatMap(namesOf);
+  return [...new Set(others)].filter((name) => !mine.has(norm(name)));
+}
+
+/** Заметка про кого-то другого: в ней имя или ник другого человека («Мадекс собрал комп»). */
+export function aboutSomeoneElse(note: string, others: readonly string[]): boolean {
+  const haystack = norm(note);
+  return others.some((name) => mentioned(name, haystack));
 }
 
 /**
@@ -330,7 +350,7 @@ export const MEMORY_TOOLS: GeminiFunction[] = [
   {
     name: 'remember',
     description:
-      'Запомнить короткий факт о том, кто сейчас к тебе обратился: любимый класс или роль, смешной случай, обиду. Если факт заменяет устаревшую заметку (мейн теперь другой), укажи её номер в replaces. Не запоминай личное (адреса, страну и город, национальность, телефоны, настоящие имена, здоровье) и то, что уже есть в заметках.',
+      'Запомнить короткий факт о том, кто сейчас к тебе обратился: любимый класс или роль, смешной случай, обиду. Если факт заменяет устаревшую заметку (мейн теперь другой), укажи её номер в replaces. Не запоминай факты о других людях, личное (адреса, страну и город, национальность, телефоны, настоящие имена, здоровье) и то, что уже есть в заметках.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -369,6 +389,8 @@ export interface Author {
   name: string;
   /** Заметки, как их видела модель (номера в досье): replaces ссылается на них, даже если за ответ что-то уже поменялось. */
   notes?: readonly Note[];
+  /** Имена других людей (otherNames): заметку с ними в карточку автора не пишем — раньше так попадали факты о других. */
+  others?: readonly string[];
 }
 
 /** Выполнить инструмент памяти — только для автора сообщения. */
@@ -378,6 +400,9 @@ export function runMemoryTool(name: string, args: Record<string, unknown>, autho
     const number = Number(args.replaces ?? 0);
     const replaced = number ? author.notes?.[number - 1]?.text : undefined;
     if (number && replaced === undefined) return { error: 'Нет заметки с таким номером.' };
+    if (aboutSomeoneElse(String(args.note ?? ''), author.others ?? [])) {
+      return { error: 'Это о другом человеке. Запоминай только то, что тот, кто тебе пишет, рассказал о себе.' };
+    }
     const person = addNote(guildId, userId, authorName, String(args.note ?? ''), now, replaced);
     return person ? { ok: true, notes: person.notes.length } : { error: 'Пустая заметка.' };
   }

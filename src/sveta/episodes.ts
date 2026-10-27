@@ -6,7 +6,7 @@ import { db } from '../db.ts';
 import { textToolCall } from './context.ts';
 import { GeminiError, generateSteady, type GeminiRequest, type SteadyDeps } from './gemini.ts';
 import { NO_SPEND, addSpend, countRequests, countSpend, dayKey, type Spend } from './limits.ts';
-import { MEMORY, MEMORY_TOOLS, addNote, ago, cleanText, removeNote, getPerson, withNote, type Note } from './memory.ts';
+import { MEMORY, MEMORY_TOOLS, aboutSomeoneElse, addNote, ago, cleanText, getPerson, otherNames, removeNote, withNote, type Note } from './memory.ts';
 import { moodFromConversation } from './mood.ts';
 import { TOOLS } from './tools.ts';
 
@@ -375,16 +375,21 @@ export function applyEpisode(t: Transcript, result: MemoryResult, meta: EpisodeM
     const person = t.people.find((p) => p.who === entry.who);
     if (!person) continue;
     const note = (number: number | string) => person.notes[Number(number) - 1];
+    // Факт, где назван другой человек, — не о нём самом: в его карточку не пишем.
+    const others = otherNames(guildId, person.userId, person.name, t.people);
+    const own = (text: string) => !aboutSomeoneElse(text, others);
     const ops = [
-      ...Object.entries(entry.replaces).map(([number, text]) => () => {
-        const old = note(number);
-        return Boolean(old && addNote(guildId, person.userId, person.name, text, now, old.text));
-      }),
+      ...Object.entries(entry.replaces)
+        .filter(([, text]) => own(text))
+        .map(([number, text]) => () => {
+          const old = note(number);
+          return Boolean(old && addNote(guildId, person.userId, person.name, text, now, old.text));
+        }),
       ...entry.remove.map((number) => () => {
         const old = note(number);
         return Boolean(old && removeNote(guildId, person.userId, old.text, now));
       }),
-      ...entry.add.map((text) => () => Boolean(addNote(guildId, person.userId, person.name, text, now))),
+      ...entry.add.filter(own).map((text) => () => Boolean(addNote(guildId, person.userId, person.name, text, now))),
     ];
     for (const op of ops) {
       if (!budget.get(person.who)) break;
