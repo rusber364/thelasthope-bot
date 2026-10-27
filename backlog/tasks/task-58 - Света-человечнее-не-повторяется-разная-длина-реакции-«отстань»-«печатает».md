@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - '@claude'
 created_date: '2026-10-27 12:20'
-updated_date: '2026-10-27 12:24'
+updated_date: '2026-10-27 12:44'
 labels:
   - ai
   - fun
@@ -52,4 +52,6 @@ ordinal: 36000
 
 <!-- SECTION:NOTES:BEGIN -->
 27.10: в коде — src/sveta/manners.ts (speechHabits/habitsText/withoutHabits, BRIEF_SHARE, reactionFor, quietRequest/shortQuietRequest/QuietTimer, typingMs), подключено в index.ts (реакции и «утихни» — до лимитов и модели, только для обращений и не при ворчании на мат; SvetaDeps.pause), строки в persona.ts. 293 теста. Документация: guide, checklist (раздел TASK-58), development, CLAUDE.md.
+
+27.10 14:45: выложено на dev и главный (03ed65c), на главном перед этим pnpm backup → bot-2026-10-27_14-43.db. Оба бота запустились, Света подключена (dev Sveta#5176, главный Sveta#9965), ошибок в логе нет. Живая проверка по чек-листу (раздел TASK-58) — за владельцем.
 <!-- SECTION:NOTES:END -->
