@@ -609,6 +609,12 @@ test('память без повторов: то же или часть стар
   assert.deepEqual(memory.getPerson('M', 'p2')!.notes.map((n) => n.text), ['Защищает Свету в чате', 'мейн теперь маг']);
   assert.equal(memory.removeNote('M', 'p2', 'мейн теперь маг', t + 6), true);
   assert.equal(memory.removeNote('M', 'p2', 'нет такой', t + 6), false);
+  // «Света, это неправда» — заметку стирают по номеру из досье.
+  memory.addNote('M', 'p2', 'Эйн', 'играет хилом', t + 7);
+  const said = { ...author, notes: memory.getPerson('M', 'p2')!.notes };
+  assert.deepEqual(memory.runMemoryTool('forget_note', { number: 3 }, said, t + 8), { error: 'Нет заметки с таким номером.' });
+  assert.deepEqual(memory.runMemoryTool('forget_note', { number: 2 }, said, t + 8), { ok: true });
+  assert.deepEqual(memory.getPerson('M', 'p2')!.notes.map((n) => n.text), ['Защищает Свету в чате']);
 
   // Причины смены отношения — отдельно от заметок, последние три.
   for (const reason of ['раз', 'два', 'три', 'четыре']) memory.changeAttitude('M', 'p2', 'Эйн', 5, t, reason);

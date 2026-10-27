@@ -329,7 +329,7 @@ export const MEMORY_TOOLS: GeminiFunction[] = [
   {
     name: 'remember',
     description:
-      'Запомнить короткий факт о том, кто сейчас к тебе обратился: любимый класс или роль, смешной случай, обиду. Если факт заменяет устаревшую заметку (мейн теперь другой), укажи её номер в replaces. Не запоминай личное (адреса, телефоны, настоящие имена, здоровье) и то, что уже есть в заметках.',
+      'Запомнить короткий факт о том, кто сейчас к тебе обратился: любимый класс или роль, смешной случай, обиду. Если факт заменяет устаревшую заметку (мейн теперь другой), укажи её номер в replaces. Не запоминай личное (адреса, страну и город, национальность, телефоны, настоящие имена, здоровье) и то, что уже есть в заметках.',
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -338,6 +338,11 @@ export const MEMORY_TOOLS: GeminiFunction[] = [
       },
       required: ['note'],
     },
+  },
+  {
+    name: 'forget_note',
+    description: 'Стереть заметку о том, кто сейчас к тебе обратился, если по его словам она неправда или устарела. Номер — из его досье.',
+    parameters: { type: 'OBJECT', properties: { number: { type: 'INTEGER', description: 'Номер заметки.' } }, required: ['number'] },
   },
   {
     name: 'change_attitude',
@@ -374,6 +379,11 @@ export function runMemoryTool(name: string, args: Record<string, unknown>, autho
     if (number && replaced === undefined) return { error: 'Нет заметки с таким номером.' };
     const person = addNote(guildId, userId, authorName, String(args.note ?? ''), now, replaced);
     return person ? { ok: true, notes: person.notes.length } : { error: 'Пустая заметка.' };
+  }
+  if (name === 'forget_note') {
+    const note = author.notes?.[Number(args.number) - 1];
+    if (!note) return { error: 'Нет заметки с таким номером.' };
+    return { ok: removeNote(guildId, userId, note.text, now) };
   }
   if (name === 'change_attitude') {
     const delta = Number(args.change);
