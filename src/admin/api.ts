@@ -31,6 +31,7 @@ import { settings as constants } from '../settings.ts';
 import { sendFarewell } from '../welcome/farewell.ts';
 import { sendWelcomeDm, type WelcomeDmResult } from '../welcome/dm.ts';
 import { svetaStatus } from '../sveta/index.ts';
+import { deleteEpisode, listEpisodes, listSelf, selfInput, setSelf } from '../sveta/episodes.ts';
 import { forgetPerson, getPerson, listPeople, personInput, savePerson, type Person } from '../sveta/memory.ts';
 import type * as Api from './apiTypes.ts';
 import { readSession, type Session } from './auth.ts';
@@ -379,6 +380,7 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
             .filter((example) => example.user || example.reply),
           model: text(sveta.model),
           fallbackModel: text(sveta.fallbackModel),
+          memoryModel: text(sveta.memoryModel),
           // Список моделей — без пустых и повторов; есть ли в нём основная и запасная, проверит validateSettings.
           models: [...new Set(arr(sveta.models).map(text).filter(Boolean))],
           thinking: text(sveta.thinking) as BotSettings['sveta']['thinking'],
@@ -456,6 +458,38 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
     if (!person || !forgetPerson(person.guildId, person.userId)) return fail(c, ['Света об этом человеке ничего не помнит.'], 404);
     await log(c, 'Память Светы стёрта в админке', `**О ком:** ${person.name} (<@${person.userId}>)`, LOG_COLORS.delete);
     return ok(c, `Память Светы стёрта: ${person.name}.`);
+  });
+
+  // --- Пересказы разговоров и что Света говорила о себе ---
+  api.get('/sveta/episodes', (c) => {
+    const guildId = c.get('guild').id;
+    const names = new Map(listPeople(guildId).map((person) => [person.userId, person.name]));
+    return c.json(
+      listEpisodes(guildId).map(
+        ({ id, channelId, channelName, startedAt, endedAt, summary, participants }): Api.SvetaEpisode => ({
+          id,
+          channelId,
+          channelName,
+          startedAt,
+          endedAt,
+          summary,
+          participants: participants.map((userId) => ({ userId, name: names.get(userId) ?? null })),
+        }),
+      ),
+    );
+  });
+  api.delete('/sveta/episodes/:id{[0-9]+}', async (c) => {
+    if (!deleteEpisode(c.get('guild').id, Number(c.req.param('id')))) return fail(c, ['Такого разговора Света не помнит.'], 404);
+    return ok(c, 'Разговор стёрт из памяти Светы.');
+  });
+  api.get('/sveta/self', (c) => c.json(listSelf(c.get('guild').id) satisfies Api.SvetaSelfFact[]));
+  api.put('/sveta/self', async (c) => {
+    const guildId = c.get('guild').id;
+    const input = selfInput(obj(await c.req.json().catch(() => null)));
+    if (input.errors.length) return fail(c, input.errors);
+    setSelf(guildId, input.facts, Date.now());
+    await log(c, 'Память Светы о себе изменена в админке', `**Строк:** ${input.facts.length}`);
+    return c.json(listSelf(guildId) satisfies Api.SvetaSelfFact[]);
   });
 
   api.put('/settings/:section', async (c) => {

@@ -106,9 +106,20 @@ export function savePerson(person: Person): void {
   );
 }
 
-/** «Забудь меня»: стереть всё о человеке. true — было что стирать. */
+/** Условие «человек участвовал в разговоре» для sveta_episodes (participants — JSON-список id). */
+export const WITH_PARTICIPANT = 'EXISTS (SELECT 1 FROM json_each(participants) WHERE value = ?)';
+
+/** Сколько пересказанных разговоров с этим человеком Света помнит. */
+export function episodesWith(guildId: string, userId: string): number {
+  const row = db.prepare(`SELECT COUNT(*) AS n FROM sveta_episodes WHERE guild_id = ? AND ${WITH_PARTICIPANT}`).get(guildId, userId) as { n: number };
+  return Number(row.n);
+}
+
+/** «Забудь меня»: стереть всё о человеке — карточку и пересказы разговоров с ним. true — было что стирать. */
 export function forgetPerson(guildId: string, userId: string): boolean {
-  return Number(db.prepare('DELETE FROM sveta_people WHERE guild_id = ? AND user_id = ?').run(guildId, userId).changes) > 0;
+  const card = Number(db.prepare('DELETE FROM sveta_people WHERE guild_id = ? AND user_id = ?').run(guildId, userId).changes);
+  const episodes = Number(db.prepare(`DELETE FROM sveta_episodes WHERE guild_id = ? AND ${WITH_PARTICIPANT}`).run(guildId, userId).changes);
+  return card + episodes > 0;
 }
 
 /** Текст из модели или админки: одна строка, без упоминаний, не длиннее max. */
@@ -296,12 +307,13 @@ const OWN_LABEL: Record<string, string> = {
   обожает: 'обожаю 🥰',
 };
 
-/** Ответ на «что ты обо мне помнишь» — ровно то, что лежит в памяти. */
-export function memoryReport(person: Person | null): string {
+/** Ответ на «что ты обо мне помнишь» — ровно то, что лежит в памяти; episodes — сколько пересказов разговоров с ним. */
+export function memoryReport(person: Person | null, episodes = 0): string {
   if (!person) return 'Пока ничего — мы почти не знакомы 🙂';
   const lines = ['📒 Что я о тебе помню:', `Отношение: ${signed(person.attitude)} — ${OWN_LABEL[attitudeLabel(person.attitude)]}`];
   if (person.nickname) lines.push(`Прозвище: «${person.nickname}»`);
   if (person.firstSeen) lines.push(`Знакомы с ${day(person.firstSeen)}, разговоров: ${person.talks}`);
+  if (episodes) lines.push(`Помню разговоров с тобой: ${episodes}`);
   for (const reason of person.reasons) lines.push(`• ${reasonText(reason)}`);
   for (const note of person.notes) lines.push(`• ${day(note.at)}: ${note.text}`);
   lines.push('-# Стереть всё — напиши «Света, забудь меня».');

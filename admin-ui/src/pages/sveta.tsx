@@ -20,7 +20,7 @@ import {
 import { useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { toast } from 'sonner';
-import type { Settings, SvetaPerson, SvetaStatus } from '@api';
+import type { Settings, SvetaEpisode, SvetaPerson, SvetaSelfFact, SvetaStatus } from '@api';
 import { ChannelPicker, ChannelsPicker } from '@/components/entity-picker';
 import { PageHeader } from '@/components/page';
 import { FormErrors, FormSkeleton, NumberField, SaveBar, SectionCard } from '@/components/settings-ui';
@@ -58,6 +58,7 @@ const EXAMPLE_MAX = 300;
 const LORE_MAX = 50;
 const STORY_MAX = 1000;
 const CHANNELS_MAX = 10;
+const EPISODES_SHOWN = 10;
 
 /** Шаг подключения: галочка или восклицательный знак и что сделать. */
 function Step({ done, children }: { done: boolean; children: ReactNode }) {
@@ -105,7 +106,7 @@ function ModelsEditor({ models, inUse, onChange }: { models: string[]; inUse: st
                 variant="ghost"
                 size="icon-xs"
                 aria-label={`Убрать ${model}`}
-                title={used ? 'Выбрана основной или запасной — сначала выбери другую' : 'Убрать из списка'}
+                title={used ? 'Выбрана основной, запасной или моделью памяти — сначала выбери другую' : 'Убрать из списка'}
                 disabled={used}
                 onClick={() => onChange(models.filter((m) => m !== model))}
               >
@@ -411,7 +412,9 @@ function PersonRow({ person }: { person: SvetaPerson }) {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Стереть память Светы — {person.name}?</AlertDialogTitle>
-                <AlertDialogDescription>Света забудет отношение, прозвище и заметки. Вернуть их не получится.</AlertDialogDescription>
+                <AlertDialogDescription>
+                  Света забудет отношение, прозвище, заметки и разговоры с этим человеком. Вернуть их не получится.
+                </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
@@ -435,7 +438,7 @@ function MemoryCard() {
   return (
     <SectionCard
       title="Память о людях"
-      description="Отношение, прозвище и заметки о каждом. Света меняет их сама — только о том, кто к ней обратился. Участник может спросить «Света, что ты обо мне помнишь?» или попросить «Света, забудь меня»."
+      description="Отношение, прозвище, заметки и знакомство с каждым. Света меняет их сама — о том, кто к ней обратился, а после разговора модель памяти дописывает то, что люди сами о себе рассказали. Участник может спросить «Света, что ты обо мне помнишь?» или попросить «Света, забудь меня» — тогда сотрутся и разговоры с ним."
     >
       {!people ? (
         <Skeleton className="h-20 w-full" />
@@ -451,6 +454,107 @@ function MemoryCard() {
           ))}
           {shown.length === 0 && <p className="text-sm text-muted-foreground">Никого не нашлось.</p>}
         </div>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Пересказы разговоров: что Света вспоминает перед ответом. Стереть можно по одному. */
+function EpisodesCard() {
+  const queryClient = useQueryClient();
+  const { data: episodes } = useQuery({ queryKey: ['sveta-episodes'], queryFn: () => api.get<SvetaEpisode[]>('/sveta/episodes') });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.delete(`/sveta/episodes/${id}`),
+    onSuccess: (result) => {
+      toast.success(result.message);
+      void queryClient.invalidateQueries({ queryKey: ['sveta-episodes'] });
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+  const [all, setAll] = useState(false);
+  const shown = all ? episodes : episodes?.slice(0, EPISODES_SHOWN);
+
+  return (
+    <SectionCard
+      title="Разговоры"
+      description="Короткие пересказы разговоров со Светой — их пишет модель памяти, когда Света 15 минут молчит. Перед ответом Света вспоминает свежие разговоры в этом канале и с теми, кто ей пишет. Хранятся 60 дней."
+    >
+      {!episodes ? (
+        <Skeleton className="h-20 w-full" />
+      ) : episodes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Пока ни одного — разговор появится здесь через 15 минут после ответа Светы.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {shown?.map((episode) => (
+            <div key={episode.id} className="flex items-start gap-3 rounded-xl border p-3">
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {formatDateTime(episode.endedAt)} · #{episode.channelName} ·{' '}
+                  {episode.participants.map((p) => p.name ?? p.userId).join(', ')}
+                </p>
+                <p className="text-sm">{episode.summary}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Стереть разговор"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(episode.id)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+          {!all && episodes.length > EPISODES_SHOWN && (
+            <Button variant="outline" className="w-fit" onClick={() => setAll(true)}>
+              Показать все ({episodes.length})
+            </Button>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+const selfLines = (facts: SvetaSelfFact[]) => facts.map((fact) => fact.text).join('\n');
+
+/** Что Света говорила о себе: правка списка целиком. */
+function SelfCard() {
+  const queryClient = useQueryClient();
+  const { data: facts } = useQuery({ queryKey: ['sveta-self'], queryFn: () => api.get<SvetaSelfFact[]>('/sveta/self') });
+  const [text, setText] = useState<string | null>(null);
+  const value = text ?? (facts ? selfLines(facts) : '');
+  const save = useMutation({
+    mutationFn: () => api.put<SvetaSelfFact[]>('/sveta/self', { facts: value.split('\n') }),
+    onSuccess: (saved) => {
+      toast.success('Сохранено.');
+      queryClient.setQueryData(['sveta-self'], saved);
+      setText(null);
+    },
+    onError: (e) => toast.error(errorText(e)),
+  });
+
+  return (
+    <SectionCard
+      title="Что Света говорила о себе"
+      description="Вкусы, мнения и обещания из её же реплик — модель памяти дописывает их после разговоров, а Света держится их, чтобы себе не противоречить. Можно поправить или стереть строку."
+    >
+      {!facts ? (
+        <Skeleton className="h-20 w-full" />
+      ) : (
+        <Field>
+          <Textarea
+            aria-label="Что Света говорила о себе"
+            rows={6}
+            placeholder="Пока ничего. По одной строке, например: любит рыбалку в Элвиннском лесу"
+            value={value}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <FieldDescription>По одной на строку: до 20 строк, каждая до 200 символов.</FieldDescription>
+          <Button className="w-fit" disabled={text === null || value === selfLines(facts) || save.isPending} onClick={() => save.mutate()}>
+            Сохранить
+          </Button>
+        </Field>
       )}
     </SectionCard>
   );
@@ -645,7 +749,17 @@ function ExamplesEditor({ examples, onChange }: { examples: Examples; onChange: 
 const dot = (dirty: boolean) => dirty && <span className="size-1.5 rounded-full bg-primary" aria-label="есть изменения" />;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 /** Поля вкладки «Модель»: список моделей, основная и запасная, обдумывание, потолки. */
-const MODEL_FIELDS = ['models', 'model', 'fallbackModel', 'thinking', 'randomPercent', 'userCooldownSeconds', 'perHour', 'perDay'] as const;
+const MODEL_FIELDS = [
+  'models',
+  'model',
+  'fallbackModel',
+  'memoryModel',
+  'thinking',
+  'randomPercent',
+  'userCooldownSeconds',
+  'perHour',
+  'perDay',
+] as const;
 
 export function SvetaPage() {
   const form = useSectionForm('sveta', (s) => ({ sveta: s.sveta }));
@@ -789,7 +903,7 @@ export function SvetaPage() {
                     <FieldLabel htmlFor="sveta-new-model">Модели</FieldLabel>
                     <ModelsEditor
                       models={draft.sveta.models}
-                      inUse={[draft.sveta.model, draft.sveta.fallbackModel]}
+                      inUse={[draft.sveta.model, draft.sveta.fallbackModel, draft.sveta.memoryModel]}
                       onChange={(models) => set({ models })}
                     />
                   </Field>
@@ -838,6 +952,31 @@ export function SvetaPage() {
                     {code('OPENROUTER_API_KEY')}) — имя с «/», например {code('minimax/minimax-m3.1-flash')}; у бесплатных (с{' '}
                     {code(':free')} на конце) общий дневной лимит на аккаунт.
                   </FieldDescription>
+                  <Field className="md:col-span-2">
+                    <FieldLabel htmlFor="sveta-memory-model">Модель памяти</FieldLabel>
+                    <Select
+                      items={{ [NO_FALLBACK]: 'Выключено', ...Object.fromEntries(draft.sveta.models.map((model) => [model, model])) }}
+                      value={draft.sveta.memoryModel || NO_FALLBACK}
+                      onValueChange={(model: string | null) => model && set({ memoryModel: model === NO_FALLBACK ? '' : model })}
+                    >
+                      <SelectTrigger id="sveta-memory-model" className="w-full font-mono text-xs md:w-1/2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_FALLBACK}>Выключено</SelectItem>
+                        {draft.sveta.models.map((model) => (
+                          <SelectItem key={model} value={model} className="font-mono text-xs">
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      Когда Света 15 минут молчит после разговора, эта модель пересказывает его и вытаскивает факты: о людях — только из их
+                      собственных сообщений, о Свете — из её реплик. Один запрос на разговор; лёгкая модель вроде{' '}
+                      {code('gemini-flash-lite-latest')} справляется и не тратит лимит основной.
+                    </FieldDescription>
+                  </Field>
                   <Field>
                     <FieldLabel htmlFor="sveta-thinking">Обдумывание</FieldLabel>
                     <Select
@@ -902,7 +1041,11 @@ export function SvetaPage() {
               <LoreEditor lore={draft.sveta.lore} onChange={(lore) => set({ lore })} />
             </TabsContent>
             <TabsContent value="memory">
-              <MemoryCard />
+              <div className="flex flex-col gap-6">
+                <MemoryCard />
+                <EpisodesCard />
+                <SelfCard />
+              </div>
             </TabsContent>
           </Tabs>
           <SaveBar form={form} />

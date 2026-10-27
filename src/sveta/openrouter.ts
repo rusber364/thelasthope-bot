@@ -55,12 +55,14 @@ export function toJsonSchema(schema: unknown): unknown {
 const NO_PARAMETERS = { type: 'object', properties: {} };
 
 /** Тело запроса. Размышления по умолчанию короткие: для болтовни глубокие не нужны, а они тратят время и токены. */
-export function openRouterBody({ model, system, contents, tools, toolMode, thinking = 'low' }: Omit<GeminiRequest, 'apiKey'>) {
+export function openRouterBody({ model, system, contents, tools, toolMode, thinking = 'low', json, maxTokens = 2048 }: Omit<GeminiRequest, 'apiKey'>) {
   return {
     model,
     messages: toMessages(system, contents),
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     reasoning: { effort: thinking },
+    // Модели без поддержки response_format его пропускают — ответ всё равно разбирается терпимо (episodes.ts::parseMemory).
+    ...(json ? { response_format: { type: 'json_object' } } : {}),
     // Инструменты передаём и на последнем круге: в переписке уже есть их вызовы, по ним OpenRouter проверяет схему.
     ...(tools?.length
       ? {

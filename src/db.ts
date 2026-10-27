@@ -162,6 +162,38 @@ if (addColumn('sveta_people', 'reasons', "TEXT NOT NULL DEFAULT '[]'")) {
   }
 }
 
+// Память Светы о разговорах (src/sveta/episodes.ts). Открытый разговор — канал, где она недавно отвечала:
+// когда она долго молчит, модель памяти пересказывает переписку. Строка живёт до пересказа и переживает перезапуск.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sveta_conversations (
+    channel_id    TEXT    PRIMARY KEY,
+    guild_id      TEXT    NOT NULL,
+    started_at    INTEGER NOT NULL,
+    last_reply_at INTEGER NOT NULL,
+    replies       INTEGER NOT NULL DEFAULT 0,
+    attempts      INTEGER NOT NULL DEFAULT 0
+  );
+  -- Пересказы разговоров: participants — JSON [userId] тех, кто писал (по ним «забудь меня» стирает пересказы).
+  CREATE TABLE IF NOT EXISTS sveta_episodes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id     TEXT    NOT NULL,
+    channel_id   TEXT    NOT NULL,
+    channel_name TEXT    NOT NULL,
+    started_at   INTEGER NOT NULL,
+    ended_at     INTEGER NOT NULL,
+    summary      TEXT    NOT NULL,
+    participants TEXT    NOT NULL DEFAULT '[]'
+  );
+  CREATE INDEX IF NOT EXISTS sveta_episodes_guild ON sveta_episodes (guild_id, ended_at);
+  -- Что Света говорила о себе (вкусы, мнения, обещания), чтобы не противоречить себе.
+  CREATE TABLE IF NOT EXISTS sveta_self (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT    NOT NULL,
+    at       INTEGER NOT NULL,
+    text     TEXT    NOT NULL
+  );
+`);
+
 // Картинки из ответов на опросы («Ответ: картинка»). Ссылки Discord на вложения со временем перестают
 // открываться, поэтому бот хранит сами файлы. В ответе на вопрос лежит id картинки отсюда.
 db.exec(`

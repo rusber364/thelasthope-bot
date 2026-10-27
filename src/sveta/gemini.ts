@@ -34,6 +34,10 @@ export interface GeminiRequest {
   toolMode?: 'AUTO' | 'NONE';
   /** Насколько модель «думает» перед ответом; без него — низко. */
   thinking?: Thinking;
+  /** Ответ — JSON-объект (пересказ разговора для памяти, episodes.ts). */
+  json?: boolean;
+  /** Потолок ответа в токенах (с «мыслями»); без него — как для реплики в чат. */
+  maxTokens?: number;
 }
 
 /**
@@ -92,13 +96,17 @@ const SAFETY = ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH', 'HARM_C
 );
 
 /** Тело запроса. У Gemini 3 «обдумывание» по умолчанию глубокое и медленное — уровень задаёт админка, для болтовни хватает низкого. */
-export function requestBody({ model, system, contents, tools, toolMode, thinking = 'low' }: Omit<GeminiRequest, 'apiKey'>) {
+export function requestBody({ model, system, contents, tools, toolMode, thinking = 'low', json, maxTokens = 1024 }: Omit<GeminiRequest, 'apiKey'>) {
   const thinks = !/gemini-(1|2)\./.test(model); // у 2.x свой параметр, thinkingLevel им не подходит
   return {
     systemInstruction: { parts: [{ text: system }] },
     contents,
     safetySettings: SAFETY,
-    generationConfig: { maxOutputTokens: 1024, ...(thinks ? { thinkingConfig: { thinkingLevel: thinking.toUpperCase() } } : {}) },
+    generationConfig: {
+      maxOutputTokens: maxTokens,
+      ...(json ? { responseMimeType: 'application/json' } : {}),
+      ...(thinks ? { thinkingConfig: { thinkingLevel: thinking.toUpperCase() } } : {}),
+    },
     ...(tools?.length ? { tools: [{ functionDeclarations: tools }], toolConfig: { functionCallingConfig: { mode: toolMode ?? 'AUTO' } } } : {}),
   };
 }

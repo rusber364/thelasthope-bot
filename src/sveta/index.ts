@@ -27,6 +27,7 @@ import {
   NOTHING_TO_FORGET,
   dossier,
   dossiers,
+  episodesWith,
   forgetPerson,
   getPerson,
   listPeople,
@@ -38,6 +39,18 @@ import {
   type Person,
 } from './memory.ts';
 import { loreText, matchLore } from './lore.ts';
+import {
+  EPISODES,
+  closeConversation,
+  dropConversation,
+  dueConversations,
+  episodeText,
+  episodesFor,
+  listSelf,
+  noteReply,
+  selfText,
+  type ChannelMessage,
+} from './episodes.ts';
 import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
 import { ScoldTimer, scoldLine, swearsWithPermission } from './swearing.ts';
@@ -182,6 +195,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   const scoldByLine = async () => {
     scolds.record(scoldKey, now);
     await respond({ content: scoldLine(deps.random()), allowedMentions: quiet });
+    noteReply(message.guildId, message.channelId, now);
     console.log(`🤬 Света поворчала заготовкой на мат: ${authorName}.`);
   };
 
@@ -194,7 +208,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   // «Что ты обо мне помнишь» и «забудь меня» — отвечает код: точно, без запроса к Gemini и без лимитов.
   const command = addressed ? memoryCommand(message.content) : null;
   if (command === 'ask') {
-    await respond({ content: memoryReport(getPerson(message.guildId, message.author.id)), allowedMentions: quiet });
+    await respond({ content: memoryReport(getPerson(message.guildId, message.author.id), episodesWith(message.guildId, message.author.id)), allowedMentions: quiet });
     return;
   }
   if (command === 'forget') {
@@ -253,6 +267,11 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     mentioned: mentioned.map((person) => dossier(person, now, false)).join('\n'),
     // Истории — только о тех, кого назвали в разговоре или кто в нём пишет.
     lore: loreText(matchLore(s.lore, lines.map((line) => `${line.name}: ${line.text}`))),
+    // Пересказы прошлых разговоров в этом канале и с теми, кто пишет, — и что она уже говорила о себе.
+    episodes: episodesFor(message.guildId, message.channelId, [...speakers])
+      .map((episode) => episodeText(episode, now))
+      .join('\n'),
+    self: selfText(listSelf(message.guildId)),
     scold,
   });
   // Номера заметок в remember — те, что модель видела в досье автора.
@@ -334,6 +353,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     // Кто позвал — получит уведомление об ответе; если встряла сама или ворчит — без уведомления.
     await respond({ content: text, allowedMentions: { parse: [], repliedUser: addressed } });
     touchPerson(message.guildId, message.author.id, authorName, now);
+    noteReply(message.guildId, message.channelId, now);
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
     const total = [...spend.values()].reduce(addSpend, NO_SPEND);
     const details = [
@@ -372,6 +392,54 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   }
 }
 
+/** Канал для пересказа: последние сообщения (клиентом Светы). */
+type ChannelFetcher = (channelId: string) => Promise<{ guildName: string; channelName: string; messages: ChannelMessage[] } | null>;
+
+/**
+ * Пересказать закончившиеся разговоры моделью памяти (раз в минуту из startSveta). Память выключена, Света выключена
+ * или у модели нет ключа — открытые разговоры забываем; модель отдыхает после лимита — ждём.
+ */
+export async function closeDueConversations(fetchChannel: ChannelFetcher, svetaId: string, deps: SvetaDeps = DEFAULT_DEPS): Promise<void> {
+  const s = getSettings().sveta;
+  const now = deps.now();
+  const model = s.memoryModel;
+  const keyFor = (m: string) => (isOpenRouterModel(m) ? deps.openrouterKey() : deps.apiKey());
+  for (const conversation of dueConversations(now)) {
+    if (!s.enabled || !model || !keyFor(model)) {
+      if (s.enabled && model) noteError(`модель памяти ${model}: нет ключа — впиши ${keyName(model)} в .env или выбери другую на странице «Света».`, now);
+      dropConversation(conversation.channelId);
+      continue;
+    }
+    if (!rest.ready(model, now)) continue;
+    await closeConversation(conversation, {
+      model,
+      svetaId,
+      fetchChannel,
+      steady: { generate: deps.generate, wait: deps.wait, now: deps.now, rest, keyFor },
+    });
+  }
+}
+
+/** Последние сообщения канала для пересказа — клиентом Светы, только её каналы на серверах. */
+function channelFetcher(sveta: Client<true>): ChannelFetcher {
+  return async (channelId) => {
+    const channel = sveta.channels.cache.get(channelId) ?? (await sveta.channels.fetch(channelId).catch(() => null));
+    if (!channel?.isTextBased() || channel.isDMBased()) return null;
+    const messages = await channel.messages.fetch({ limit: EPISODES.messages });
+    return {
+      guildName: channel.guild.name,
+      channelName: channel.name,
+      messages: [...messages.values()].map((m) => ({
+        at: m.createdTimestamp,
+        authorId: m.author.id,
+        name: m.member?.displayName ?? m.author.displayName,
+        bot: m.author.bot,
+        text: lineText(m.cleanContent, m.attachments.size, m.stickers.size),
+      })),
+    };
+  };
+}
+
 /** Доллары коротко для лога: 0 — «бесплатно», иначе три значащие цифры ($0.00123). */
 const formatCost = (cost: number) => (cost === 0 ? 'бесплатно' : `$${Number(cost.toPrecision(3))}`);
 
@@ -391,6 +459,16 @@ export async function startSveta(): Promise<void> {
   sveta.once(Events.ClientReady, (ready) => {
     console.log(`🤖 Света подключена как ${ready.user.tag}.`);
     console.log(`🔗 Пригласить Свету на сервер: ${svetaInviteUrl(ready.application.id)}`);
+    // Раз в минуту — пересказать разговоры, где она давно молчит; следующий круг не начнётся, пока не кончился прошлый.
+    const fetchChannel = channelFetcher(ready);
+    let busy = false;
+    setInterval(() => {
+      if (busy) return;
+      busy = true;
+      closeDueConversations(fetchChannel, ready.user.id)
+        .catch((error) => console.error('🧠 Света: ошибка памяти о разговорах:', error))
+        .finally(() => (busy = false));
+    }, 60_000);
   });
   sveta.on(Events.MessageCreate, (message) => void onMessage(message).catch((error) => console.error('🤖 Света: ошибка при ответе:', error)));
   sveta.on(Events.Error, (error) => console.error('🤖 Света: ошибка клиента Discord:', error));

@@ -116,6 +116,8 @@ export interface Settings {
     /** Основная и запасная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» (minimax/minimax-m3.1-flash:free). */
     model: string;
     fallbackModel: string;
+    /** Модель памяти: пересказывает разговоры и вытаскивает факты; пусто — выключено. */
+    memoryModel: string;
     /** Модели, добавленные в админке: из них выбирают основную и запасную. */
     models: string[];
     /** Уровень обдумывания модели: low — быстро и дёшево, high — продуманнее, но медленнее и дороже. */
@@ -179,6 +181,24 @@ export interface SvetaPerson {
   lastSeen: number | null;
   talks: number;
   updatedAt: number;
+}
+
+/** Пересказ разговора (GET /api/sveta/episodes): name — как Света знает участника (null — карточки нет). */
+export interface SvetaEpisode {
+  id: number;
+  channelId: string;
+  channelName: string;
+  startedAt: number;
+  endedAt: number;
+  summary: string;
+  participants: { userId: string; name: string | null }[];
+}
+
+/** Что Света говорила о себе (GET/PUT /api/sveta/self). */
+export interface SvetaSelfFact {
+  id: number;
+  at: number;
+  text: string;
 }
 
 /** GET /api/sveta/status — подключена ли Света и сколько ответила сегодня. */

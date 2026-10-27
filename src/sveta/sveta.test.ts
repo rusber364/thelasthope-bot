@@ -940,3 +940,220 @@ test('модель написала вызов текстом: в чат он н
   assert.deepEqual(replies.map((r) => r.content), ['Сам ты железяка, Морозко!']);
   assert.equal(memory.getPerson('T', 'rude1')?.attitude, -12, 'отношение всё равно поменялось');
 });
+
+// --- Память о разговорах и о себе ---
+
+const episodes = await import('./episodes.ts');
+const { closeDueConversations } = await import('./index.ts');
+const { db } = await import('../db.ts');
+
+test('ответ модели памяти: JSON и в обёртке; мусор — null; настроение в пределах −2…2', () => {
+  const parsed = episodes.parseMemory(
+    '```json\n{"summary": "Говорят о рейде", "people": [{"who": 1, "add": ["мейн — паладин", 5], "replaces": {"2": "новое", "3": 7}, "remove": [1, "x"]}, {"who": "кто"}], "self": ["люблю эль"], "mood": 9}\n```',
+  );
+  assert.deepEqual(parsed, {
+    summary: 'Говорят о рейде',
+    people: [{ who: 1, add: ['мейн — паладин'], replaces: { '2': 'новое' }, remove: [1] }],
+    self: ['люблю эль'],
+    mood: 2,
+  });
+  assert.equal(episodes.parseMemory('не знаю'), null);
+  assert.equal(episodes.parseMemory('{сломано'), null);
+  assert.deepEqual(episodes.parseMemory('{}'), { summary: '', people: [], self: [], mood: 0 });
+});
+
+test('пересказ: участники по порядку с заметками, без чужих ботов и вызовов текстом; писать — только о писавших и понемногу', () => {
+  const G = 'EP';
+  for (const id of ['a1', 'a2', 'a3']) memory.forgetPerson(G, id);
+  memory.addNote(G, 'a1', 'Эйн', 'мейн — паладин', 1);
+  memory.addNote(G, 'a3', 'Тихоня', 'любит рыбалку', 1);
+  const t0 = Date.UTC(2026, 9, 25, 18);
+  const msg = (min: number, authorId: string, name: string, text: string, bot = false) => ({ at: t0 + min * 60_000, authorId, name, bot, text });
+  const transcript = episodes.buildTranscript(
+    [
+      msg(-30, 'a2', 'Мадекс', 'старое, до начала'),
+      msg(0, 'a1', 'Эйн', 'Света, я теперь мейню мага'),
+      msg(1, 'S', 'Света', 'Маг? Наконец-то хоть кто-то с мозгами 🍺', true),
+      msg(2, 'b', 'Другой бот', 'реклама', true),
+      msg(3, 'S', 'Света', 'remember: {"note": "x"}', true),
+      msg(4, 'a2', 'Мадекс', 'а я хуман, мне крит срезали'),
+    ],
+    'S',
+    G,
+    t0 - 60_000,
+  );
+  assert.deepEqual(
+    transcript.people.map((p) => [p.who, p.userId, p.notes.map((n) => n.text)]),
+    [
+      [1, 'a1', ['мейн — паладин']],
+      [2, 'a2', []],
+    ],
+  );
+  assert.deepEqual(
+    transcript.lines.map((l) => `${l.who ?? 'С'}: ${l.text}`),
+    ['1: Света, я теперь мейню мага', 'С: Маг? Наконец-то хоть кто-то с мозгами 🍺', '2: а я хуман, мне крит срезали'],
+  );
+  const text = episodes.transcriptText(transcript, 'таверна', []);
+  assert.match(text, /\[1\] Эйн: 1\) мейн — паладин\n\[2\] Мадекс: заметок нет/);
+  assert.match(text, /Переписка в #таверна:\n\[1\] Эйн: Света, я теперь мейню мага\nСвета: Маг\?/);
+
+  const meta = { guildId: G, channelId: 'EPC', channelName: 'таверна', startedAt: t0, now: t0 + 10 * 60_000 };
+  const applied = episodes.applyEpisode(
+    transcript,
+    {
+      summary: 'Эйн меняет мейна на мага, Мадекс жалуется на срезанный крит.',
+      people: [
+        { who: 1, add: ['любит магов'], replaces: { '1': 'мейн — маг' }, remove: [] },
+        { who: 2, add: ['играет за хумана', 'ещё факт', 'и ещё', 'лишний'], replaces: { '1': 'чужая заметка' }, remove: [5] },
+        { who: 3, add: ['о том, кто не писал'], replaces: {}, remove: [] },
+      ],
+      self: ['любит магов', 'любит магов', 'наливает эль', 'четвёртое'],
+      mood: 1,
+    },
+    meta,
+  );
+  assert.deepEqual(applied, { facts: 5, self: 2, episode: true });
+  assert.deepEqual(memory.getPerson(G, 'a1')!.notes.map((n) => n.text), ['мейн — маг', 'любит магов']);
+  assert.deepEqual(memory.getPerson(G, 'a2')!.notes.map((n) => n.text), ['играет за хумана', 'ещё факт', 'и ещё'], 'не больше трёх за раз, чужие номера — мимо');
+  assert.deepEqual(memory.getPerson(G, 'a3')!.notes.map((n) => n.text), ['любит рыбалку'], 'о том, кто не писал, — ничего');
+  assert.deepEqual(episodes.listSelf(G).map((f) => f.text), ['любит магов', 'наливает эль'], 'о себе — не больше трёх за раз и без повторов');
+  const [saved] = episodes.listEpisodes(G);
+  assert.deepEqual(
+    [saved!.summary, saved!.participants, saved!.endedAt],
+    ['Эйн меняет мейна на мага, Мадекс жалуется на срезанный крит.', ['a1', 'a2'], t0 + 4 * 60_000],
+  );
+  assert.equal(episodes.applyEpisode(transcript, { summary: ' ', people: [], self: [], mood: 0 }, meta).episode, false, 'без пересказа — разговор не сохраняется');
+});
+
+test('воспоминания: свежие разговоры канала и с нынешними собеседниками; «забудь меня» стирает и их', () => {
+  const G = 'EP2';
+  const base = Date.UTC(2026, 9, 20, 18);
+  const save = (i: number, channelId: string, participants: string[]) =>
+    episodes.applyEpisode(
+      { lines: [], people: participants.map((userId, k) => ({ who: k + 1, userId, name: userId, notes: [] })), endedAt: base + i * DAY },
+      { summary: `разговор ${i}`, people: [], self: [], mood: 0 },
+      { guildId: G, channelId, channelName: channelId, startedAt: base + i * DAY, now: base + i * DAY },
+    );
+  save(1, 'X', ['p']);
+  save(2, 'Y', ['q']);
+  save(3, 'Y', ['r']);
+  save(4, 'Y', ['q']);
+  save(5, 'Y', ['r']);
+  save(6, 'Z', ['p']);
+  assert.deepEqual(
+    episodes.episodesFor(G, 'Y', ['p']).map((e) => e.summary),
+    ['разговор 1', 'разговор 3', 'разговор 4', 'разговор 5', 'разговор 6'],
+    'три свежих из канала и три с собеседником — без повторов, по порядку, не больше пяти',
+  );
+  assert.equal(episodes.episodeText(episodes.listEpisodes(G)[0]!, base + 7 * DAY), '- вчера, #Z: разговор 6');
+  assert.equal(memory.episodesWith(G, 'q'), 2);
+  assert.equal(memory.forgetPerson(G, 'q'), true, 'карточки нет, но разговоры были');
+  assert.equal(memory.episodesWith(G, 'q'), 0);
+  assert.equal(episodes.listEpisodes(G).length, 4);
+  assert.equal(episodes.deleteEpisode('чужой', episodes.listEpisodes(G)[0]!.id), false);
+  assert.equal(episodes.deleteEpisode(G, episodes.listEpisodes(G)[0]!.id), true);
+  assert.equal(episodes.listEpisodes(G).length, 3);
+});
+
+test('о себе: без повторов, не больше 20; правка из админки сохраняет даты', () => {
+  const G = 'EP3';
+  assert.equal(episodes.addSelf(G, ['Люблю рыбалку в Элвинне', 'люблю рыбалку'], 10), 1);
+  for (let i = 0; i < 25; i++) episodes.addSelf(G, [`мнение ${i}`], 100 + i);
+  const facts = episodes.listSelf(G);
+  assert.equal(facts.length, 20);
+  assert.equal(facts.at(-1)!.text, 'мнение 24');
+  episodes.setSelf(G, ['мнение 24', 'новое'], 999);
+  assert.deepEqual(
+    episodes.listSelf(G).map((f) => [f.text, f.at]),
+    [
+      ['мнение 24', 124],
+      ['новое', 999],
+    ],
+  );
+  assert.equal(episodes.selfInput({ facts: ['а', '', 'x'.repeat(201)] }).errors.length, 1);
+  assert.equal(episodes.selfInput({ facts: Array.from({ length: 21 }, (_, i) => `f${i}`) }).errors.length, 1);
+});
+
+test('разговоры по паузам: новый — после долгой тишины, слишком короткие отбрасываются', () => {
+  const at = (min: number) => ({ at: min * 60_000 });
+  const chunks = episodes.splitConversations([at(0), at(5), at(10), at(100), at(200), at(201), at(202), at(203)], 30 * 60_000, 3);
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.map((m) => m.at / 60_000)),
+    [
+      [0, 5, 10],
+      [200, 201, 202, 203],
+    ],
+  );
+});
+
+test('разговор закончился: модель памяти пересказывает его, факты — в память, пересказ — в следующий ответ', async () => {
+  configure();
+  db.exec('DELETE FROM sveta_conversations');
+  memory.forgetPerson('T', 'u1');
+  await onMessage(message('Света, я теперь мейню мага', { userId: 'u1' }), deps);
+  let start = clock;
+  assert.equal(episodes.dueConversations(clock).length, 0, 'разговор ещё идёт');
+  clock += 16 * 60_000;
+  assert.equal(episodes.dueConversations(clock).length, 1, 'Света 15 минут молчит — пора пересказать');
+
+  const fetched: string[] = [];
+  const fetchChannel = async (channelId: string) => {
+    fetched.push(channelId);
+    return {
+      guildName: 'The Last Hope',
+      channelName: 'таверна',
+      messages: [
+        { at: start, authorId: 'u1', name: 'Морозко', bot: false, text: 'Света, я теперь мейню мага' },
+        { at: start + 1000, authorId: 'S', name: 'Света', bot: true, text: 'Маг? Ну наконец-то 🍺' },
+      ],
+    };
+  };
+  geminiAnswer = async () =>
+    say('{"summary": "Морозко переходит на мага, Света одобряет.", "people": [{"who": 1, "add": ["мейн — маг"]}], "self": ["любит магов"], "mood": 1}');
+  requests.length = 0;
+  await closeDueConversations(fetchChannel, 'S', deps);
+  assert.deepEqual(fetched, ['C']);
+  assert.equal(requests.length, 1);
+  const request = requests[0]!;
+  assert.equal(request.model, 'gemini-flash-lite-latest', 'запрос — к модели памяти');
+  assert.equal(request.json, true);
+  assert.match(request.system, /Ты ведёшь память Светы/);
+  assert.match(request.contents[0]!.parts[0]!.text!, /\[1\] Морозко: Света, я теперь мейню мага\nСвета: Маг\? Ну наконец-то/);
+  assert.equal(episodes.dueConversations(clock).length, 0, 'разговор закрыт');
+  assert.deepEqual(memory.getPerson('T', 'u1')!.notes.map((n) => n.text), ['мейн — маг']);
+  assert.ok(spendSince(dayKey(clock)).some((row) => row.model === 'gemini-flash-lite-latest' && row.requests >= 1), 'расход модели памяти посчитан');
+
+  // В следующий раз Света помнит разговор и то, что говорила о себе.
+  geminiAnswer = async () => say('Помню-помню!');
+  await onMessage(message('Света, помнишь, о чём мы говорили?', { userId: 'u1' }), deps);
+  assert.match(requests.at(-1)!.system, /Что было раньше[^\n]*\n- сегодня, #таверна: Морозко переходит на мага, Света одобряет\./);
+  assert.match(requests.at(-1)!.system, /Что ты уже говорила о себе[^\n]*\n- любит магов/);
+  await onMessage(message('Света, что ты обо мне помнишь?', { userId: 'u1' }), deps);
+  assert.match(replies.at(-1)!.content, /Помню разговоров с тобой: 1/);
+  await onMessage(message('Света, забудь меня', { userId: 'u1' }), deps);
+  assert.equal(memory.episodesWith('T', 'u1'), 0, '«забудь меня» стирает и разговоры');
+
+  // Модель памяти ответила не JSON — ещё две попытки, потом разговор забыт.
+  configure();
+  db.exec('DELETE FROM sveta_conversations');
+  await onMessage(message('Света, привет!', { userId: 'u3' }), deps);
+  start = clock;
+  clock += 16 * 60_000;
+  geminiAnswer = async () => say('не знаю, что сказать');
+  for (let i = 0; i < 2; i++) {
+    await closeDueConversations(fetchChannel, 'S', deps);
+    assert.equal(episodes.dueConversations(clock).length, 1, 'попробует ещё');
+  }
+  await closeDueConversations(fetchChannel, 'S', deps);
+  assert.equal(episodes.dueConversations(clock).length, 0, 'после трёх неудач — забыт');
+
+  // Память о разговорах выключена — открытые разговоры просто забываются, в модель ничего не уходит.
+  configure({ memoryModel: '' });
+  db.exec('DELETE FROM sveta_conversations');
+  await onMessage(message('Света, привет!', { userId: 'u4' }), deps);
+  clock += 16 * 60_000;
+  requests.length = 0;
+  await closeDueConversations(fetchChannel, 'S', deps);
+  assert.equal(requests.length, 0);
+  assert.equal(episodes.dueConversations(clock).length, 0);
+});

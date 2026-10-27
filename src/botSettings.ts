@@ -9,7 +9,7 @@ import { parseTime } from './lib/time.ts';
 import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
 import type { ProfanityLevel } from './lib/profanity.ts';
 import { DEFAULT_EXAMPLES, DEFAULT_PERSONA } from './sveta/persona.ts';
-import { THINKING_LEVELS, type Thinking } from './sveta/gemini.ts';
+import { FALLBACK_MODEL, THINKING_LEVELS, type Thinking } from './sveta/gemini.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
 export type LogCategory = (typeof LOG_CATEGORIES)[number];
@@ -53,6 +53,8 @@ export interface SvetaSettings {
   model: string;
   /** Запасная модель, когда основная перегружена, не отвечает или упёрлась в лимит (пусто — без запасной). */
   fallbackModel: string;
+  /** Модель памяти: пересказывает закончившийся разговор и вытаскивает факты (src/sveta/episodes.ts). Пусто — память о разговорах выключена. */
+  memoryModel: string;
   /** Насколько модель «думает» перед ответом: low — быстро и дёшево, high — продуманнее, но медленнее и дороже. */
   thinking: Thinking;
   /** Шанс встрять самой в разговор, % (0 — только когда зовут). */
@@ -327,6 +329,7 @@ function defaults(): BotSettings {
       models:['gemini-flash-latest', 'gemini-flash-lite-latest'],
       model: 'gemini-flash-latest',
       fallbackModel: 'gemini-flash-lite-latest',
+      memoryModel: FALLBACK_MODEL,
       thinking: 'low',
       randomPercent: 2,
       userCooldownSeconds: 15,
@@ -410,8 +413,8 @@ export function getSettings(): BotSettings {
     slots: template.slots ?? [],
   }));
   merged.sticky.items = merged.sticky.items.map((item) => ({ ...item, roleIds: item.roleIds ?? [] }));
-  // Основная и запасная модель всегда есть в списке — и у настроек, сохранённых до появления списка.
-  merged.sveta.models = [...new Set([...merged.sveta.models, merged.sveta.model, merged.sveta.fallbackModel].filter(Boolean))];
+  // Основная, запасная и модель памяти всегда есть в списке — и у настроек, сохранённых до появления списка.
+  merged.sveta.models = [...new Set([...merged.sveta.models, merged.sveta.model, merged.sveta.fallbackModel, merged.sveta.memoryModel].filter(Boolean))];
   // Канала авторизации больше нет: из стандартных текстов прошлых версий убираем шаг «пройди {auth}».
   merged.welcome.text = merged.welcome.text.replace(' и пройди {auth}', '');
   merged.welcomeDm.text = merged.welcomeDm.text.replace('\n2. Пройди {auth}.\n3. ', '\n2. ');
@@ -505,6 +508,7 @@ export function validateSettings(s: BotSettings): string[] {
   if (badModel !== undefined) errors.push(`Света: «${badModel}» — не похоже на имя модели (gemini-flash-latest или vendor/model).`);
   if (!sveta.models.includes(sveta.model)) errors.push('Света: основная модель должна быть в списке моделей.');
   if (sveta.fallbackModel && !sveta.models.includes(sveta.fallbackModel)) errors.push('Света: запасная модель должна быть в списке моделей.');
+  if (sveta.memoryModel && !sveta.models.includes(sveta.memoryModel)) errors.push('Света: модель памяти должна быть в списке моделей.');
   if (!THINKING_LEVELS.includes(sveta.thinking)) errors.push('Света: уровень обдумывания — низкий, средний или высокий.');
   const svetaRanges: [string, number, number, number][] = [
     ['Света: шанс встрять самой (%)', sveta.randomPercent, 0, LIMITS.randomPercent],
