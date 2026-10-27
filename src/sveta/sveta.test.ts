@@ -709,6 +709,26 @@ test('истории: узнаются по имени и нику с оконч
   assert.doesNotMatch(requests.at(-1)!.system, /Истории о людях/, 'нет историй — нет и раздела');
 });
 
+test('истории не повторяются и не путаются: только названный в сообщении и автор; по которой недавно шутила — без вопроса не берём', async () => {
+  const { loreFor, usedRecently } = await import('./lore.ts');
+  const lucifero = { names: ['Lucifero', 'Мяус'], story: 'Прячется в бункере с генератором и закатывает огурцы на даче.' };
+  const madex = { names: ['Madex', 'Мадекс'], story: 'Мечтает об Азинотках и споре про консул-лут.' };
+  const lore = [lucifero, madex];
+  assert.equal(usedRecently(lucifero, ['Мяус, опять в бункере с генератором сидишь?']), true);
+  assert.equal(usedRecently(lucifero, ['Мяус, привет! Как рейд?']), false, 'одно имя — ещё не байка');
+  const pick = (asked: string, author: string, sveta: string[] = []) => loreFor(lore, [asked], author, sveta).map((e) => e.names[0]);
+  assert.deepEqual(pick('Света, привет', 'Lucifero'), ['Lucifero'], 'об авторе');
+  assert.deepEqual(pick('Света, привет', 'Lucifero', ['Опять огурцы на даче закатываешь?']), [], 'уже шутила — не подсовываем');
+  assert.deepEqual(pick('Света, что там у Мяуса?', 'Lucifero', ['Опять огурцы на даче закатываешь?']), ['Lucifero'], 'спросили прямо — можно');
+  assert.deepEqual(pick('Света, привет', '00lolo'), [], 'чужие байки к другому не прилипают');
+
+  configure({ lore });
+  const msg = message('Света, привет') as unknown as { author: { displayName: string }; member: { displayName: string } };
+  msg.author.displayName = msg.member.displayName = 'Lucifero';
+  await onMessage(msg as never, deps);
+  assert.match(requests.at(-1)!.system, /Байка — только про того, о ком она[^\n]*\n- Lucifero \/ Мяус: Прячется в бункере/);
+});
+
 test('истории в настройках: кто и текст обязательны, длина и количество ограничены', () => {
   const s = structuredClone(getSettings());
   s.sveta = { ...s.sveta, lore: [{ names: [], story: 'без имени' }, { names: ['Кембэл'], story: '' }, { names: ['К'], story: 'а'.repeat(1001) }] };

@@ -38,7 +38,7 @@ import {
   touchPerson,
   type Person,
 } from './memory.ts';
-import { loreText, matchLore } from './lore.ts';
+import { loreFor, loreText } from './lore.ts';
 import { moodText } from './mood.ts';
 import {
   EPISODES,
@@ -266,8 +266,15 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     summary: guildSummary(message.guildId),
     people: dossiers(people, { now, authorId: message.author.id }),
     mentioned: mentioned.map((person) => dossier(person, now, false)).join('\n'),
-    // Истории — только о тех, кого назвали в разговоре или кто в нём пишет.
-    lore: loreText(matchLore(s.lore, lines.map((line) => `${line.name}: ${line.text}`))),
+    // Истории — о тех, кого назвали в этом сообщении, и об авторе, если Света по ней недавно не шутила.
+    lore: loreText(
+      loreFor(
+        s.lore,
+        [message.cleanContent, repliedLine?.text ?? ''],
+        authorName,
+        lines.filter((line) => line.fromSveta).map((line) => line.text),
+      ),
+    ),
     // Пересказы прошлых разговоров в этом канале и с теми, кто пишет, — и что она уже говорила о себе.
     episodes: episodesFor(message.guildId, message.channelId, [...speakers])
       .map((episode) => episodeText(episode, now))
