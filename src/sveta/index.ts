@@ -11,14 +11,14 @@ import {
   type Message,
   type MessageReplyOptions,
 } from 'discord.js';
-import { getSettings } from '../botSettings.ts';
+import { getSettings, type SvetaExample } from '../botSettings.ts';
 import { config } from '../config.ts';
 import { settings as constants } from '../settings.ts';
 import { HISTORY, buildContents, cleanReply, lineText, textToolCall, type ChatLine } from './context.ts';
 import { GeminiError, ModelRest, generate, generateSteady, readyModels, type GeminiErrorKind, type GeminiReply } from './gemini.ts';
 import { generateOpenRouter, isOpenRouterModel } from './openrouter.ts';
 import { BREAK_LINES, Limiter, NO_SPEND, addSpend, countRequests, countSpend, dayKey, repliesOn, requestsOn, spendSince, type Spend } from './limits.ts';
-import { systemPrompt } from './persona.ts';
+import { DEFAULT_EXAMPLES, DEFAULT_PERSONA, systemPrompt } from './persona.ts';
 import {
   FORGOTTEN,
   MEMORY,
@@ -245,6 +245,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   );
 
   const system = systemPrompt(s.persona, {
+    examples: s.examples,
     guildName: message.guild.name,
     now: formatNow(now),
     summary: guildSummary(message.guildId),
@@ -423,6 +424,9 @@ export interface SvetaStatus {
   /** Расход по моделям за последние SPEND_DAYS дней (с сегодняшним), свежие дни сверху. */
   spend: ({ day: string; model: string } & Spend)[];
   lastError: { at: number; text: string } | null;
+  /** Характер и примеры реплик по умолчанию — для кнопки «Характер по умолчанию» в админке. */
+  defaultPersona: string;
+  defaultExamples: SvetaExample[];
 }
 
 /** Сколько дней расхода показывать в админке. */
@@ -453,5 +457,7 @@ export function svetaStatus(guildId: string): SvetaStatus {
     requestsToday: requestsOn(dayKey(Date.now())),
     spend: spendSince(dayKey(Date.now() - (SPEND_DAYS - 1) * 24 * HOUR)),
     lastError,
+    defaultPersona: DEFAULT_PERSONA,
+    defaultExamples: DEFAULT_EXAMPLES,
   };
 }

@@ -759,6 +759,30 @@ test('жёсткость и мат задаёт характер из админ
   assert.match(prompt, /Если человек всерьёз расстроен или просит отстать — сбавь тон/);
 });
 
+test('примеры реплик: по умолчанию есть, идут в инструкцию после характера; в настройках — пары целиком и в пределах', async () => {
+  const { DEFAULT_EXAMPLES, DEFAULT_PERSONA, systemPrompt } = await import('./persona.ts');
+  assert.ok(DEFAULT_PERSONA.length <= 4000);
+  const context = { guildName: 'The Last Hope', now: '20 октября, 04:00', summary: '', people: '', lore: '' };
+  const prompt = systemPrompt('Ты — Света.', { ...context, examples: [{ user: 'Света, привет', reply: 'Привет-привет 🍺' }] });
+  assert.match(prompt, /^Ты — Света\.\n\nКак ты обычно отвечаешь \(образец тона и манеры, а не факты; дословно не повторяй\):\nИгрок: Света, привет\nТы: Привет-привет 🍺\n\nКак вести себя в чате:/);
+  assert.ok(!systemPrompt('Ты — Света.', context).includes('Как ты обычно отвечаешь'), 'без примеров — без раздела');
+
+  configure();
+  assert.deepEqual(getSettings().sveta.examples, DEFAULT_EXAMPLES, 'примеры по умолчанию');
+  await onMessage(message('Света, привет!'), deps);
+  assert.match(requests.at(-1)!.system, /Игрок: Света, ты лучшая!\nТы: Знаю 😌/);
+
+  const check = (examples: { user: string; reply: string }[]) => {
+    const s = structuredClone(getSettings());
+    s.sveta.examples = examples;
+    return validateSettings(s).filter((e) => e.includes('пример'));
+  };
+  assert.deepEqual(check(DEFAULT_EXAMPLES), []);
+  assert.equal(check([{ user: 'Света?', reply: '' }]).length, 1, 'без ответа — ошибка');
+  assert.equal(check([{ user: 'x'.repeat(301), reply: 'да' }]).length, 1, 'длинный — ошибка');
+  assert.equal(check(Array.from({ length: 13 }, () => ({ user: 'а', reply: 'б' }))).length, 1, 'больше 12 — ошибка');
+});
+
 // --- Мат с разрешения админов: Света ворчит ---
 
 function allowSwearing(patch: Partial<ReturnType<typeof getSettings>['profanity']> = {}) {

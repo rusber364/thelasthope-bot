@@ -111,6 +111,8 @@ export interface Settings {
     channelIds: string[];
     newsChannelId: string | null;
     persona: string;
+    /** Примеры реплик: что написал игрок и как ответила Света — образец тона. */
+    examples: { user: string; reply: string }[];
     /** Основная и запасная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» (minimax/minimax-m3.1-flash:free). */
     model: string;
     fallbackModel: string;
@@ -194,6 +196,9 @@ export interface SvetaStatus {
   /** Расход по моделям за 7 дней: запросы, токены на вход и выход, стоимость в долларах (null — сервис не сообщает, как Gemini). */
   spend: { day: string; model: string; requests: number; input: number; output: number; cost: number | null }[];
   lastError: { at: number; text: string } | null;
+  /** Характер и примеры реплик по умолчанию — для кнопки «Характер по умолчанию». */
+  defaultPersona: string;
+  defaultExamples: { user: string; reply: string }[];
 }
 
 export interface MeResponse {

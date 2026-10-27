@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   Plus,
+  RotateCcw,
   Search,
   Settings2,
   ShieldAlert,
@@ -52,6 +53,8 @@ import { useOptions, useSettings } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
 
 const PERSONA_MAX = 4000;
+const EXAMPLES_MAX = 12;
+const EXAMPLE_MAX = 300;
 const LORE_MAX = 50;
 const STORY_MAX = 1000;
 const CHANNELS_MAX = 10;
@@ -590,6 +593,55 @@ function LoreEditor({ lore, onChange }: { lore: Lore; onChange: (lore: Lore) => 
   );
 }
 
+type Examples = Settings['sveta']['examples'];
+
+/** Примеры реплик: что написал игрок и как ответила Света. Модель берёт из них тон, а не факты. */
+function ExamplesEditor({ examples, onChange }: { examples: Examples; onChange: (examples: Examples) => void }) {
+  const change = (index: number, next: Partial<Examples[number]>) =>
+    onChange(examples.map((e, i) => (i === index ? { ...e, ...next } : e)));
+  return (
+    <div className="flex flex-col gap-3">
+      {examples.map((example, index) => (
+        // При удалении пары поля пересоздаются — в соседних не останется чужого текста.
+        <div key={`${index}-${examples.length}`} className="flex items-start gap-2 rounded-xl border p-3">
+          <div className="grid min-w-0 flex-1 grid-cols-1 gap-2 md:grid-cols-2">
+            <Input
+              aria-label={`Игрок, пример ${index + 1}`}
+              placeholder="Игрок: Света, мы опять вайпнулись 😭"
+              maxLength={EXAMPLE_MAX}
+              value={example.user}
+              onChange={(event) => change(index, { user: event.target.value })}
+            />
+            <Textarea
+              aria-label={`Света, пример ${index + 1}`}
+              placeholder="Света: Опять? Ставлю вам кружку «за упорство» 🍺"
+              rows={2}
+              maxLength={EXAMPLE_MAX}
+              value={example.reply}
+              onChange={(event) => change(index, { reply: event.target.value })}
+            />
+          </div>
+          <Button variant="ghost" size="icon" aria-label="Удалить пример" onClick={() => onChange(examples.filter((_, i) => i !== index))}>
+            <Trash2 />
+          </Button>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          disabled={examples.length >= EXAMPLES_MAX}
+          onClick={() => onChange([...examples, { user: '', reply: '' }])}
+        >
+          <Plus /> Добавить пример
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          {examples.length} из {EXAMPLES_MAX}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const dot = (dirty: boolean) => dirty && <span className="size-1.5 rounded-full bg-primary" aria-label="есть изменения" />;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 /** Поля вкладки «Модель»: список моделей, основная и запасная, обдумывание, потолки. */
@@ -609,6 +661,7 @@ export function SvetaPage() {
   // «Настройки» — всё, кроме историй и полей вкладки «Модель».
   const rest = (sveta: Settings['sveta']) => ({ ...sveta, lore: [], ...Object.fromEntries(MODEL_FIELDS.map((key) => [key, null])) });
   const settingsDirty = Boolean(draft && saved && !same(rest(draft.sveta), rest(saved)));
+  const { data: status } = useSvetaStatus();
 
   return (
     <>
@@ -679,13 +732,13 @@ export function SvetaPage() {
 
               <SectionCard
                 title="Характер"
-                description="Кто она и как говорит. Можно ли ей материться и насколько жёстко шутить — тоже здесь. Правила чата — коротко, на «ты», без родовых окончаний и политики — бот добавляет сам."
+                description="Кто она, что любит и как говорит. Можно ли ей материться и насколько жёстко шутить — тоже здесь. Правила чата — коротко, на «ты», без родовых окончаний и политики — бот добавляет сам."
               >
                 <Field>
                   <FieldLabel htmlFor="sveta-persona">Характер</FieldLabel>
                   <Textarea
                     id="sveta-persona"
-                    rows={6}
+                    rows={10}
                     maxLength={PERSONA_MAX}
                     value={draft.sveta.persona}
                     onChange={(event) => set({ persona: event.target.value })}
@@ -694,6 +747,36 @@ export function SvetaPage() {
                     {draft.sveta.persona.length} / {PERSONA_MAX}
                   </FieldDescription>
                 </Field>
+                <Field>
+                  <FieldLabel>Как она отвечает — примеры</FieldLabel>
+                  <FieldDescription>
+                    Пара «что написал игрок — что ответила Света». Модель берёт из них тон и манеру, но не повторяет дословно. Пиши ответы
+                    без «записался / пришла» об игроках — Света не знает их пол.
+                  </FieldDescription>
+                  <ExamplesEditor examples={draft.sveta.examples} onChange={(examples) => set({ examples })} />
+                </Field>
+                {status && (status.defaultPersona !== draft.sveta.persona || !same(status.defaultExamples, draft.sveta.examples)) && (
+                  <AlertDialog>
+                    <AlertDialogTrigger render={<Button variant="outline" className="w-fit" />}>
+                      <RotateCcw /> Характер по умолчанию
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Вернуть характер по умолчанию?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Характер и примеры реплик заменятся на те, что идут с ботом. Твой текст пропадёт, когда нажмёшь «Сохранить», — до
+                          этого изменения можно отменить.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Отмена</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => set({ persona: status.defaultPersona, examples: status.defaultExamples })}>
+                          Заменить
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </SectionCard>
             </TabsContent>
             <TabsContent value="model" className="flex flex-col gap-6">

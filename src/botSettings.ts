@@ -8,7 +8,7 @@ import { db } from './db.ts';
 import { parseTime } from './lib/time.ts';
 import { KINDS, LIMIT_GROUPS, NO_LIMITS, isKind, parseLimits, type ActivityKind, type RoleLimits } from './raids/kinds.ts';
 import type { ProfanityLevel } from './lib/profanity.ts';
-import { DEFAULT_PERSONA } from './sveta/persona.ts';
+import { DEFAULT_EXAMPLES, DEFAULT_PERSONA } from './sveta/persona.ts';
 import { THINKING_LEVELS, type Thinking } from './sveta/gemini.ts';
 
 export const LOG_CATEGORIES = ['members', 'server', 'messages', 'voice', 'moderation', 'raids'] as const;
@@ -31,6 +31,12 @@ export interface LoreEntry {
   story: string;
 }
 
+/** Пример реплики Светы: что написал игрок и как она ответила — образец тона для модели. */
+export interface SvetaExample {
+  user: string;
+  reply: string;
+}
+
 export interface SvetaSettings {
   enabled: boolean;
   /** Каналы, где Света читает и отвечает. Остальные каналы в Gemini не уходят. */
@@ -39,6 +45,8 @@ export interface SvetaSettings {
   newsChannelId: string | null;
   /** Характер — начало системной инструкции; правила поведения добавляются к нему всегда. */
   persona: string;
+  /** Примеры реплик — идут в инструкцию сразу после характера. */
+  examples: SvetaExample[];
   /** Модели, добавленные в админке: из них выбирают основную и запасную. */
   models: string[];
   /** Основная модель: Gemini (gemini-flash-latest) или OpenRouter — с «/» в имени (minimax/minimax-m3.1-flash). */
@@ -236,7 +244,7 @@ export interface ProfanitySettings {
   extraWords: string[];
 }
 
-export const LIMITS = { profanityChannels: 25, profanityUsers: 25, scoldMinutes: 1440, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, svetaModels: 20, persona: 4000, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
+export const LIMITS = { profanityChannels: 25, profanityUsers: 25, scoldMinutes: 1440, profanityWords: 50, profanityWord: 30, strikes: 20, strikeWindow: 1440, muteMinutes: 10080, warningSeconds: 60, lore: 50, loreNames: 10, loreName: 40, loreStory: 1000, svetaChannels: 10, svetaModels: 20, persona: 4000, svetaExamples: 12, svetaExample: 300, randomPercent: 20, svetaCooldown: 600, svetaPerHour: 500, svetaPerDay: 5000, text: 2000, button: 80, title: 100, size: 100, gather: 120, attendance: 180, lateHours: 72, tempRoleHours: 48, archiveHours: 72, stickyMin: 5, stickyMax: 600, stickyText: 1800, stickyRoles: 5, templates: 25, templateDescription: 1000, slots: 14, templateRoles: 10, autoCleanHours: 720, autoCleanChannels: 20 };
 
 function defaults(): BotSettings {
   const env = (value: string | undefined) => value ?? null;
@@ -315,7 +323,8 @@ function defaults(): BotSettings {
       channelIds: [],
       newsChannelId: null,
       persona: DEFAULT_PERSONA,
-      models: ['gemini-flash-latest', 'gemini-flash-lite-latest'],
+      examples: DEFAULT_EXAMPLES.map((example) => ({ ...example })),
+      models:['gemini-flash-latest', 'gemini-flash-lite-latest'],
       model: 'gemini-flash-latest',
       fallbackModel: 'gemini-flash-lite-latest',
       thinking: 'low',
@@ -514,6 +523,14 @@ export function validateSettings(s: BotSettings): string[] {
     if (entry.names.some((n) => n.length < 2 || n.length > LIMITS.loreName)) errors.push(`${name}: имя — от 2 до ${LIMITS.loreName} символов.`);
     if (!entry.story.trim()) errors.push(`${name}: текст истории не может быть пустым.`);
     else if (entry.story.length > LIMITS.loreStory) errors.push(`${name}: не длиннее ${LIMITS.loreStory} символов.`);
+  });
+  if (sveta.examples.length > LIMITS.svetaExamples) errors.push(`Света: примеров реплик — не больше ${LIMITS.svetaExamples}.`);
+  sveta.examples.forEach((example, index) => {
+    const name = `Света: пример реплики ${index + 1}`;
+    if (!example.user.trim() || !example.reply.trim()) errors.push(`${name}: нужны и слова игрока, и ответ Светы.`);
+    if (example.user.length > LIMITS.svetaExample || example.reply.length > LIMITS.svetaExample) {
+      errors.push(`${name}: каждая часть — не длиннее ${LIMITS.svetaExample} символов.`);
+    }
   });
 
   const profanity = s.profanity;

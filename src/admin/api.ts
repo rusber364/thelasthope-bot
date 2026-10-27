@@ -370,6 +370,13 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
           channelIds: [...new Set(channelIds)],
           newsChannelId: checkChannel(guild, id(sveta.newsChannelId), 'Света: канал новостей о сборах', errors),
           persona: text(sveta.persona),
+          // Пустые пары формы отбрасываем; наполовину заполненную покажет validateSettings.
+          examples: arr(sveta.examples)
+            .map((raw) => {
+              const example = obj(raw);
+              return { user: text(example.user), reply: text(example.reply) };
+            })
+            .filter((example) => example.user || example.reply),
           model: text(sveta.model),
           fallbackModel: text(sveta.fallbackModel),
           // Список моделей — без пустых и повторов; есть ли в нём основная и запасная, проверит validateSettings.
