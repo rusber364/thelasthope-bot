@@ -461,9 +461,13 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
   });
 
   // --- Пересказы разговоров и что Света говорила о себе ---
-  api.get('/sveta/episodes', (c) => {
-    const guildId = c.get('guild').id;
+  api.get('/sveta/episodes', async (c) => {
+    const guild = c.get('guild');
+    const guildId = guild.id;
     const names = new Map(listPeople(guildId).map((person) => [person.userId, person.name]));
+    // Участники без карточки в памяти Светы — по нику на сервере.
+    const unknown = [...new Set(listEpisodes(guildId).flatMap((e) => e.participants))].filter((id) => !names.has(id));
+    if (unknown.length) for (const [id, name] of await memberNames(guild, unknown)) names.set(id, name);
     return c.json(
       listEpisodes(guildId).map(
         ({ id, channelId, channelName, startedAt, endedAt, summary, participants }): Api.SvetaEpisode => ({
