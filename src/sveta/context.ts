@@ -6,11 +6,14 @@ export interface ChatLine {
   name: string;
   text: string;
   fromSveta: boolean;
+  /** Ответ на сообщение, которого нет среди последних: Света видит, на что ответили. */
+  replyTo?: { name: string; text: string; fromSveta: boolean };
 }
 
 /** Сколько последних сообщений канала Света видит. */
 export const HISTORY = 15;
 const LINE_LIMIT = 600;
+const QUOTE_LIMIT = 300;
 const REPLY_LIMIT = 1900; // Discord — до 2000 символов в сообщении
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
@@ -31,7 +34,9 @@ export function buildContents(lines: ChatLine[]): GeminiContent[] {
     const text = clip(line.text.trim(), LINE_LIMIT);
     if (!text) continue;
     const role = line.fromSveta ? 'model' : 'user';
-    const value = line.fromSveta ? text : `${line.name}: ${text}`;
+    const quote = line.replyTo && clip(line.replyTo.text.trim(), QUOTE_LIMIT);
+    const to = quote ? ` (в ответ на ${line.replyTo!.fromSveta ? 'твоё сообщение' : `сообщение ${line.replyTo!.name}`} «${quote}»)` : '';
+    const value = line.fromSveta ? text : `${line.name}${to}: ${text}`;
     const last = contents.at(-1);
     if (last?.role === role) last.parts[0]!.text = `${last.parts[0]!.text ?? ''}\n${value}`;
     else contents.push({ role, parts: [{ text: value }] });

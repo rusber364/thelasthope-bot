@@ -170,6 +170,12 @@ export interface SvetaPerson {
   attitude: number;
   nickname: string | null;
   notes: { at: number; text: string }[];
+  /** За что менялось отношение (последние три). */
+  reasons: { at: number; change: number; text: string }[];
+  /** Знакомство: когда Света впервые и в последний раз отвечала (null — ещё не разговаривали) и сколько раз. */
+  firstSeen: number | null;
+  lastSeen: number | null;
+  talks: number;
   updatedAt: number;
 }
 

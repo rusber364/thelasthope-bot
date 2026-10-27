@@ -19,7 +19,24 @@ import { GeminiError, ModelRest, generate, generateSteady, readyModels, type Gem
 import { generateOpenRouter, isOpenRouterModel } from './openrouter.ts';
 import { BREAK_LINES, Limiter, NO_SPEND, addSpend, countRequests, countSpend, dayKey, repliesOn, requestsOn, spendSince, type Spend } from './limits.ts';
 import { systemPrompt } from './persona.ts';
-import { FORGOTTEN, MEMORY, MEMORY_TOOLS, MEMORY_TOOL_NAMES, NOTHING_TO_FORGET, dossiers, forgetPerson, getPerson, memoryCommand, memoryReport, runMemoryTool, type Person } from './memory.ts';
+import {
+  FORGOTTEN,
+  MEMORY,
+  MEMORY_TOOLS,
+  MEMORY_TOOL_NAMES,
+  NOTHING_TO_FORGET,
+  dossier,
+  dossiers,
+  forgetPerson,
+  getPerson,
+  listPeople,
+  memoryCommand,
+  memoryReport,
+  mentionedPeople,
+  runMemoryTool,
+  touchPerson,
+  type Person,
+} from './memory.ts';
 import { loreText, matchLore } from './lore.ts';
 import { TOOLS, guildSummary, runTool } from './tools.ts';
 import { TRIGGER_LABEL, triggerOf } from './triggers.ts';
@@ -204,28 +221,41 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
   await message.channel.sendTyping().catch(() => {});
   const earlier = await message.channel.messages.fetch({ limit: HISTORY - 1, before: message.id }).catch(() => null);
   const history = [...(earlier?.values() ?? [])].reverse().concat(message);
-  const lines: ChatLine[] = history.map((m) => ({
+  const toLine = (m: Message): ChatLine => ({
     name: m.member?.displayName ?? m.author.displayName,
     text: lineText(m.cleanContent, m.attachments.size, m.stickers.size),
     fromSveta: m.author.id === me,
-  }))
+  });
+  // Ответили на сообщение, которого среди последних уже нет (например, на её вчерашнюю реплику), — показываем, на какое.
+  const refId = message.reference?.messageId;
+  const replied = refId && !history.some((m) => m.id === refId) ? await message.fetchReference().catch(() => null) : null;
+  const repliedLine = replied ? toLine(replied) : null;
+  const lines: ChatLine[] = history
+    .map((m) => (m === message && repliedLine?.text && !textToolCall(repliedLine.text, TOOL_NAMES) ? { ...toLine(m), replyTo: repliedLine } : toLine(m)))
     // Её прошлый сбой — вызов инструмента текстом — модели не показываем, иначе она повторит его как «свою манеру».
     .filter((line) => !(line.fromSveta && textToolCall(line.text, TOOL_NAMES)));
   // Досье тех, кто в разговоре (люди, не боты), — Света видит, как к кому относится.
-  const people = [...new Set(history.filter((m) => !m.author.bot).map((m) => m.author.id))]
-    .map((userId) => getPerson(message.guildId, userId))
-    .filter((person): person is Person => person !== null);
+  const speakers = new Set(history.filter((m) => !m.author.bot).map((m) => m.author.id));
+  const people = [...speakers].map((userId) => getPerson(message.guildId, userId)).filter((person): person is Person => person !== null);
+  // И тех, кого назвали по нику, прозвищу или через @, хотя сами они не пишут.
+  const mentioned = mentionedPeople(
+    listPeople(message.guildId),
+    lines.filter((line) => !line.fromSveta).map((line) => [line.text, line.replyTo?.text ?? ''].join('\n')),
+    { exclude: speakers, ids: new Set(history.flatMap((m) => [...(m.mentions?.users.keys() ?? [])])) },
+  );
 
   const system = systemPrompt(s.persona, {
     guildName: message.guild.name,
     now: formatNow(now),
     summary: guildSummary(message.guildId),
-    people: dossiers(people),
+    people: dossiers(people, { now, authorId: message.author.id }),
+    mentioned: mentioned.map((person) => dossier(person, now, false)).join('\n'),
     // Истории — только о тех, кого назвали в разговоре или кто в нём пишет.
     lore: loreText(matchLore(s.lore, lines.map((line) => `${line.name}: ${line.text}`))),
     scold,
   });
-  const author = { guildId: message.guildId, userId: message.author.id, name: authorName };
+  // Номера заметок в remember — те, что модель видела в досье автора.
+  const author = { guildId: message.guildId, userId: message.author.id, name: authorName, notes: people.find((p) => p.userId === message.author.id)?.notes };
   let writes = 0;
   // Инструменты сборов только читают; инструменты памяти пишут — только об авторе и не больше трёх раз за ответ.
   const runCall = (call: { name: string; args: Record<string, unknown> }) => {
@@ -302,6 +332,7 @@ export async function onMessage(message: Message, deps: SvetaDeps = DEFAULT_DEPS
     }
     // Кто позвал — получит уведомление об ответе; если встряла сама или ворчит — без уведомления.
     await respond({ content: text, allowedMentions: { parse: [], repliedUser: addressed } });
+    touchPerson(message.guildId, message.author.id, authorName, now);
     const channel = 'name' in message.channel ? `#${message.channel.name}` : message.channelId;
     const total = [...spend.values()].reduce(addSpend, NO_SPEND);
     const details = [

@@ -136,6 +136,31 @@ db.exec(`
     PRIMARY KEY (guild_id, user_id)
   );
 `);
+// Знакомство: когда Света впервые и в последний раз отвечала человеку и сколько раз.
+addColumn('sveta_people', 'first_seen', 'INTEGER');
+addColumn('sveta_people', 'last_seen', 'INTEGER');
+addColumn('sveta_people', 'talks', 'INTEGER NOT NULL DEFAULT 0');
+// За что менялось отношение (JSON [{ at, change, text }]) — раньше это лежало в заметках как «порадовало/обидело: …»
+// и вытесняло факты. Такие заметки переносим сюда.
+if (addColumn('sveta_people', 'reasons', "TEXT NOT NULL DEFAULT '[]'")) {
+  const update = db.prepare('UPDATE sveta_people SET notes = ?, reasons = ? WHERE guild_id = ? AND user_id = ?');
+  for (const row of db.prepare('SELECT guild_id, user_id, notes FROM sveta_people').all() as { guild_id: string; user_id: string; notes: string }[]) {
+    let notes: { at: number; text: string }[];
+    try {
+      notes = JSON.parse(row.notes) as typeof notes;
+      if (!Array.isArray(notes)) continue;
+    } catch {
+      continue;
+    }
+    const reasons = notes
+      .map((note) => ({ note, match: /^(порадовало|обидело): (.+)$/.exec(String(note?.text)) }))
+      .filter(({ match }) => match)
+      .map(({ note, match }) => ({ at: note.at, change: match![1] === 'порадовало' ? 10 : -10, text: match![2]! }));
+    if (!reasons.length) continue;
+    const kept = notes.filter((note) => !/^(порадовало|обидело): /.test(String(note?.text)));
+    update.run(JSON.stringify(kept), JSON.stringify(reasons.slice(-3)), row.guild_id, row.user_id);
+  }
+}
 
 // Картинки из ответов на опросы («Ответ: картинка»). Ссылки Discord на вложения со временем перестают
 // открываться, поэтому бот хранит сами файлы. В ответе на вопрос лежит id картинки отсюда.

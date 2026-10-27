@@ -25,6 +25,9 @@ const dateOnly = new Intl.DateTimeFormat('ru-RU', { timeZone: TIME_ZONE, day: 'n
 
 export const formatDateTime = (ms: number) => dateTime.format(ms);
 
+/** «18 октября» из метки времени. */
+export const formatDate = (ms: number) => dateOnly.format(ms);
+
 /** «18 октября» из ГГГГ-ММ-ДД. */
 export const formatDay = (date: string) => dateOnly.format(new Date(`${date}T12:00:00Z`));
 

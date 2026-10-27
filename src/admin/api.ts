@@ -419,7 +419,18 @@ export function createApi(client: Client<true>, adminGuild: () => Guild | undefi
   api.get('/sveta/status', (c) => c.json(svetaStatus(c.get('guild').id) satisfies Api.SvetaStatus));
 
   // --- Память Светы о людях: посмотреть, поправить, стереть ---
-  const personJson = ({ userId, name, attitude, nickname, notes, updatedAt }: Person): Api.SvetaPerson => ({ userId, name, attitude, nickname, notes, updatedAt });
+  const personJson = ({ userId, name, attitude, nickname, notes, reasons, firstSeen, lastSeen, talks, updatedAt }: Person): Api.SvetaPerson => ({
+    userId,
+    name,
+    attitude,
+    nickname,
+    notes,
+    reasons,
+    firstSeen,
+    lastSeen,
+    talks,
+    updatedAt,
+  });
   api.get('/sveta/people', (c) => c.json(listPeople(c.get('guild').id).map(personJson)));
   api.put('/sveta/people/:user{[0-9]+}', async (c) => {
     const person = getPerson(c.get('guild').id, c.req.param('user'));

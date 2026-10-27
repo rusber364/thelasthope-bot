@@ -46,7 +46,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { api, errorText } from '@/lib/api';
-import { formatDateTime, todayInKyiv } from '@/lib/format';
+import { formatDate, formatDateTime, todayInKyiv } from '@/lib/format';
 import { loreFile, mergeLore, parseLoreFile } from '@/lib/lore';
 import { useOptions, useSettings } from '@/lib/queries';
 import { patch, useSectionForm } from '@/lib/settings-form';
@@ -367,6 +367,20 @@ function PersonRow({ person }: { person: SvetaPerson }) {
         <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">{formatDateTime(person.updatedAt)}</span>
       </summary>
       <div className="flex flex-col gap-4 border-t px-4 py-3">
+        {(person.firstSeen !== null || person.reasons.length > 0) && (
+          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            {person.firstSeen !== null && person.lastSeen !== null && (
+              <p>
+                Знакомы с {formatDate(person.firstSeen)} · разговоров: {person.talks} · последний — {formatDateTime(person.lastSeen)}
+              </p>
+            )}
+            {person.reasons.map((reason) => (
+              <p key={`${reason.at}-${reason.text}`}>
+                {reason.change > 0 ? 'Порадовало' : 'Обидело'} ({signed(reason.change)}, {formatDate(reason.at)}): {reason.text}
+              </p>
+            ))}
+          </div>
+        )}
         <FieldGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field>
             <FieldLabel htmlFor={id('attitude')}>Отношение</FieldLabel>
@@ -379,8 +393,8 @@ function PersonRow({ person }: { person: SvetaPerson }) {
           </Field>
           <Field className="sm:col-span-2">
             <FieldLabel htmlFor={id('notes')}>Заметки</FieldLabel>
-            <Textarea id={id('notes')} rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} />
-            <FieldDescription>По одной на строку: до 10 заметок, каждая до 200 символов.</FieldDescription>
+            <Textarea id={id('notes')} rows={6} value={notes} onChange={(event) => setNotes(event.target.value)} />
+            <FieldDescription>По одной на строку: до 30 заметок, каждая до 200 символов.</FieldDescription>
           </Field>
         </FieldGroup>
         <div className="flex flex-wrap gap-2">
