@@ -1140,6 +1140,24 @@ test('о себе: без повторов, не больше 20; правка �
   assert.equal(episodes.selfInput({ facts: Array.from({ length: 21 }, (_, i) => `f${i}`) }).errors.length, 1);
 });
 
+test('заливка памяти из файла: проверка, заметки с датой без повторов, пересказы и «о себе»; второй раз — ничего не удваивается', () => {
+  const data = {
+    guildId: '100000000000000001',
+    channelId: '100000000000000002',
+    channelName: 'таверна',
+    people: [{ userId: '100000000000000003', name: 'Razor1ce', notes: [{ day: '2026-10-26', text: 'играет хуманом' }] }],
+    episodes: [{ startedAt: '2026-10-26T10:05:00Z', endedAt: '2026-10-26T21:30:00Z', summary: 'Обсуждают патчноуты беты.', participants: ['100000000000000003'] }],
+    self: ['буду с гильдией на старте Forever'],
+  };
+  assert.deepEqual(episodes.importErrors(data), []);
+  assert.equal(episodes.importErrors({ ...data, channelId: 'таверна', episodes: [{ ...data.episodes[0]!, summary: ' ' }] }).length, 2);
+  assert.deepEqual(episodes.importMemory(data, Date.UTC(2026, 9, 27)), { notes: 1, episodes: 1, self: 1 });
+  assert.deepEqual(episodes.importMemory(data, Date.UTC(2026, 9, 27)), { notes: 0, episodes: 0, self: 0 }, 'повторный запуск');
+  const person = memory.getPerson(data.guildId, '100000000000000003')!;
+  assert.deepEqual(person.notes, [{ at: Date.UTC(2026, 9, 26, 12), text: 'играет хуманом' }]);
+  assert.deepEqual(episodes.listEpisodes(data.guildId).map((e) => [e.channelName, e.endedAt]), [['таверна', Date.UTC(2026, 9, 26, 21, 30)]]);
+});
+
 test('разговоры по паузам: новый — после долгой тишины, слишком короткие отбрасываются', () => {
   const at = (min: number) => ({ at: min * 60_000 });
   const chunks = episodes.splitConversations([at(0), at(5), at(10), at(100), at(200), at(201), at(202), at(203)], 30 * 60_000, 3);

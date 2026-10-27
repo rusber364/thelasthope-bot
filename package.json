@@ -16,6 +16,7 @@
     "deploy": "node --env-file=.env src/deploy-commands.ts",
     "brand": "node --env-file=.env src/scripts/brand.ts",
     "backup": "node src/scripts/backup.ts",
+    "sveta:import": "node src/scripts/sveta-import.ts",
     "test": "node --test \"src/**/*.test.ts\"",
     "typecheck": "tsc",
     "check:admin": "pnpm --filter admin-ui check"

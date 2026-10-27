@@ -503,3 +503,72 @@ export function splitConversations<T extends { at: number }>(messages: readonly 
   if (current.length) chunks.push(current);
   return chunks.filter((chunk) => chunk.length >= minMessages);
 }
+
+// --- Заливка заранее собранной памяти (pnpm sveta:import) ---
+
+/** Память, собранная заранее (например, по старой переписке канала). */
+export interface MemoryImport {
+  guildId: string;
+  channelId: string;
+  channelName: string;
+  /** Факты о людях — только то, что они сами о себе писали; day — когда (ГГГГ-ММ-ДД). */
+  people: { userId: string; name: string; notes: { day: string; text: string }[] }[];
+  /** Пересказы разговоров: время первого и последнего сообщения (ISO). */
+  episodes: { startedAt: string; endedAt: string; summary: string; participants: string[] }[];
+  /** Что Света говорила о себе. */
+  self: string[];
+}
+
+const SNOWFLAKE = /^\d{17,20}$/;
+const isDay = (day: string) => /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Date.parse(`${day}T12:00:00Z`));
+
+/** Что не так с файлом (чистая функция): пусто — можно заливать. */
+export function importErrors(data: MemoryImport): string[] {
+  const errors: string[] = [];
+  if (!SNOWFLAKE.test(String(data?.guildId)) || !SNOWFLAKE.test(String(data?.channelId))) errors.push('guildId и channelId — id Discord.');
+  if (!String(data?.channelName ?? '').trim()) errors.push('Нет channelName.');
+  for (const person of data?.people ?? []) {
+    if (!SNOWFLAKE.test(String(person.userId)) || !String(person.name ?? '').trim()) errors.push(`Человек «${person.name}»: нужны userId и name.`);
+    if (person.notes.length > MEMORY.notes) errors.push(`${person.name}: заметок — не больше ${MEMORY.notes}.`);
+    for (const note of person.notes) if (!isDay(note.day) || !note.text.trim()) errors.push(`${person.name}: заметке нужны day (ГГГГ-ММ-ДД) и text.`);
+  }
+  for (const [i, episode] of (data?.episodes ?? []).entries()) {
+    const start = Date.parse(episode.startedAt);
+    const end = Date.parse(episode.endedAt);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) errors.push(`Разговор ${i + 1}: startedAt и endedAt — время ISO, конец не раньше начала.`);
+    if (!episode.summary.trim()) errors.push(`Разговор ${i + 1}: пустой пересказ.`);
+    if (!episode.participants.length || !episode.participants.every((id) => SNOWFLAKE.test(id))) errors.push(`Разговор ${i + 1}: participants — id Discord.`);
+  }
+  if ((data?.self ?? []).length > EPISODES.self) errors.push(`О себе — не больше ${EPISODES.self} строк.`);
+  return errors;
+}
+
+/** Залить память по тем же правилам, что и живую. Повторный запуск ничего не удвоит: заметки — без повторов, такой же пересказ в канале пропускается. */
+export function importMemory(data: MemoryImport, now: number): { notes: number; episodes: number; self: number } {
+  let notes = 0;
+  for (const person of data.people) {
+    const before = new Set(getPerson(data.guildId, person.userId)?.notes.map((n) => n.text) ?? []);
+    for (const note of person.notes) addNote(data.guildId, person.userId, person.name, note.text, Date.parse(`${note.day}T12:00:00Z`));
+    notes += (getPerson(data.guildId, person.userId)?.notes ?? []).filter((n) => !before.has(n.text)).length;
+  }
+  let episodes = 0;
+  const exists = db.prepare('SELECT 1 FROM sveta_episodes WHERE guild_id = ? AND channel_id = ? AND summary = ?');
+  for (const episode of data.episodes) {
+    const summary = cleanText(episode.summary, EPISODES.summary);
+    if (exists.get(data.guildId, data.channelId, summary)) continue;
+    saveEpisode(
+      {
+        guildId: data.guildId,
+        channelId: data.channelId,
+        channelName: data.channelName,
+        startedAt: Date.parse(episode.startedAt),
+        endedAt: Date.parse(episode.endedAt),
+        summary,
+        participants: [...new Set(episode.participants)],
+      },
+      now,
+    );
+    episodes++;
+  }
+  return { notes, episodes, self: addSelf(data.guildId, data.self, now) };
+}

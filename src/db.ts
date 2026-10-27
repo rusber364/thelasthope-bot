@@ -16,6 +16,8 @@ export const db = openDatabase();
 
 db.exec(`
   PRAGMA journal_mode = WAL;
+  -- Бот и разовые скрипты (pnpm backup, pnpm sveta:import) могут писать в базу одновременно — подождать, а не упасть.
+  PRAGMA busy_timeout = 5000;
 
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
